@@ -27,7 +27,31 @@ Wiring and schematics will be in `docs/` (Task 2 of the plan).
 
 ## Development
 
-Built with [PlatformIO](https://platformio.org/) in VS Code, using the Arduino framework for ESP32. Build instructions will be added with the project skeleton (Task 1).
+Built with [PlatformIO](https://platformio.org/) in VS Code, using the Arduino framework for ESP32 (Arduino-ESP32 core 3.x via the [pioarduino](https://github.com/pioarduino/platform-espressif32) platform).
+
+1. Install VS Code and the **PlatformIO IDE** extension (VS Code suggests it when you open this folder).
+2. Open the repository folder in VS Code. PlatformIO downloads the toolchain on first build.
+3. Choose the environment that matches your board's flash chip in the PlatformIO status bar: `esp32-4mb`, `esp32-8mb` (default) or `esp32-16mb`.
+4. Connect the board over USB and run **Upload and Monitor**.
+
+The boot log shows chip, flash, memory and partition information. If the detected flash size differs from the build environment, it prints a warning naming the right one.
+
+From the command line:
+
+```sh
+pio run -e esp32-8mb -t upload -t monitor   # build, flash and open the serial monitor
+pio test -e native                          # host-side unit tests, no hardware needed
+```
+
+### Project layout
+
+| Path | Contents |
+|---|---|
+| `src/` | Firmware entry point |
+| `lib/` | Firmware modules; hardware-independent ones are unit-tested on the host |
+| `test/` | Unit tests (`pio test -e native`) |
+| `partitions/` | Flash partition tables for 4, 8 and 16 MB boards |
+| `docs/` | Plan, hardware and user documentation |
 
 ## License
 
