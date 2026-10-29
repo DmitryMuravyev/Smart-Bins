@@ -5,6 +5,7 @@
 // setup portal), mDNS, over-the-air updates and the web server.
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
@@ -32,6 +33,7 @@ sb::ConfigStore configStore;
 sb::WifiLink network;
 sb::led::LedEngine leds;
 AsyncWebServer server(80);
+uint32_t restartAt = 0;  // set by the config endpoint; restart happens in loop()
 
 bool mountFilesystem() {
   // formatOnFail = true: a blank partition is formatted on first boot.
@@ -71,7 +73,7 @@ void registerStatusPage() {
         "<h1>Smart Bins</h1><p>Firmware " SB_FW_VERSION "</p><p>Device: ";
     html += configStore.get().deviceName;
     html += "<br>Uptime: " + String(millis() / 1000) + " s<br>Free heap: " + String(ESP.getFreeHeap()) +
-            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/api/config'>config.json</a> &middot; "
+            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/config'>edit config</a> &middot; "
             "<a href='/api/led/status'>LED status</a></p>"
             "<h2>LED tests</h2><p>"
             "<a href='/api/led/test?pattern=walk'>walk bins</a> &middot; "
@@ -88,6 +90,51 @@ void registerStatusPage() {
   // Read-only view of the active configuration (editing arrives with the settings UI).
   server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *req) {
     req->send(200, "application/json", sb::config::serialize(configStore.get()).c_str());
+  });
+
+  // Replaces the whole configuration with the posted JSON, then restarts to apply it.
+  // Temporary until the settings UI (Task 14); /config is a plain editor for it.
+  server.on(
+      "/api/config", HTTP_POST,
+      [](AsyncWebServerRequest *req) {
+        // The body is collected with malloc() because the server free()s _tempObject on aborted requests.
+        char *body = static_cast<char *>(req->_tempObject);
+        if (!body) return req->send(400, "application/json", "{\"error\":\"empty or too large body\"}");
+        sb::config::AppConfig cfg;
+        std::string err;
+        const bool ok = sb::config::parse(body, cfg, err) && configStore.save(cfg, err);
+        free(body);
+        req->_tempObject = nullptr;
+        if (!ok) {
+          JsonDocument doc;
+          doc["error"] = err;
+          String out;
+          serializeJson(doc, out);
+          return req->send(400, "application/json", out);
+        }
+        restartAt = millis() + 1000;
+        req->send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
+      },
+      nullptr,
+      [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
+        if (total > 8192) return;
+        if (index == 0) req->_tempObject = calloc(total + 1, 1);
+        char *body = static_cast<char *>(req->_tempObject);
+        if (body && index + len <= total) memcpy(body + index, data, len);
+      });
+
+  server.on("/config", HTTP_GET, [](AsyncWebServerRequest *req) {
+    String html =
+        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Smart Bins config</title><body style='font:16px system-ui;max-width:640px;margin:24px auto;padding:0 16px'>"
+        "<h1>config.json</h1><p>Edit and save; the board restarts to apply. Invalid values are rejected with the field "
+        "name.</p><textarea id=c spellcheck=false style='width:100%;height:60vh;font:13px monospace'></textarea>"
+        "<p><button id=s>Save and restart</button> <span id=m></span></p><script>"
+        "fetch('/api/config').then(r=>r.text()).then(t=>c.value=t);"
+        "s.onclick=async()=>{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},"
+        "body:c.value});const j=await r.json();m.textContent=r.ok?'Saved, restarting...':'Error: '+j.error;"
+        "if(r.ok)setTimeout(()=>location.reload(),6000)};</script>";
+    req->send(200, "text/html; charset=utf-8", html);
   });
 }
 
@@ -164,6 +211,7 @@ void setup() {
 }
 
 void loop() {
+  if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
   network.loop();
   handleButton();
   updateStatusLed();
