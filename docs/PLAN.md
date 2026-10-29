@@ -1,41 +1,51 @@
-# Smart Bins: Implementation Plan (draft v0.3)
+# Smart Bins: Implementation Plan (draft v0.4)
 
-An ESP32-based addressable parts library for a home lab: a grid of bins, each with 1–3 addressable LEDs, a SQLite inventory stored on flash, a web UI for search/add/edit with photos, backup/restore, workspace lighting and LED effects. Open source under MIT.
+An ESP32-based addressable parts library for a home lab: a grid of bins, each with 1–3 addressable pixels, a SQLite inventory stored on flash, a web UI for search/add/edit with photos, backup/restore, workspace lighting and LED effects. Open source under MIT.
 
 Status: **proposal**. Every stack choice below is a default that can be changed before the task that depends on it starts. Each task ends with a demo you can verify on hardware, and nothing moves to the next task without your confirmation.
 
 ---
 
-## 0. Decisions so far (v0.3, updated 2026-10-29)
+## 0. Decisions so far (v0.4, updated 2026-10-29)
 
 | # | Topic | Decision |
 |---|---|---|
 | 1 | Repository | Private GitHub repo `smart-bins` for now (MIT), made public later. Dmitry creates it empty; Claude fills it. |
 | 2 | Board | ESP32-DevKitC replica (ESP32-WROOM-32, no PSRAM). Flash size to be confirmed in Task 1 (`esptool.py flash_id`): many DevKitC clones ship with 4 MB, so a 4 MB partition table is added as a fallback (photos would then need the optional microSD). |
 | 3 | LED architecture | See "LED and power architecture" below. |
-| 4 | Work lights | Configurable per installation (updated 2026-10-29): 3 dimmable white strips, **or** 1 analog RGB strip, **or** 1 addressable RGB strip. Leftover pins drive extra strips. See "Work-light channels" below. |
+| 4 | Work lights | Two options (updated 2026-10-29): **1.** an analog RGB strip on W1–W3 plus white strips on W4–W5; **2.** W1–W3 each set to addressable data or white PWM, plus white strips on W4–W5. See "Work-light channels" below. |
 | 5 | Pin priority | Main addressable grid → workspace illumination → auxiliary lights and/or microphone. |
+| 6 | LED types | Widest possible range: 5 V WS2812/WS2812B/SK6812 and 12/24 V WS2811/WS2815, chosen in the config. Dmitry's build: 12 V strips (WS2811 or WS2815). The grid supply voltage is a design parameter (5, 12 or 24 V). |
+| 7 | Grid | Dmitry's build: 10 × 6 bins, 2 pixels per bin (configurable 1–3). All bins identical. Optional per-row/per-column overrides if they stay simple (see Task 4); multi-cell bins dropped. |
+| 8 | Smooth transitions | Every on/off and brightness change of the grid and the work lights fades smoothly (default ~400 ms). Exceptions: lighting effects, and hard power cuts (fault, overcurrent, power loss). |
+| 9 | Locate highlight | Configured in the UI: duration (e.g. 10 s to "until dismissed"), colour, and mode: **steady** (fade in/out), **slow pulse**, **fast pulse** (smooth). |
+| 10 | Part data | One bin per part, many parts per bin; default field list (section 3). Quick +/− quantity buttons on every part card. |
+| 11 | Photos | Resized in the browser to **640 px** (long side) when stored on flash, **800 px** when a microSD card is present. Firmware constants, not exposed in the UI. |
+| 12 | Backup | Both options: database only, or database + photos + config in one file. |
+| 13 | Languages | UI in English (mandatory), Spanish and Russian. README in all three languages. |
+| 14 | Security | Optional web UI password (off by default). |
+| 15 | Prototype | Breadboard prototype with discrete transistor level shifters; the final design keeps the 74HCT245. Parts list still open. |
 
 ### LED and power architecture (chosen)
 
 - **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights use the universal channels described below. FastLED drives the addressable outputs in parallel via the ESP32 RMT peripheral.
 - **Within the grid, rows are chained serpentine** (row 1 left→right, row 2 right→left...) so each segment needs just one data wire. The mapper supports progressive wiring and any start corner too, so physical layout stays flexible.
-- **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 5 work-light channel lines from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
-- **Power switching with MOSFETs:** each power domain (bin grid, work lights) gets a high-side P-channel MOSFET (e.g. AO3401/IRF9540-class, driven by a small NPN or logic-level N-MOSFET) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
-- **Protection:** 5 V supply sized from the power budget, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (FastLED `setMaxPowerInVoltsAndMilliamps`).
-### Work-light channels (universal outputs)
+- **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 3 universal work-light lines (W1–W3) from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
+- **Power switching with MOSFETs:** each addressable power domain (bin grid, addressable work strips) gets a high-side P-channel MOSFET (AO4407A, driven by a small NPN, with a gate divider chosen for 5, 12 or 24 V) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
+- **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (FastLED `setMaxPowerInVoltsAndMilliamps`).
+- **Smooth transitions:** the LED engine fades every on/off and brightness change (decision 8). Power switches turn on before a fade-in starts and off only after a fade-out ends.
 
-Each work-light channel is one GPIO wired to **both** a low-side N-MOSFET driver (for non-addressable strips) and a 74HCT245 input (for addressable strips). The connector you use decides the strip type, and the channel's mode is a setting in `config.json` (editable from the web UI in Task 14, no reflashing), so the same board supports every option without rewiring:
+### Work-light channels
 
-| Option | W1 | W2 | W3 | W4, W5 (auxiliary) |
+W1–W3 are **universal**: each GPIO is wired to both a low-side N-MOSFET (white or analog RGB strips) and a 74HCT245 input (addressable strips). W4–W5 are **white-only** PWM channels. Each channel's mode is a setting in `config.json` (editable from the web UI in Task 14, no reflashing).
+
+| Option | W1 | W2 | W3 | W4, W5 |
 |---|---|---|---|---|
-| 1. Three dimmable white strips | white PWM | white PWM | white PWM | extra white strips |
-| 2. One analog RGB strip | R | G | B | extra white strips |
-| 3. One addressable RGB strip | addressable data | spare: white PWM | spare: white PWM | extra white strips |
+| 1. Analog RGB strip + white strips | R | G | B | white PWM |
+| 2. Universal channels + white strips | addressable **or** white PWM | addressable **or** white PWM | addressable **or** white PWM | white PWM |
 
-- **Dimmable / analog RGB:** LEDC hardware PWM, 12-bit at ~19.5 kHz (no visible flicker on cameras, no audible whine), gamma-corrected fades. Logic-level N-MOSFET per channel (e.g. AO3400 up to ~4 A, IRLZ44N for more), 100 Ω gate resistor and 10 kΩ pull-down so strips stay dark while the ESP32 boots. Works with 5, 12 or 24 V strips; the strip's own supply goes to the MOSFET drain side.
-- **Addressable:** the same GPIO through the 74HCT245, powered via the work-light P-MOSFET switch.
-- A second analog RGB strip needs 3 channels: W4, W5 plus GPIO14 as W6. GPIO14 briefly toggles during boot, which the 10 kΩ gate pull-down mostly hides; that is why it is last in line.
+- **White / analog RGB:** LEDC hardware PWM, 12-bit at ~19.5 kHz (no visible flicker on cameras, no audible whine), gamma-corrected fades. Logic-level N-MOSFET per channel (AO3400A up to ~3 A, IRLB8721 for more), 100 Ω gate resistor and 10 kΩ pull-down so strips stay dark while the ESP32 boots. Works with 5, 12 or 24 V strips.
+- **Addressable:** the same GPIO through the 74HCT245, powered via the work-light P-MOSFET switch. Any mix is allowed in option 2, e.g. W1 addressable + W2, W3 white.
 - The microphone has its own pins, so it never competes with the work lights.
 
 ### Pin map (ESP32-DevKitC, WROOM-32)
@@ -45,14 +55,14 @@ Each work-light channel is one GPIO wired to **both** a low-side N-MOSFET driver
 | 1 | Grid data A / B | 16, 17 | via 74HCT245 |
 | 1 | Grid power enable | 32 | P-MOSFET high-side switch |
 | 2 | Work-light channels W1, W2, W3 | 27, 13, 4 | universal (PWM or addressable) |
-| 2 | Work-light addressable power enable | 33 | P-MOSFET, only needed for option 3 |
-| 3 | Auxiliary channels W4, W5 | 21, 22 | universal |
+| 2 | Work-light addressable power enable | 33 | P-MOSFET, only needed for addressable work strips |
+| 3 | White channels W4, W5 | 21, 22 | PWM only |
 | 3 | I2S microphone (INMP441) SCK, WS, SD | 26, 25, 34 | GPIO34 is input-only, fine for data in |
 | 3 | Analog microphone (MAX9814) alternative | 35 | ADC1, replaces I2S mic |
 | – | Optional microSD (photos on 4 MB boards) | 18, 19, 23, 5 | VSPI |
 | – | Button (clear highlight / factory reset) | 0 | on-board BOOT button |
 | – | Status LED | 2 | on-board LED on most DevKitC boards |
-| – | Spare | 14 (third aux channel), 36, 39 (input-only) | 12 and 15 are strapping pins, left unused |
+| – | Spare | 14, 15, 36, 39 (input-only) | 12 is a strapping pin, never used |
 
 Final map is confirmed with the schematic in Task 2.
 
@@ -67,10 +77,10 @@ Final map is confirmed with the schematic in Task 2.
 | Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × ~1.9 MB OTA app slots + rest LittleFS (≈4 MB / ≈12 MB). 4 MB fallback: 2 × 1.5 MB OTA + ≈1 MB LittleFS (database only, photos on microSD). | OTA updates over Wi-Fi from day one. |
 | Filesystem | **LittleFS** | SPIFFS is deprecated; LittleFS is power-loss safe and supports directories. Optional microSD for large photo collections. |
 | Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on LittleFS | Small page cache (tuned for no PSRAM). Search with `LIKE` across all text fields; FTS5 only if needed. |
-| LEDs | **FastLED** (RMT driver), WS2812B/SK6812 | Supports several parallel outputs, power limiting, great effect ecosystem (MIT). Alternative: NeoPixelBus. |
+| LEDs | **FastLED** (RMT driver), WS2812/WS2812B/SK6812 (5 V), WS2811/WS2815 (12/24 V) | Supports several parallel outputs, power limiting, great effect ecosystem (MIT). Alternative: NeoPixelBus. |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
-| Web UI | Vanilla JS + small CSS, no framework, gzipped and served from LittleFS | Small and fast on ESP32. Optional npm build step for minify/gzip. |
-| Photos | JPG, **resized in the browser** to max 800 px / ~150 KB before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
+| Web UI | Vanilla JS + small CSS, no framework, gzipped and served from LittleFS; strings in per-language JSON files (en, es, ru) | Small and fast on ESP32. Optional npm build step for minify/gzip. |
+| Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
 | Wi-Fi | Station mode + fallback access point with captive setup page, mDNS `http://smartbins.local` | No hard-coded credentials in source. |
 | Audio | **INMP441 I2S digital microphone** + `arduinoFFT` | Cleaner than analog mics on the noisy ESP32 ADC. Analog MAX9814 as fallback option. |
 | Tests / CI | PlatformIO `native` env for unit tests of pure logic (grid mapping, effects, query building); GitHub Actions builds firmware on every push | |
@@ -87,10 +97,10 @@ Final map is confirmed with the schematic in Task 2.
  │      │                         │                       │
  │      │                    PhotoStore (LittleFS / SD)   │
  │      │                                                 │
- │  ConfigService (config.json) ── GridMapper (bin x,y → LED idx)
+ │  ConfigService (config.json) ── GridMapper (bin x,y → pixel idx)
  │                                    │                   │
  │  LedEngine (FastLED, render task) ◄┘                   │
- │    ├─ Locate/highlight layer (top priority)            │
+ │    ├─ Locate/highlight layer (top priority, fades)     │
  │    ├─ Effects: fire, sparks, relax, music, demo        │
  │    └─ Work lights W1..W5 (PWM or addressable)          │
  │  AudioService (I2S mic → FFT → bands)                  │
@@ -103,11 +113,11 @@ LED rendering runs in its own FreeRTOS task on core 1; Wi-Fi and the web server 
 ## 3. Draft data model
 
 - `parts`: id, part_number, manufacturer, category, description, package, value, quantity, unit, location_bin_id, datasheet_url, notes, photo (filename), created_at, updated_at
-- `bins`: id, x, y, label, span_w/span_h (for bins covering several grid cells), led_override (optional custom LED list)
+- `bins`: id, x, y, label
 - `categories` (optional lookup table, or free text with autocomplete)
 - `meta`: schema_version (for migrations)
 
-One part lives in one bin; one bin can hold many parts. Open question whether a part can be split across bins (see questions).
+One part lives in one bin; one bin can hold many parts.
 
 ---
 
@@ -127,31 +137,33 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** firmware builds in CI; on your board it boots, prints flash size, chip info and free LittleFS space.
 
 ### Task 2: Hardware reference design
-- Wiring doc and schematic for the architecture in section 0: LED data pins, 74HCT245 level shifter, P-MOSFET power switches per domain, 5 V supply sizing, injection points, fuse, capacitor and series resistor, mic wiring, optional SD card and button.
+- Wiring doc and schematic for the architecture in section 0: LED data pins, 74HCT245 level shifter, P-MOSFET power switches per domain (5/12/24 V), supply sizing, breadboard level-shifter notes, injection points, fuse, capacitor and series resistor, mic wiring, optional SD card and button.
 - Default pin map that avoids strapping and flash pins.
 - Power budget calculator (LEDs × mA) and default brightness/current limit.
 - **Verify:** you review the doc against your parts.
 
 ### Task 3: Configuration and Wi-Fi
-- `config.json` on LittleFS: grid width/height, LEDs per bin (1–3), strip wiring order (row-by-row or serpentine, start corner), LED pin(s), LED type and color order, work-light outputs, brightness and current limit, device name.
+- `config.json` on LittleFS: grid width/height, pixels per bin (1–3), strip wiring order (row-by-row or serpentine, start corner), LED pin(s), chipset (WS2812/WS2812B/SK6812/WS2811/WS2815), color order, strip voltage, work-light outputs, brightness and current limit, device name.
 - Wi-Fi station + fallback AP with a minimal setup page, mDNS, OTA update.
 - **Verify:** fresh board opens an AP, you enter Wi-Fi credentials, it joins your network and answers at `smartbins.local`; firmware updates over the air.
 
 ### Task 4: LED driver and grid mapping
-- `GridMapper`: bin (x, y) → list of LED indices for any grid size, LEDs-per-bin, serpentine or progressive layout, start corner, multi-cell bins. Unit-tested in `native`.
-- `LedEngine` render task with layers (locate highlight above effects), global brightness and power limit.
+- `GridMapper`: bin (x, y) → list of pixel indices for any grid size, pixels per bin, serpentine or progressive layout, start corner. Optional per-row / per-column overrides (bins in a row, pixels per bin, skipped pixels between bins) if they stay simple; otherwise deferred. Unit-tested in `native`.
+- `LedEngine` render task with layers (locate highlight above effects), global brightness and power limit, and smooth fades for every on/off and brightness change (decision 8).
+- Locate highlight modes: steady (fade in/out), slow pulse, fast pulse; duration and colour as settings.
 - Test patterns: walk every bin, row/column sweep, identify bin by number.
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
 ### Task 5: Workspace lights
-- Universal channels W1–W5: per-channel mode (off / white PWM / RGB group / addressable) in config, LEDC PWM with gamma and smooth fades, FastLED for an addressable work strip.
+- Channels per section 0: W1–W3 universal (off / white PWM / RGB group / addressable), W4–W5 white PWM. LEDC PWM with gamma correction, FastLED for addressable work strips, smooth fades on every change.
 - On/off, brightness, color and white tone, simple per-strip effects; state persisted across reboots.
 - **Verify:** each light controllable independently via a temporary REST call.
 
 ### Task 6: Web server and REST API foundation
 - ESPAsyncWebServer, static gzipped files from LittleFS, JSON REST conventions, error format, WebSocket channel for state pushes.
 - Endpoints so far: system info, config get/set, LED test, locate bin, work lights.
-- Basic UI shell (navigation, status bar) with no inventory yet.
+- Basic UI shell (navigation, status bar) with no inventory yet, and the translation mechanism: English, Spanish and Russian string files, language picker.
+- Optional password (off by default) protecting the UI and API.
 - **Verify:** UI loads on phone and desktop; "locate bin (x,y)" lights the right bin.
 
 ### Task 7: SQLite database layer
@@ -167,12 +179,13 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 9: Inventory web UI
 - Search page with instant results, sortable table/card view, filters.
+- Quick **+ / −** quantity buttons on every part card (no need to open the edit form).
 - Add/edit/delete part form with autocomplete for manufacturer and category.
 - "Locate" button lights the bin (optionally auto-on when search narrows to one bin); visual grid view showing bin contents and empty bins; click a bin to see its parts.
 - **Verify:** end-to-end use from a phone in the lab.
 
 ### Task 10: Photos
-- Upload JPG (camera or file) → browser resizes/compresses → streamed to flash.
+- Upload JPG (camera or file) → browser resizes to 640 px (800 px with microSD) and compresses → streamed to storage.
 - Thumbnails in results, full view on detail page, delete/replace; storage usage shown.
 - Optional microSD as photo store.
 - **Verify:** add photos from your phone; flash usage stays within budget.
@@ -198,13 +211,13 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 14: Settings and effects UI
 - Hardware page: per-channel mode (off / white PWM / RGB group / addressable) and GPIO assignment for every function, validated against the board (flash, input-only and strapping pins rejected, no double use), applied after a reboot. Holding BOOT during power-up restores the default pin map in case a bad setting leaves the device unreachable.
-- Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, OTA upload.
+- Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, fade time, locate highlight (duration, colour, steady / slow pulse / fast pulse), language, password, OTA upload.
 - Effects page: pick effect, parameters, timer; work-light controls.
 - **Verify:** reconfigure the grid size from the browser and the mapping updates without reflashing.
 
 ### Task 15: Hardening and release 1.0
-- Watchdog, heap monitoring, error pages, input validation, optional web UI password.
-- Documentation: build/flash guide, wiring, user guide, screenshots; GitHub release with prebuilt binaries for 8 MB and 16 MB.
+- Watchdog, heap monitoring, error pages, input validation.
+- Documentation: build/flash guide, wiring, user guide, screenshots; README in English, Spanish and Russian; GitHub release with prebuilt binaries for 8 MB and 16 MB.
 - **Verify:** fresh-flash test from the release binaries following only the docs.
 
 ### Possible later extras (not planned unless you want them)
@@ -214,15 +227,6 @@ Barcode/QR scanning in the UI to find parts, low-stock alerts, MQTT / Home Assis
 
 ## 5. Clarifying questions
 
-1. ~~Repository~~ answered. 2. ~~Board~~ answered.
-3. **LED type:** WS2812B (5 V), SK6812 RGBW, or WS2815 (12 V)? Roughly how many bins total for your first cabinet (e.g. 10 × 6)?
-4. ~~Strip wiring~~ decided (section 0).
-5. **Bin sizes:** are all bins the same size, or do some bins span several grid cells (wide drawers)?
-6. ~~Work lights~~ answered: configurable (white ×3, analog RGB, or addressable).
-7. **Part ↔ bin:** can one part be stored in more than one bin, and can one bin hold several different parts? (Default: one bin per part, many parts per bin.)
-8. **Fields:** besides manufacturer, category and part number, which fields do you need? Default list is in section 3 (package, value, quantity, datasheet URL, notes...).
-9. **Backup scope:** should a backup contain only the database, or database + photos + config as one file? (Default: both options.)
-10. **Language:** English-only UI, or should it be translatable (e.g. English/Russian)?
-11. **Security:** is the device on a trusted home network only (no login), or do you want an optional password?
-12. **Microphone:** do you already have a mic module? (Default: INMP441 I2S.)
-13. **Locate behavior:** how long should a found bin stay lit (e.g. 30 s, until dismissed), and in what color/animation?
+All answered (see section 0). Still open:
+- **Parts list:** Dmitry is assembling the shopping list; the BOM in `docs/hardware/README.md` can change with it.
+- **Microphone:** no module yet (default INMP441 I2S).

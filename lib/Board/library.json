@@ -1,0 +1,8 @@
+{
+  "name": "Board",
+  "version": "0.1.0",
+  "description": "Default ESP32-DevKitC pin map and pin validation rules",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}
