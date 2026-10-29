@@ -1,0 +1,8 @@
+{
+  "name": "Util",
+  "version": "0.1.0",
+  "description": "Small hardware-independent helpers shared by the firmware and the native tests",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}
