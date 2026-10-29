@@ -8,19 +8,19 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–3 addressable 
 
 ## Features (planned)
 
-- Configurable bin grid of any size (X × Y), 1–3 LEDs per bin, flexible strip wiring
+- Configurable bin grid of any size (X × Y), 1–3 pixels per bin, flexible strip wiring
 - Inventory in SQLite on LittleFS, with instant global search and sorting by manufacturer, category and part number
 - Component photos (JPG)
 - Database backup (download) and restore from the browser
-- 2–3 independently controlled addressable strips for workspace lighting
+- Workspace lighting: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus extra white strips; every change fades smoothly
 - Lighting effects: fire, sparks, relax, music-reactive (I2S microphone), demo
 - Wi-Fi setup portal, `smartbins.local` via mDNS, over-the-air firmware updates
 
 ## Hardware
 
 - ESP32-DevKitC (ESP32-WROOM-32), 4/8/16 MB flash
-- WS2812 / WS2812B / SK6812 LED strips
-- 74HCT245 level shifter, P-channel MOSFET power switches, 5 V power supply
+- Addressable LED strips: WS2812 / WS2812B / SK6812 (5 V) or WS2811 / WS2815 (12/24 V)
+- 74HCT245 level shifter, MOSFET power switches, LED power supply (5, 12 or 24 V)
 - Optional: INMP441 I2S microphone, microSD card
 
 Schematics, wiring, parts list and power budget: [docs/hardware/README.md](docs/hardware/README.md).
