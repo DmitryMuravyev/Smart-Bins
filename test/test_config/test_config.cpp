@@ -37,6 +37,7 @@ static void test_round_trip() {
   a.lights[3].mode = LightMode::White;
   a.locate.color = 0x123ABC;
   a.locate.mode = LocateMode::FastPulse;
+  a.grid.invertData = true;
 
   std::string json = serialize(a);
   AppConfig b;
@@ -48,6 +49,7 @@ static void test_round_trip() {
   TEST_ASSERT_TRUE(b.lights[0].mode == LightMode::Addressable);
   TEST_ASSERT_EQUAL(60, b.lights[0].pixels);
   TEST_ASSERT_EQUAL_HEX32(0x123ABC, b.locate.color);
+  TEST_ASSERT_TRUE(b.grid.invertData);
   TEST_ASSERT_EQUAL(32, segmentPixels(b.grid, 0));  // 2 rows x 8 cols x 2 px
   TEST_ASSERT_EQUAL(64, segmentPixels(b.grid, 1));
 }
@@ -80,6 +82,8 @@ static void test_rejects_bad_values() {
   expectError("{\"device\":{\"language\":\"de\"}}", "device.language");
   expectError("{\"locate\":{\"color\":\"green\"}}", "locate.color");
   expectError("{\"fadeMs\":\"fast\"}", "fadeMs must be a whole number");
+  expectError("{\"grid\":{\"invertData\":1}}", "grid.invertData must be true or false");
+  expectError("{\"grid\":{\"cols\":64,\"rows\":64,\"pixelsPerBin\":1}}", "maximum is 1500");
 }
 
 static void test_light_channel_rules() {

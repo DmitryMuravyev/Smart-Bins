@@ -58,6 +58,12 @@ class Reader {
     fail(field, ("must be one of: " + allowed).c_str());
   }
 
+  void boolean(JsonVariantConst v, const char *field, bool &out) {
+    if (!ok() || v.isNull()) return;
+    if (!v.is<bool>()) return fail(field, "must be true or false");
+    out = v.as<bool>();
+  }
+
   void text(JsonVariantConst v, const char *field, char *out, size_t size) {
     if (!ok() || v.isNull()) return;
     const char *s = v.as<const char *>();
@@ -121,6 +127,10 @@ bool validate(const AppConfig &cfg, std::string &error) {
     return false;
   }
   const GridConfig &g = cfg.grid;
+  if (gridPixels(g) > kMaxGridPixels) {
+    error = "grid has " + std::to_string(gridPixels(g)) + " pixels; the maximum is " + std::to_string(kMaxGridPixels);
+    return false;
+  }
   if (g.segments == 2 && (g.splitRow < 1 || g.splitRow >= g.rows)) {
     error = "grid.splitRow must be between 1 and rows - 1 when using 2 segments";
     return false;
@@ -189,6 +199,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.integer(grid["splitRow"], "grid.splitRow", 0, 64, g.splitRow);
   r.integer(grid["brightness"], "grid.brightness", 0, 255, g.brightness);
   r.integer(grid["currentLimitMa"], "grid.currentLimitMa", 100, 30000, g.currentLimitMa);
+  r.boolean(grid["invertData"], "grid.invertData", g.invertData);
 
   JsonVariantConst lights = doc["lights"];
   if (r.ok() && !lights.isNull()) {
@@ -241,6 +252,7 @@ std::string serialize(const AppConfig &cfg) {
   grid["splitRow"] = g.splitRow;
   grid["brightness"] = g.brightness;
   grid["currentLimitMa"] = g.currentLimitMa;
+  grid["invertData"] = g.invertData;
 
   JsonArray lights = doc["lights"].to<JsonArray>();
   for (const LightConfig &l : cfg.lights) {

@@ -45,7 +45,22 @@ The boot log shows chip, flash, memory and partition information. If the detecte
 
 The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network, hold **10 s** and release for a factory reset (Wi-Fi and configuration). The LED lights steadily at 5 s and flickers at 10 s.
 
-The configuration is stored in `/config.json` on the board. View it at `http://smartbins.local/api/config`; it becomes editable in the settings UI.
+The configuration is stored in `/config.json` on the board. Until the settings UI arrives, edit it as JSON at `http://smartbins.local/config`: saving validates every field, stores the file and restarts the board.
+
+### LED tests
+
+With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, the start page has test links:
+
+| Test | What you should see |
+|---|---|
+| walk bins | one bin at a time, left to right, top to bottom. If the order jumps, fix `layout` / `start` in the config. |
+| chain | a single green pixel running along data line A (blue on line B) in wiring order |
+| rows / columns | one full row or column at a time |
+| colours | the whole grid red, green, blue, white. If red shows as green, change `colorOrder` (e.g. RGB instead of GRB). |
+
+`/api/locate?x=3&y=2` lights one bin with the configured locate colour and mode (`&color=FF0000&mode=fast-pulse&s=10` override them); `/api/locate/clear` fades all highlights out. `/api/led/status` shows the estimated current and whether the current limit is active.
+
+For a single-transistor (inverting) level shifter set `"invertData": true` in the grid section of the config (edit it at `/config`).
 
 ### Updating over Wi-Fi
 

@@ -50,6 +50,24 @@ constexpr PinAssignment kDefaultPins[] = {
 
 constexpr size_t kDefaultPinCount = sizeof(kDefaultPins) / sizeof(kDefaultPins[0]);
 
+// GPIO assigned to a named function in a pin map, or kNoPin.
+constexpr int8_t findPin(const PinAssignment *pins, size_t count, const char *name) {
+  for (size_t i = 0; i < count; i++) {
+    const char *a = pins[i].name;
+    const char *b = name;
+    while (*a && *a == *b) {
+      a++;
+      b++;
+    }
+    if (*a == *b) return pins[i].gpio;
+  }
+  return kNoPin;
+}
+
+constexpr int8_t defaultPin(const char *name) { return findPin(kDefaultPins, kDefaultPinCount, name); }
+
+static_assert(defaultPin("grid_data_a") == 16, "findPin works at compile time");
+
 // GPIO numbers that exist on the ESP32 package used by the WROOM-32 module.
 constexpr bool gpioExists(int gpio) {
   return gpio >= 0 && gpio <= 39 && gpio != 20 && gpio != 24 && !(gpio >= 28 && gpio <= 31);
