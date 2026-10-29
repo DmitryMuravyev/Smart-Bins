@@ -3,10 +3,8 @@
 .pioenvs/
 .piolibdeps/
 
-# VS Code (keep shared recommendations)
-.vscode/*
-!.vscode/extensions.json
-!.vscode/settings.json
+# VS Code: PlatformIO regenerates these files on every start
+.vscode/
 
 # Web UI build
 node_modules/
