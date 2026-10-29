@@ -14,7 +14,7 @@ const char *kBadPath = "/config.bad.json";
 
 void ConfigStore::begin() {
   cfg_ = config::AppConfig();
-  File f = LittleFS.open(kPath, "r");
+  File f = LittleFS.exists(kPath) ? LittleFS.open(kPath, "r") : File();
   if (!f) {
     ESP_LOGI(TAG, "No %s, writing defaults", kPath);
     std::string err;
@@ -38,7 +38,7 @@ void ConfigStore::begin() {
     return;
   }
   ESP_LOGE(TAG, "%s is invalid (%s); kept as %s, using defaults", kPath, err.c_str(), kBadPath);
-  LittleFS.remove(kBadPath);
+  if (LittleFS.exists(kBadPath)) LittleFS.remove(kBadPath);
   LittleFS.rename(kPath, kBadPath);
   save(cfg_, err);
 }
@@ -58,7 +58,7 @@ bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
     error = "filesystem full";
     return false;
   }
-  LittleFS.remove(kPath);
+  if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
   if (!LittleFS.rename(kTempPath, kPath)) {
     error = "cannot replace config file";
     return false;
@@ -69,7 +69,7 @@ bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
 }
 
 void ConfigStore::erase() {
-  LittleFS.remove(kPath);
+  if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
   ESP_LOGW(TAG, "Config erased; defaults apply after restart");
 }
 

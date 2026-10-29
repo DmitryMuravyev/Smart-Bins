@@ -36,7 +36,7 @@ void WifiLink::begin(const char *hostName, AsyncWebServer &server) {
   WiFi.mode(WIFI_STA);
 
   Preferences prefs;
-  prefs.begin(kPrefsNamespace, true);
+  prefs.begin(kPrefsNamespace, false);  // read-write: creates the namespace on first boot instead of logging an error
   ssid_ = prefs.getString("ssid", "");
   pass_ = prefs.getString("pass", "");
   prefs.end();
