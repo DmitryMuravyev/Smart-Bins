@@ -1,4 +1,4 @@
-# Smart Bins: Implementation Plan (draft v0.2)
+# Smart Bins: Implementation Plan (draft v0.3)
 
 An ESP32-based addressable parts library for a home lab: a grid of bins, each with 1–3 addressable LEDs, a SQLite inventory stored on flash, a web UI for search/add/edit with photos, backup/restore, workspace lighting and LED effects. Open source under MIT.
 
@@ -6,23 +6,55 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 
 ---
 
-## 0. Decisions so far (v0.2, 2026-10-19)
+## 0. Decisions so far (v0.3, updated 2026-10-29)
 
 | # | Topic | Decision |
 |---|---|---|
 | 1 | Repository | Private GitHub repo `smart-bins` for now (MIT), made public later. Dmitry creates it empty; Claude fills it. |
 | 2 | Board | ESP32-DevKitC replica (ESP32-WROOM-32, no PSRAM). Flash size to be confirmed in Task 1 (`esptool.py flash_id`): many DevKitC clones ship with 4 MB, so a 4 MB partition table is added as a fallback (photos would then need the optional microSD). |
 | 3 | LED architecture | See "LED and power architecture" below. |
-| 4 | Work lights | 2–3 addressable WS2812/WS2812B/SK6812 strips, each on its own data pin. |
+| 4 | Work lights | Configurable per installation (updated 2026-10-29): 3 dimmable white strips, **or** 1 analog RGB strip, **or** 1 addressable RGB strip. Leftover pins drive extra strips. See "Work-light channels" below. |
+| 5 | Pin priority | Main addressable grid → workspace illumination → auxiliary lights and/or microphone. |
 
 ### LED and power architecture (chosen)
 
-- **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights on 3 more pins, one per strip. FastLED drives up to 5 outputs in parallel via the ESP32 RMT peripheral.
+- **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights use the universal channels described below. FastLED drives the addressable outputs in parallel via the ESP32 RMT peripheral.
 - **Within the grid, rows are chained serpentine** (row 1 left→right, row 2 right→left...) so each segment needs just one data wire. The mapper supports progressive wiring and any start corner too, so physical layout stays flexible.
-- **Level shifting:** one 74HCT245 (8 channels) converts all 3.3 V data lines to 5 V, with a 330 Ω series resistor on each output.
+- **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 5 work-light channel lines from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
 - **Power switching with MOSFETs:** each power domain (bin grid, work lights) gets a high-side P-channel MOSFET (e.g. AO3401/IRF9540-class, driven by a small NPN or logic-level N-MOSFET) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
 - **Protection:** 5 V supply sized from the power budget, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (FastLED `setMaxPowerInVoltsAndMilliamps`).
-- **Draft pin map** (DevKitC, avoids strapping/flash pins): bin data GPIO16, GPIO17; work-light data GPIO27, GPIO13, GPIO4; MOSFET enables GPIO32 (grid), GPIO33 (work lights); I2S mic WS GPIO25, SCK GPIO26, SD GPIO34; optional microSD on VSPI (18, 19, 23, 5); BOOT button GPIO0 as a "clear highlight / factory reset" button. Final map is confirmed in Task 2.
+### Work-light channels (universal outputs)
+
+Each work-light channel is one GPIO wired to **both** a low-side N-MOSFET driver (for non-addressable strips) and a 74HCT245 input (for addressable strips). The connector you use decides the strip type, and the firmware config sets each channel's mode, so the same board supports every option without rewiring:
+
+| Option | W1 | W2 | W3 | W4, W5 (auxiliary) |
+|---|---|---|---|---|
+| 1. Three dimmable white strips | white PWM | white PWM | white PWM | extra white strips |
+| 2. One analog RGB strip | R | G | B | extra white strips |
+| 3. One addressable RGB strip | addressable data | spare: white PWM | spare: white PWM | extra white strips |
+
+- **Dimmable / analog RGB:** LEDC hardware PWM, 12-bit at ~19.5 kHz (no visible flicker on cameras, no audible whine), gamma-corrected fades. Logic-level N-MOSFET per channel (e.g. AO3400 up to ~4 A, IRLZ44N for more), 100 Ω gate resistor and 10 kΩ pull-down so strips stay dark while the ESP32 boots. Works with 5, 12 or 24 V strips; the strip's own supply goes to the MOSFET drain side.
+- **Addressable:** the same GPIO through the 74HCT245, powered via the work-light P-MOSFET switch.
+- A second analog RGB strip needs 3 channels: W4, W5 plus GPIO14 as W6. GPIO14 briefly toggles during boot, which the 10 kΩ gate pull-down mostly hides; that is why it is last in line.
+- The microphone has its own pins, so it never competes with the work lights.
+
+### Pin map (ESP32-DevKitC, WROOM-32)
+
+| Priority | Function | GPIO | Notes |
+|---|---|---|---|
+| 1 | Grid data A / B | 16, 17 | via 74HCT245 |
+| 1 | Grid power enable | 32 | P-MOSFET high-side switch |
+| 2 | Work-light channels W1, W2, W3 | 27, 13, 4 | universal (PWM or addressable) |
+| 2 | Work-light addressable power enable | 33 | P-MOSFET, only needed for option 3 |
+| 3 | Auxiliary channels W4, W5 | 21, 22 | universal |
+| 3 | I2S microphone (INMP441) SCK, WS, SD | 26, 25, 34 | GPIO34 is input-only, fine for data in |
+| 3 | Analog microphone (MAX9814) alternative | 35 | ADC1, replaces I2S mic |
+| – | Optional microSD (photos on 4 MB boards) | 18, 19, 23, 5 | VSPI |
+| – | Button (clear highlight / factory reset) | 0 | on-board BOOT button |
+| – | Status LED | 2 | on-board LED on most DevKitC boards |
+| – | Spare | 14 (third aux channel), 36, 39 (input-only) | 12 and 15 are strapping pins, left unused |
+
+Final map is confirmed with the schematic in Task 2.
 
 ---
 
@@ -60,7 +92,7 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
  │  LedEngine (FastLED, render task) ◄┘                   │
  │    ├─ Locate/highlight layer (top priority)            │
  │    ├─ Effects: fire, sparks, relax, music, demo        │
- │    └─ Work lights 1..3 (independent outputs)           │
+ │    └─ Work lights W1..W5 (PWM or addressable)          │
  │  AudioService (I2S mic → FFT → bands)                  │
  │  WiFi / mDNS / OTA / BackupService                     │
  └────────────────────────────────────────────────────────┘
@@ -112,7 +144,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
 ### Task 5: Workspace lights
-- 2–3 independent addressable strips, each on its own data pin, sharing the work-light MOSFET power switch.
+- Universal channels W1–W5: per-channel mode (off / white PWM / RGB group / addressable) in config, LEDC PWM with gamma and smooth fades, FastLED for an addressable work strip.
 - On/off, brightness, color and white tone, simple per-strip effects; state persisted across reboots.
 - **Verify:** each light controllable independently via a temporary REST call.
 
@@ -185,7 +217,7 @@ Barcode/QR scanning in the UI to find parts, low-stock alerts, MQTT / Home Assis
 3. **LED type:** WS2812B (5 V), SK6812 RGBW, or WS2815 (12 V)? Roughly how many bins total for your first cabinet (e.g. 10 × 6)?
 4. ~~Strip wiring~~ decided (section 0).
 5. **Bin sizes:** are all bins the same size, or do some bins span several grid cells (wide drawers)?
-6. ~~Work lights~~ answered: addressable.
+6. ~~Work lights~~ answered: configurable (white ×3, analog RGB, or addressable).
 7. **Part ↔ bin:** can one part be stored in more than one bin, and can one bin hold several different parts? (Default: one bin per part, many parts per bin.)
 8. **Fields:** besides manufacturer, category and part number, which fields do you need? Default list is in section 3 (package, value, quantity, datasheet URL, notes...).
 9. **Backup scope:** should a backup contain only the database, or database + photos + config as one file? (Default: both options.)
