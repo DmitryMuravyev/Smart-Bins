@@ -1,8 +1,8 @@
 // Smart Bins firmware entry point.
 //
 // Boot order: hold LED outputs low, print the boot report, mount LittleFS,
-// load the configuration, then bring up Wi-Fi (or the setup portal), mDNS,
-// over-the-air updates and the web server.
+// load the configuration, start the LED engine, then bring up Wi-Fi (or the
+// setup portal), mDNS, over-the-air updates and the web server.
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
@@ -10,7 +10,10 @@
 
 #include "BootReport.h"
 #include "ConfigStore.h"
+#include "PinMap.h"
 #include "WifiLink.h"
+#include "led/LedEngine.h"
+#include "web/LedApi.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -27,6 +30,7 @@ constexpr uint32_t kFactoryResetHoldMs = 10000;
 
 sb::ConfigStore configStore;
 sb::WifiLink network;
+sb::led::LedEngine leds;
 AsyncWebServer server(80);
 
 bool mountFilesystem() {
@@ -67,7 +71,17 @@ void registerStatusPage() {
         "<h1>Smart Bins</h1><p>Firmware " SB_FW_VERSION "</p><p>Device: ";
     html += configStore.get().deviceName;
     html += "<br>Uptime: " + String(millis() / 1000) + " s<br>Free heap: " + String(ESP.getFreeHeap()) +
-            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/api/config'>config.json</a></p>";
+            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/api/config'>config.json</a> &middot; "
+            "<a href='/api/led/status'>LED status</a></p>"
+            "<h2>LED tests</h2><p>"
+            "<a href='/api/led/test?pattern=walk'>walk bins</a> &middot; "
+            "<a href='/api/led/test?pattern=chain'>chain</a> &middot; "
+            "<a href='/api/led/test?pattern=rows'>rows</a> &middot; "
+            "<a href='/api/led/test?pattern=columns'>columns</a> &middot; "
+            "<a href='/api/led/test?pattern=colors'>colours</a> &middot; "
+            "<a href='/api/led/test?pattern=off'>stop</a></p>"
+            "<form action='/api/locate'>Locate bin x <input name=x size=2 value=0> y <input name=y size=2 value=0> "
+            "<button>Light</button> <a href='/api/locate/clear'>clear</a></form>";
     req->send(200, "text/html; charset=utf-8", html);
   });
 
@@ -139,8 +153,12 @@ void setup() {
   configStore.begin();
   logConfig(configStore.get());
 
+  leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
+             sb::board::defaultPin("grid_power"));
+
   network.begin(configStore.get().deviceName, server);
   registerStatusPage();
+  sb::registerLedApi(server, leds);
   server.begin();
   ESP_LOGI(TAG, "Boot complete, free heap %s", sb::formatBytes(ESP.getFreeHeap()));
 }

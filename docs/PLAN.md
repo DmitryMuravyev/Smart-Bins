@@ -77,7 +77,7 @@ Final map is confirmed with the schematic in Task 2.
 | Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × ~1.9 MB OTA app slots + rest LittleFS (≈4 MB / ≈12 MB). 4 MB fallback: 2 × 1.5 MB OTA + ≈1 MB LittleFS (database only, photos on microSD). | OTA updates over Wi-Fi from day one. |
 | Filesystem | **LittleFS** | SPIFFS is deprecated; LittleFS is power-loss safe and supports directories. Optional microSD for large photo collections. |
 | Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on LittleFS | Small page cache (tuned for no PSRAM). Search with `LIKE` across all text fields; FTS5 only if needed. |
-| LEDs | **FastLED** (RMT driver), WS2812/WS2812B/SK6812 (5 V), WS2811/WS2815 (12/24 V) | Supports several parallel outputs, power limiting, great effect ecosystem (MIT). Alternative: NeoPixelBus. |
+| LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, colour order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's colour math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
 | Web UI | Vanilla JS + small CSS, no framework, gzipped and served from LittleFS; strings in per-language JSON files (en, es, ru) | Small and fast on ESP32. Optional npm build step for minify/gzip. |
 | Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
@@ -152,7 +152,8 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - `GridMapper`: bin (x, y) → list of pixel indices for any grid size, pixels per bin, serpentine or progressive layout, start corner. Optional per-row / per-column overrides (bins in a row, pixels per bin, skipped pixels between bins) if they stay simple; otherwise deferred. Unit-tested in `native`.
 - `LedEngine` render task with layers (locate highlight above effects), global brightness and power limit, and smooth fades for every on/off and brightness change (decision 8).
 - Locate highlight modes: steady (fade in/out), slow pulse, fast pulse; duration and colour as settings.
-- Test patterns: walk every bin, row/column sweep, identify bin by number.
+- Test patterns: walk every bin, chain (one pixel along the wiring), row/column sweep, colour order check; locate any bin by x/y. Temporary REST endpoints until the UI (Task 6).
+- Optional inverted data output for single-transistor level shifters (`grid.invertData`).
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
 ### Task 5: Workspace lights

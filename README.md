@@ -47,6 +47,21 @@ The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi netwo
 
 The configuration is stored in `/config.json` on the board. View it at `http://smartbins.local/api/config`; it becomes editable in the settings UI.
 
+### LED tests
+
+With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, the start page has test links:
+
+| Test | What you should see |
+|---|---|
+| walk bins | one bin at a time, left to right, top to bottom. If the order jumps, fix `layout` / `start` in the config. |
+| chain | a single green pixel running along data line A (blue on line B) in wiring order |
+| rows / columns | one full row or column at a time |
+| colours | the whole grid red, green, blue, white. If red shows as green, change `colorOrder` (e.g. RGB instead of GRB). |
+
+`/api/locate?x=3&y=2` lights one bin with the configured locate colour and mode (`&color=FF0000&mode=fast-pulse&s=10` override them); `/api/locate/clear` fades all highlights out. `/api/led/status` shows the estimated current and whether the current limit is active.
+
+For a single-transistor (inverting) level shifter set `"invertData": true` in the grid section of the config.
+
 ### Updating over Wi-Fi
 
 Once the board is on your network, upload new firmware without a cable:

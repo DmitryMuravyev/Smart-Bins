@@ -1,0 +1,8 @@
+{
+  "name": "Led",
+  "version": "0.1.0",
+  "description": "Hardware-independent LED logic: colours, grid mapping, fades and power limiting",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}

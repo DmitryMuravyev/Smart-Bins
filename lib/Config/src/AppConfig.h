@@ -40,7 +40,10 @@ struct GridConfig {
   uint8_t splitRow = 3;  // with 2 segments: first row driven by data B
   uint8_t brightness = 128;
   uint16_t currentLimitMa = 1000;
+  bool invertData = false;  // for single-transistor (inverting) level shifters
 };
+
+constexpr int kMaxGridPixels = 1500;
 
 struct LightConfig {
   LightMode mode = LightMode::Off;
