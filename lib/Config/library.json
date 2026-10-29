@@ -1,0 +1,8 @@
+{
+  "name": "Config",
+  "version": "0.1.0",
+  "description": "Smart Bins configuration model: defaults, JSON parsing, validation and serialization",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}

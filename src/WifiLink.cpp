@@ -1,0 +1,252 @@
+#include "WifiLink.h"
+
+#include <ArduinoJson.h>
+#include <ArduinoOTA.h>
+#include <DNSServer.h>
+#include <ESPAsyncWebServer.h>
+#include <ESPmDNS.h>
+#include <Preferences.h>
+#include <WiFi.h>
+
+#include "web/SetupPage.h"
+
+namespace sb {
+
+namespace {
+const char *TAG = "net";
+const char *kPrefsNamespace = "wifi";
+
+constexpr uint32_t kConnectTimeoutMs = 20000;    // first attempt before the portal opens
+constexpr uint32_t kLostLinkPortalMs = 60000;    // link down this long -> open the portal
+constexpr uint32_t kPortalRetryMs = 60000;       // retry the saved network while the portal is up
+constexpr uint32_t kPortalLingerMs = 60000;      // keep the portal after connecting so the phone sees the result
+
+DNSServer dns;
+}  // namespace
+
+void WifiLink::begin(const char *hostName, AsyncWebServer &server) {
+  strncpy(host_, hostName, sizeof(host_) - 1);
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  snprintf(apName_, sizeof(apName_), "SmartBins-%02X%02X", mac[4], mac[5]);
+
+  WiFi.persistent(false);  // credentials are kept in our own NVS namespace
+  WiFi.setAutoReconnect(true);
+  WiFi.setHostname(host_);
+  WiFi.mode(WIFI_STA);
+
+  Preferences prefs;
+  prefs.begin(kPrefsNamespace, false);  // read-write: creates the namespace on first boot instead of logging an error
+  ssid_ = prefs.getString("ssid", "");
+  pass_ = prefs.getString("pass", "");
+  prefs.end();
+
+  registerRoutes(server);
+
+  if (ssid_.isEmpty()) {
+    ESP_LOGI(TAG, "No Wi-Fi credentials saved");
+    startPortal();
+  } else {
+    startConnecting();
+  }
+}
+
+String WifiLink::ipAddress() const {
+  return state_ == State::Connected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+}
+
+void WifiLink::startConnecting() {
+  ESP_LOGI(TAG, "Connecting to \"%s\"", ssid_.c_str());
+  WiFi.begin(ssid_.c_str(), pass_.c_str());
+  state_ = State::Connecting;
+  stateSince_ = lastRetry_ = millis();
+}
+
+void WifiLink::startPortal() {
+  if (!portalActive_) {
+    WiFi.mode(WIFI_AP_STA);
+    WiFi.softAP(apName_);
+    dns.setErrorReplyCode(DNSReplyCode::NoError);
+    dns.start(53, "*", WiFi.softAPIP());
+    portalActive_ = true;
+    ESP_LOGW(TAG, "Setup portal open: join Wi-Fi \"%s\" and browse to http://%s/", apName_,
+             WiFi.softAPIP().toString().c_str());
+  }
+  portalCloseAt_ = 0;
+  if (state_ != State::Connected) {
+    state_ = State::Portal;
+    stateSince_ = lastRetry_ = millis();
+  }
+}
+
+void WifiLink::stopPortal() {
+  if (!portalActive_) return;
+  dns.stop();
+  WiFi.softAPdisconnect(true);
+  WiFi.mode(WIFI_STA);
+  portalActive_ = false;
+  portalCloseAt_ = 0;
+  ESP_LOGI(TAG, "Setup portal closed");
+}
+
+void WifiLink::onConnected() {
+  state_ = State::Connected;
+  stateSince_ = millis();
+  ESP_LOGI(TAG, "Connected to \"%s\", IP %s, RSSI %d dBm", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
+           WiFi.RSSI());
+  if (portalActive_) portalCloseAt_ = millis() + kPortalLingerMs;
+
+  if (!servicesStarted_) {
+    // ArduinoOTA.begin() also starts mDNS under the same host name.
+    ArduinoOTA.setHostname(host_);
+    ArduinoOTA.onStart([]() { ESP_LOGW(TAG, "OTA update started"); });
+    ArduinoOTA.onEnd([]() { ESP_LOGW(TAG, "OTA update finished, restarting"); });
+    ArduinoOTA.onError([](ota_error_t e) { ESP_LOGE(TAG, "OTA error %u", (unsigned)e); });
+    ArduinoOTA.begin();
+    MDNS.addService("http", "tcp", 80);
+    servicesStarted_ = true;
+  }
+  ESP_LOGI(TAG, "Open http://%s.local/ or http://%s/", host_, WiFi.localIP().toString().c_str());
+}
+
+void WifiLink::forgetCredentials() {
+  Preferences prefs;
+  prefs.begin(kPrefsNamespace, false);
+  prefs.clear();
+  prefs.end();
+  ssid_ = pass_ = "";
+  WiFi.disconnect(false, true);
+  state_ = State::Idle;
+  ESP_LOGW(TAG, "Wi-Fi credentials erased");
+  startPortal();
+}
+
+void WifiLink::loop() {
+  const uint32_t now = millis();
+
+  if (pendingConnect_) {
+    pendingConnect_ = false;
+    ssid_ = pendingSsid_;
+    pass_ = pendingPass_;
+    Preferences prefs;
+    prefs.begin(kPrefsNamespace, false);
+    prefs.putString("ssid", ssid_);
+    prefs.putString("pass", pass_);
+    prefs.end();
+    WiFi.disconnect(false, false);
+    startConnecting();
+  }
+
+  if (portalActive_) dns.processNextRequest();
+  if (servicesStarted_) ArduinoOTA.handle();
+
+  const bool linked = WiFi.status() == WL_CONNECTED;
+  switch (state_) {
+    case State::Connecting:
+      if (linked) {
+        onConnected();
+      } else if (now - stateSince_ > kConnectTimeoutMs) {
+        ESP_LOGW(TAG, "Could not join \"%s\"", ssid_.c_str());
+        startPortal();  // no-op if already open; switches the state to Portal
+      }
+      break;
+
+    case State::Portal:
+      if (linked) {
+        onConnected();
+      } else if (!ssid_.isEmpty() && now - lastRetry_ > kPortalRetryMs && WiFi.softAPgetStationNum() == 0) {
+        // Retry only while nobody is using the portal: a retry briefly disturbs the access point.
+        lastRetry_ = now;
+        ESP_LOGI(TAG, "Retrying \"%s\"", ssid_.c_str());
+        WiFi.begin(ssid_.c_str(), pass_.c_str());
+      }
+      break;
+
+    case State::Connected:
+      if (linked) {
+        stateSince_ = now;  // last time the link was seen up
+        if (portalCloseAt_ && (int32_t)(now - portalCloseAt_) >= 0 && WiFi.softAPgetStationNum() == 0) stopPortal();
+      } else if (now - stateSince_ > kLostLinkPortalMs) {
+        ESP_LOGW(TAG, "Wi-Fi link lost for %lus", (unsigned long)(kLostLinkPortalMs / 1000));
+        state_ = State::Portal;
+        startPortal();
+      }
+      break;
+
+    case State::Idle:
+      break;
+  }
+}
+
+void WifiLink::registerRoutes(AsyncWebServer &server) {
+  server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *req) {
+    req->send(200, "text/html; charset=utf-8", web::kSetupPage);
+  });
+
+  server.on("/api/wifi/status", HTTP_GET, [this](AsyncWebServerRequest *req) {
+    JsonDocument doc;
+    static const char *const kStates[] = {"idle", "connecting", "connected", "portal"};
+    doc["state"] = kStates[static_cast<int>(state_)];
+    doc["ssid"] = ssid_;
+    doc["ip"] = state_ == State::Connected ? WiFi.localIP().toString() : String();
+    doc["host"] = String(host_) + ".local";
+    doc["rssi"] = state_ == State::Connected ? WiFi.RSSI() : 0;
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req) {
+    JsonDocument doc;
+    int n = WiFi.scanComplete();
+    if (n == WIFI_SCAN_FAILED) {
+      WiFi.scanNetworks(true);
+      n = WIFI_SCAN_RUNNING;
+    }
+    doc["scanning"] = n == WIFI_SCAN_RUNNING;
+    JsonArray list = doc["networks"].to<JsonArray>();
+    for (int i = 0; i < n; i++) {
+      const String ssid = WiFi.SSID(i);
+      if (ssid.isEmpty()) continue;
+      bool duplicate = false;  // same SSID from several access points: keep the strongest (listed first)
+      for (JsonVariantConst seen : list) duplicate |= ssid == seen["ssid"].as<const char *>();
+      if (duplicate) continue;
+      JsonObject net = list.add<JsonObject>();
+      net["ssid"] = ssid;
+      net["rssi"] = WiFi.RSSI(i);
+      net["secure"] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+    }
+    if (n >= 0) WiFi.scanDelete();
+    String out;
+    serializeJson(doc, out);
+    req->send(200, "application/json", out);
+  });
+
+  server.on("/api/wifi", HTTP_POST, [this](AsyncWebServerRequest *req) {
+    if (!req->hasParam("ssid", true)) {
+      req->send(400, "application/json", "{\"error\":\"ssid missing\"}");
+      return;
+    }
+    const String ssid = req->getParam("ssid", true)->value();
+    const String pass = req->hasParam("pass", true) ? req->getParam("pass", true)->value() : String();
+    if (ssid.isEmpty() || ssid.length() > 32 || pass.length() > 63) {
+      req->send(400, "application/json", "{\"error\":\"invalid ssid or password length\"}");
+      return;
+    }
+    pendingSsid_ = ssid;
+    pendingPass_ = pass;
+    pendingConnect_ = true;
+    req->send(200, "application/json", "{\"ok\":true}");
+  });
+
+  // Captive portal: phones probe well-known URLs on other hosts; send them to the setup page.
+  server.onNotFound([this](AsyncWebServerRequest *req) {
+    if (portalActive_ && req->host() != WiFi.softAPIP().toString() && req->host() != String(host_) + ".local") {
+      req->redirect(("http://" + WiFi.softAPIP().toString() + "/wifi").c_str());
+      return;
+    }
+    req->send(404, "text/plain", "Not found");
+  });
+}
+
+}  // namespace sb

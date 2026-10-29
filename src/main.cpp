@@ -1,141 +1,160 @@
-// Smart Bins firmware - boot report.
-// Holds LED outputs low, prints chip, flash, memory, partition and pin information,
-// then mounts LittleFS.
+// Smart Bins firmware entry point.
+//
+// Boot order: hold LED outputs low, print the boot report, mount LittleFS,
+// load the configuration, then bring up Wi-Fi (or the setup portal), mDNS,
+// over-the-air updates and the web server.
 
 #include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
-#include <esp_chip_info.h>
-#include <esp_flash.h>
-#include <esp_partition.h>
 
-#include "FormatBytes.h"
-#include "PinMap.h"
+#include "BootReport.h"
+#include "ConfigStore.h"
+#include "WifiLink.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
 #endif
-#ifndef SB_FLASH_MB
-#define SB_FLASH_MB 0
-#endif
 
-static const char *TAG = "boot";
+namespace {
 
-static const char *fmt(uint64_t bytes) {
-  // Rotating buffers so several values can be used in one log line.
-  static char bufs[4][24];
-  static uint8_t next = 0;
-  char *buf = bufs[next];
-  next = (next + 1) % 4;
-  return sb::formatBytes(bytes, buf, sizeof(bufs[0]));
-}
+const char *TAG = "main";
 
-static void printChipInfo() {
-  esp_chip_info_t info;
-  esp_chip_info(&info);
-  ESP_LOGI(TAG, "Chip: %s rev %d.%d, %d core(s), %lu MHz", ESP.getChipModel(), info.revision / 100,
-           info.revision % 100, info.cores, (unsigned long)ESP.getCpuFreqMHz());
-  ESP_LOGI(TAG, "Features: WiFi%s%s%s", (info.features & CHIP_FEATURE_BT) ? ", BT" : "",
-           (info.features & CHIP_FEATURE_BLE) ? ", BLE" : "",
-           (info.features & CHIP_FEATURE_EMB_PSRAM) ? ", embedded PSRAM" : "");
-  ESP_LOGI(TAG, "SDK: %s, Arduino core %d.%d.%d", ESP.getSdkVersion(), ESP_ARDUINO_VERSION_MAJOR,
-           ESP_ARDUINO_VERSION_MINOR, ESP_ARDUINO_VERSION_PATCH);
-}
+constexpr int kButtonPin = 0;      // on-board BOOT button, active low
+constexpr int kStatusLedPin = 2;   // on-board LED on most DevKitC boards
+constexpr uint32_t kWifiResetHoldMs = 5000;
+constexpr uint32_t kFactoryResetHoldMs = 10000;
 
-static void printFlashInfo() {
-  uint32_t physical = 0;
-  esp_flash_get_physical_size(esp_flash_default_chip, &physical);
-  // Compare against the build environment: ESP.getFlashChipSize() can report the
-  // physical size even when a smaller partition layout was flashed.
-  const uint32_t built = (uint32_t)SB_FLASH_MB * 1024 * 1024;
-  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb), %lu MHz", fmt(physical), fmt(built),
-           SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000));
-  if (physical == 0 || built == 0 || physical == built) {
-    return;
-  }
-  const int detectedMb = physical / (1024 * 1024);
-  if (physical > built) {
-    ESP_LOGW(TAG, "Only %d of %d MB flash in use. Flash env esp32-%dmb to use all of it.", SB_FLASH_MB, detectedMb,
-             detectedMb);
-  } else {
-    ESP_LOGE(TAG, "Flash too small: board has %d MB, firmware expects %d MB. Flash env esp32-%dmb.", detectedMb,
-             SB_FLASH_MB, detectedMb);
-  }
-}
+sb::ConfigStore configStore;
+sb::WifiLink network;
+AsyncWebServer server(80);
 
-static void printMemoryInfo() {
-  ESP_LOGI(TAG, "Heap: %s free of %s, largest block %s, min ever %s", fmt(ESP.getFreeHeap()),
-           fmt(ESP.getHeapSize()), fmt(ESP.getMaxAllocHeap()), fmt(ESP.getMinFreeHeap()));
-  if (ESP.getPsramSize() > 0) {
-    ESP_LOGI(TAG, "PSRAM: %s free of %s", fmt(ESP.getFreePsram()), fmt(ESP.getPsramSize()));
-  } else {
-    ESP_LOGI(TAG, "PSRAM: none");
-  }
-  ESP_LOGI(TAG, "Sketch: %s used, %s free in app slot", fmt(ESP.getSketchSize()), fmt(ESP.getFreeSketchSpace()));
-}
-
-static void printPartitions() {
-  ESP_LOGI(TAG, "Partitions:");
-  esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
-  for (; it != nullptr; it = esp_partition_next(it)) {
-    const esp_partition_t *p = esp_partition_get(it);
-    ESP_LOGI(TAG, "  %-9s type %02x/%02x  at 0x%06lx  %s", p->label, p->type, p->subtype, (unsigned long)p->address,
-             fmt(p->size));
-  }
-  esp_partition_iterator_release(it);
-}
-
-// Drive every LED-related output LOW before anything else, so power switches stay
-// off and no strip sees random data while the firmware starts.
-static void holdOutputsLow() {
-  for (const auto &pin : sb::board::kDefaultPins) {
-    if (pin.lowAtBoot && pin.gpio != sb::board::kNoPin) {
-      pinMode(pin.gpio, OUTPUT);
-      digitalWrite(pin.gpio, LOW);
-    }
-  }
-}
-
-static void printPinMap() {
-  ESP_LOGI(TAG, "Pin map (defaults):");
-  for (const auto &pin : sb::board::kDefaultPins) {
-    if (pin.gpio == sb::board::kNoPin) {
-      ESP_LOGI(TAG, "  %-12s -", pin.name);
-    } else {
-      ESP_LOGI(TAG, "  %-12s GPIO%d", pin.name, pin.gpio);
-    }
-  }
-}
-
-static void mountFilesystem() {
+bool mountFilesystem() {
   // formatOnFail = true: a blank partition is formatted on first boot.
-  if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+  // The partition is labelled "spiffs" (the Arduino default) even though it holds
+  // LittleFS: a label of "littlefs" collides with the IDF subtype name and makes
+  // the partition tool warn.
+  if (!LittleFS.begin(true, "/littlefs", 10, "spiffs")) {
     ESP_LOGE(TAG, "LittleFS mount failed");
-    return;
+    return false;
   }
-  ESP_LOGI(TAG, "LittleFS: %s used of %s, %s free", fmt(LittleFS.usedBytes()), fmt(LittleFS.totalBytes()),
-           fmt(LittleFS.totalBytes() - LittleFS.usedBytes()));
+  ESP_LOGI(TAG, "LittleFS: %s used of %s", sb::formatBytes(LittleFS.usedBytes()),
+           sb::formatBytes(LittleFS.totalBytes()));
+  return true;
 }
+
+void logConfig(const sb::config::AppConfig &cfg) {
+  const auto &g = cfg.grid;
+  ESP_LOGI(TAG, "Device \"%s\", language %s", cfg.deviceName, cfg.language);
+  ESP_LOGI(TAG, "Grid %ux%u bins, %u px/bin = %d px, %s %s %uV, %s from %s, %u segment(s)", g.cols, g.rows,
+           g.pixelsPerBin, sb::config::gridPixels(g), sb::config::toString(g.chipset), g.colorOrder, g.voltage,
+           sb::config::toString(g.layout), sb::config::toString(g.start), g.segments);
+  for (int i = 0; i < sb::config::kLightChannels; i++) {
+    ESP_LOGI(TAG, "Light W%d: %s", i + 1, sb::config::toString(cfg.lights[i].mode));
+  }
+}
+
+// Minimal landing page until the web UI arrives (Task 6).
+void registerStatusPage() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+    if (network.state() != sb::WifiLink::State::Connected && network.portalActive()) {
+      req->redirect("/wifi");
+      return;
+    }
+    String html =
+        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
+        "<title>Smart Bins</title><body style='font:16px system-ui;max-width:420px;margin:24px auto;padding:0 16px'>"
+        "<h1>Smart Bins</h1><p>Firmware " SB_FW_VERSION "</p><p>Device: ";
+    html += configStore.get().deviceName;
+    html += "<br>Uptime: " + String(millis() / 1000) + " s<br>Free heap: " + String(ESP.getFreeHeap()) +
+            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/api/config'>config.json</a></p>";
+    req->send(200, "text/html; charset=utf-8", html);
+  });
+
+  // Read-only view of the active configuration (editing arrives with the settings UI).
+  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *req) {
+    req->send(200, "application/json", sb::config::serialize(configStore.get()).c_str());
+  });
+}
+
+// BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset (Wi-Fi + config).
+// Acts on release, so holding through 5 s on the way to 10 s doesn't trigger the first.
+void handleButton() {
+  static uint32_t pressedAt = 0;
+  const bool down = digitalRead(kButtonPin) == LOW;
+  const uint32_t now = millis();
+  if (down && pressedAt == 0) {
+    pressedAt = now;
+  } else if (!down && pressedAt != 0) {
+    const uint32_t held = now - pressedAt;
+    pressedAt = 0;
+    if (held >= kFactoryResetHoldMs) {
+      ESP_LOGW(TAG, "Factory reset");
+      configStore.erase();
+      network.forgetCredentials();
+      delay(200);
+      ESP.restart();
+    } else if (held >= kWifiResetHoldMs) {
+      network.forgetCredentials();
+    }
+  }
+}
+
+// Status LED: solid while the button is held past a reset threshold, fast blink
+// while the setup portal is open, slow blink while connecting, off when connected.
+void updateStatusLed() {
+  static uint32_t pressedSince = 0;
+  const uint32_t now = millis();
+  const bool down = digitalRead(kButtonPin) == LOW;
+  if (!down) pressedSince = 0;
+  else if (pressedSince == 0) pressedSince = now;
+
+  bool on;
+  if (down && now - pressedSince >= kFactoryResetHoldMs) {
+    on = (now / 60) % 2;  // flicker: release now for a factory reset
+  } else if (down && now - pressedSince >= kWifiResetHoldMs) {
+    on = true;            // solid: release now to forget Wi-Fi
+  } else {
+    switch (network.state()) {
+      case sb::WifiLink::State::Connected: on = network.portalActive() && (now / 250) % 2; break;
+      case sb::WifiLink::State::Connecting: on = (now % 1000) < 100; break;
+      default: on = (now / 250) % 2; break;
+    }
+  }
+  digitalWrite(kStatusLedPin, on ? HIGH : LOW);
+}
+
+}  // namespace
 
 void setup() {
-  holdOutputsLow();
+  sb::holdOutputsLow();
+  pinMode(kButtonPin, INPUT_PULLUP);
   Serial.begin(115200);
   delay(500);  // give the USB-serial bridge time to open the port
   Serial.println();
   ESP_LOGI(TAG, "Smart Bins firmware %s", SB_FW_VERSION);
-  printChipInfo();
-  printFlashInfo();
-  printMemoryInfo();
-  printPartitions();
-  printPinMap();
+  sb::printBootReport();
+
   mountFilesystem();
-  ESP_LOGI(TAG, "Boot complete");
+  configStore.begin();
+  logConfig(configStore.get());
+
+  network.begin(configStore.get().deviceName, server);
+  registerStatusPage();
+  server.begin();
+  ESP_LOGI(TAG, "Boot complete, free heap %s", sb::formatBytes(ESP.getFreeHeap()));
 }
 
 void loop() {
-  static uint32_t last = 0;
-  if (millis() - last >= 10000) {
-    last = millis();
-    ESP_LOGI(TAG, "Uptime %lus, free heap %s", (unsigned long)(millis() / 1000), fmt(ESP.getFreeHeap()));
+  network.loop();
+  handleButton();
+  updateStatusLed();
+
+  static uint32_t lastReport = 0;
+  if (millis() - lastReport >= 60000) {
+    lastReport = millis();
+    ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
+             sb::formatBytes(ESP.getFreeHeap()), sb::formatBytes(ESP.getMinFreeHeap()));
   }
-  delay(10);
+  delay(2);
 }
