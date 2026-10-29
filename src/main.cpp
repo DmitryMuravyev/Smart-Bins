@@ -42,13 +42,21 @@ static void printChipInfo() {
 static void printFlashInfo() {
   uint32_t physical = 0;
   esp_flash_get_physical_size(esp_flash_default_chip, &physical);
-  uint32_t configured = ESP.getFlashChipSize();
-  ESP_LOGI(TAG, "Flash: %s detected, %s configured (build env esp32-%dmb), %lu MHz", fmt(physical),
-           fmt(configured), SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000));
-  if (physical != 0 && physical != configured) {
-    int detectedMb = physical / (1024 * 1024);
-    ESP_LOGW(TAG, "Flash size mismatch: this board has %d MB. Rebuild with env esp32-%dmb.", detectedMb,
+  // Compare against the build environment: ESP.getFlashChipSize() can report the
+  // physical size even when a smaller partition layout was flashed.
+  const uint32_t built = (uint32_t)SB_FLASH_MB * 1024 * 1024;
+  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb), %lu MHz", fmt(physical), fmt(built),
+           SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000));
+  if (physical == 0 || built == 0 || physical == built) {
+    return;
+  }
+  const int detectedMb = physical / (1024 * 1024);
+  if (physical > built) {
+    ESP_LOGW(TAG, "Only %d of %d MB flash in use. Flash env esp32-%dmb to use all of it.", SB_FLASH_MB, detectedMb,
              detectedMb);
+  } else {
+    ESP_LOGE(TAG, "Flash too small: board has %d MB, firmware expects %d MB. Flash env esp32-%dmb.", detectedMb,
+             SB_FLASH_MB, detectedMb);
   }
 }
 
