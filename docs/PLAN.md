@@ -144,7 +144,8 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 3: Configuration and Wi-Fi
 - `config.json` on LittleFS: grid width/height, pixels per bin (1–3), strip wiring order (row-by-row or serpentine, start corner), LED pin(s), chipset (WS2812/WS2812B/SK6812/WS2811/WS2815), color order, strip voltage, work-light outputs, brightness and current limit, device name.
-- Wi-Fi station + fallback AP with a minimal setup page, mDNS, OTA update.
+- Wi-Fi station + fallback AP with a minimal setup page, mDNS, OTA update. Wi-Fi credentials in NVS, not in `config.json`, so backups never contain them.
+- BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset. Status LED shows portal / connecting / connected.
 - **Verify:** fresh board opens an AP, you enter Wi-Fi credentials, it joins your network and answers at `smartbins.local`; firmware updates over the air.
 
 ### Task 4: LED driver and grid mapping
@@ -210,7 +211,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** effects follow music in the room.
 
 ### Task 14: Settings and effects UI
-- Hardware page: per-channel mode (off / white PWM / RGB group / addressable) and GPIO assignment for every function, validated against the board (flash, input-only and strapping pins rejected, no double use), applied after a reboot. Holding BOOT during power-up restores the default pin map in case a bad setting leaves the device unreachable.
+- Hardware page: per-channel mode (off / white PWM / RGB group / addressable) and GPIO assignment for every function, validated against the board (flash, input-only and strapping pins rejected, no double use), applied after a reboot. Holding the BOOT button for 10 s (factory reset) restores the default pin map in case a bad setting leaves the device unreachable. (Holding BOOT *during* power-up isn't possible: it puts the ESP32 into its flashing mode.)
 - Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, fade time, locate highlight (duration, colour, steady / slow pulse / fast pulse), language, password, OTA upload.
 - Effects page: pick effect, parameters, timer; work-light controls.
 - **Verify:** reconfigure the grid size from the browser and the mapping updates without reflashing.

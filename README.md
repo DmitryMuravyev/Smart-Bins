@@ -36,6 +36,25 @@ Built with [PlatformIO](https://platformio.org/) in VS Code, using the Arduino f
 
 The boot log shows chip, flash, memory and partition information. If the detected flash size differs from the build environment, it prints a warning naming the right one.
 
+### First start and Wi-Fi
+
+1. On first boot (or when your network can't be reached) the board opens a Wi-Fi network named **SmartBins-XXXX**. The on-board LED blinks fast.
+2. Join it from a phone or laptop. A setup page opens by itself; if not, browse to `http://192.168.4.1/`.
+3. Pick your network, enter the password and press **Connect**. The page shows the address once connected.
+4. From then on the board is at **http://smartbins.local/** on your network (or at the IP shown in the serial log).
+
+The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network, hold **10 s** and release for a factory reset (Wi-Fi and configuration). The LED lights steadily at 5 s and flickers at 10 s.
+
+The configuration is stored in `/config.json` on the board. View it at `http://smartbins.local/api/config`; it becomes editable in the settings UI.
+
+### Updating over Wi-Fi
+
+Once the board is on your network, upload new firmware without a cable:
+
+```sh
+pio run -e esp32-8mb-ota -t upload    # or esp32-16mb-ota
+```
+
 From the command line:
 
 ```sh
