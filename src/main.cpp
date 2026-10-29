@@ -1,5 +1,6 @@
-// Smart Bins firmware - Task 1: boot report.
-// Prints chip, flash, memory and partition information, then mounts LittleFS.
+// Smart Bins firmware - boot report.
+// Holds LED outputs low, prints chip, flash, memory, partition and pin information,
+// then mounts LittleFS.
 
 #include <Arduino.h>
 #include <LittleFS.h>
@@ -8,6 +9,7 @@
 #include <esp_partition.h>
 
 #include "FormatBytes.h"
+#include "PinMap.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -82,6 +84,28 @@ static void printPartitions() {
   esp_partition_iterator_release(it);
 }
 
+// Drive every LED-related output LOW before anything else, so power switches stay
+// off and no strip sees random data while the firmware starts.
+static void holdOutputsLow() {
+  for (const auto &pin : sb::board::kDefaultPins) {
+    if (pin.lowAtBoot && pin.gpio != sb::board::kNoPin) {
+      pinMode(pin.gpio, OUTPUT);
+      digitalWrite(pin.gpio, LOW);
+    }
+  }
+}
+
+static void printPinMap() {
+  ESP_LOGI(TAG, "Pin map (defaults):");
+  for (const auto &pin : sb::board::kDefaultPins) {
+    if (pin.gpio == sb::board::kNoPin) {
+      ESP_LOGI(TAG, "  %-12s -", pin.name);
+    } else {
+      ESP_LOGI(TAG, "  %-12s GPIO%d", pin.name, pin.gpio);
+    }
+  }
+}
+
 static void mountFilesystem() {
   // formatOnFail = true: a blank partition is formatted on first boot.
   if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
@@ -93,6 +117,7 @@ static void mountFilesystem() {
 }
 
 void setup() {
+  holdOutputsLow();
   Serial.begin(115200);
   delay(500);  // give the USB-serial bridge time to open the port
   Serial.println();
@@ -101,6 +126,7 @@ void setup() {
   printFlashInfo();
   printMemoryInfo();
   printPartitions();
+  printPinMap();
   mountFilesystem();
   ESP_LOGI(TAG, "Boot complete");
 }

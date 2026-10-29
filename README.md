@@ -23,7 +23,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–3 addressable 
 - 74HCT245 level shifter, P-channel MOSFET power switches, 5 V power supply
 - Optional: INMP441 I2S microphone, microSD card
 
-Wiring and schematics will be in `docs/` (Task 2 of the plan).
+Schematics, wiring, parts list and power budget: [docs/hardware/README.md](docs/hardware/README.md).
 
 ## Development
 
@@ -52,6 +52,7 @@ pio test -e native                          # host-side unit tests, no hardware 
 | `test/` | Unit tests (`pio test -e native`) |
 | `partitions/` | Flash partition tables for 4, 8 and 16 MB boards |
 | `docs/` | Plan, hardware and user documentation |
+| `tools/` | Helper scripts (power budget calculator) |
 
 ## License
 
