@@ -25,7 +25,7 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 - **Protection:** 5 V supply sized from the power budget, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (FastLED `setMaxPowerInVoltsAndMilliamps`).
 ### Work-light channels (universal outputs)
 
-Each work-light channel is one GPIO wired to **both** a low-side N-MOSFET driver (for non-addressable strips) and a 74HCT245 input (for addressable strips). The connector you use decides the strip type, and the firmware config sets each channel's mode, so the same board supports every option without rewiring:
+Each work-light channel is one GPIO wired to **both** a low-side N-MOSFET driver (for non-addressable strips) and a 74HCT245 input (for addressable strips). The connector you use decides the strip type, and the channel's mode is a setting in `config.json` (editable from the web UI in Task 14, no reflashing), so the same board supports every option without rewiring:
 
 | Option | W1 | W2 | W3 | W4, W5 (auxiliary) |
 |---|---|---|---|---|
@@ -197,6 +197,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** effects follow music in the room.
 
 ### Task 14: Settings and effects UI
+- Hardware page: per-channel mode (off / white PWM / RGB group / addressable) and GPIO assignment for every function, validated against the board (flash, input-only and strapping pins rejected, no double use), applied after a reboot. Holding BOOT during power-up restores the default pin map in case a bad setting leaves the device unreachable.
 - Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, OTA upload.
 - Effects page: pick effect, parameters, timer; work-light controls.
 - **Verify:** reconfigure the grid size from the browser and the mapping updates without reflashing.
