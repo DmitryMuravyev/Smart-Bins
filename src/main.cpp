@@ -31,7 +31,10 @@ AsyncWebServer server(80);
 
 bool mountFilesystem() {
   // formatOnFail = true: a blank partition is formatted on first boot.
-  if (!LittleFS.begin(true, "/littlefs", 10, "littlefs")) {
+  // The partition is labelled "spiffs" (the Arduino default) even though it holds
+  // LittleFS: a label of "littlefs" collides with the IDF subtype name and makes
+  // the partition tool warn.
+  if (!LittleFS.begin(true, "/littlefs", 10, "spiffs")) {
     ESP_LOGE(TAG, "LittleFS mount failed");
     return false;
   }
