@@ -1,4 +1,4 @@
-#include "Network.h"
+#include "WifiLink.h"
 
 #include <ArduinoJson.h>
 #include <ArduinoOTA.h>
@@ -24,7 +24,7 @@ constexpr uint32_t kPortalLingerMs = 60000;      // keep the portal after connec
 DNSServer dns;
 }  // namespace
 
-void Network::begin(const char *hostName, AsyncWebServer &server) {
+void WifiLink::begin(const char *hostName, AsyncWebServer &server) {
   strncpy(host_, hostName, sizeof(host_) - 1);
   uint8_t mac[6];
   WiFi.macAddress(mac);
@@ -51,18 +51,18 @@ void Network::begin(const char *hostName, AsyncWebServer &server) {
   }
 }
 
-String Network::ipAddress() const {
+String WifiLink::ipAddress() const {
   return state_ == State::Connected ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
 }
 
-void Network::startConnecting() {
+void WifiLink::startConnecting() {
   ESP_LOGI(TAG, "Connecting to \"%s\"", ssid_.c_str());
   WiFi.begin(ssid_.c_str(), pass_.c_str());
   state_ = State::Connecting;
   stateSince_ = lastRetry_ = millis();
 }
 
-void Network::startPortal() {
+void WifiLink::startPortal() {
   if (!portalActive_) {
     WiFi.mode(WIFI_AP_STA);
     WiFi.softAP(apName_);
@@ -79,7 +79,7 @@ void Network::startPortal() {
   }
 }
 
-void Network::stopPortal() {
+void WifiLink::stopPortal() {
   if (!portalActive_) return;
   dns.stop();
   WiFi.softAPdisconnect(true);
@@ -89,7 +89,7 @@ void Network::stopPortal() {
   ESP_LOGI(TAG, "Setup portal closed");
 }
 
-void Network::onConnected() {
+void WifiLink::onConnected() {
   state_ = State::Connected;
   stateSince_ = millis();
   ESP_LOGI(TAG, "Connected to \"%s\", IP %s, RSSI %d dBm", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(),
@@ -109,7 +109,7 @@ void Network::onConnected() {
   ESP_LOGI(TAG, "Open http://%s.local/ or http://%s/", host_, WiFi.localIP().toString().c_str());
 }
 
-void Network::forgetCredentials() {
+void WifiLink::forgetCredentials() {
   Preferences prefs;
   prefs.begin(kPrefsNamespace, false);
   prefs.clear();
@@ -121,7 +121,7 @@ void Network::forgetCredentials() {
   startPortal();
 }
 
-void Network::loop() {
+void WifiLink::loop() {
   const uint32_t now = millis();
 
   if (pendingConnect_) {
@@ -178,7 +178,7 @@ void Network::loop() {
   }
 }
 
-void Network::registerRoutes(AsyncWebServer &server) {
+void WifiLink::registerRoutes(AsyncWebServer &server) {
   server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *req) {
     req->send(200, "text/html; charset=utf-8", web::kSetupPage);
   });

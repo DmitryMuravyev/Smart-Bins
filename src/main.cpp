@@ -10,7 +10,7 @@
 
 #include "BootReport.h"
 #include "ConfigStore.h"
-#include "Network.h"
+#include "WifiLink.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -26,7 +26,7 @@ constexpr uint32_t kWifiResetHoldMs = 5000;
 constexpr uint32_t kFactoryResetHoldMs = 10000;
 
 sb::ConfigStore configStore;
-sb::Network network;
+sb::WifiLink network;
 AsyncWebServer server(80);
 
 bool mountFilesystem() {
@@ -54,7 +54,7 @@ void logConfig(const sb::config::AppConfig &cfg) {
 // Minimal landing page until the web UI arrives (Task 6).
 void registerStatusPage() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
-    if (network.state() != sb::Network::State::Connected && network.portalActive()) {
+    if (network.state() != sb::WifiLink::State::Connected && network.portalActive()) {
       req->redirect("/wifi");
       return;
     }
@@ -113,8 +113,8 @@ void updateStatusLed() {
     on = true;            // solid: release now to forget Wi-Fi
   } else {
     switch (network.state()) {
-      case sb::Network::State::Connected: on = network.portalActive() && (now / 250) % 2; break;
-      case sb::Network::State::Connecting: on = (now % 1000) < 100; break;
+      case sb::WifiLink::State::Connected: on = network.portalActive() && (now / 250) % 2; break;
+      case sb::WifiLink::State::Connecting: on = (now % 1000) < 100; break;
       default: on = (now / 250) % 2; break;
     }
   }

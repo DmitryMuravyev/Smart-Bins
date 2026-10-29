@@ -13,7 +13,7 @@ class AsyncWebServer;
 
 namespace sb {
 
-class Network {
+class WifiLink {
  public:
   enum class State : uint8_t { Idle, Connecting, Connected, Portal };
 
