@@ -1,11 +1,10 @@
 // Smart Bins firmware entry point.
 //
 // Boot order: hold LED outputs low, print the boot report, mount LittleFS,
-// load the configuration, start the LED engine, then bring up Wi-Fi (or the
-// setup portal), mDNS, over-the-air updates and the web server.
+// load the configuration, start the LED engine and work lights, then bring up
+// Wi-Fi (or the setup portal), mDNS, over-the-air updates and the web server.
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 
@@ -17,6 +16,10 @@
 #include "led/WorkLights.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
+#include "web/LiveUpdates.h"
+#include "web/Security.h"
+#include "web/SystemApi.h"
+#include "web/WebUi.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -35,8 +38,18 @@ sb::ConfigStore configStore;
 sb::WifiLink network;
 sb::led::LedEngine leds;
 sb::led::WorkLights workLights;
+sb::Security security;
+sb::LiveUpdates live;
 AsyncWebServer server(80);
-uint32_t restartAt = 0;  // set by the config endpoint; restart happens in loop()
+
+// Restarts requested from the web API happen here, a second later, so the
+// response reaches the browser first. Written on the network task, read in loop().
+volatile uint32_t restartAt = 0;
+void scheduleRestart() { restartAt = millis() + 1000; }
+
+// Set when the password changes (network task); loop() passes the new hash to
+// ArduinoOTA, so the OTA library is only ever touched from the main loop.
+volatile bool otaHashChanged = false;
 
 bool mountFilesystem() {
   // formatOnFail = true: a blank partition is formatted on first boot.
@@ -69,108 +82,8 @@ void logConfig(const sb::config::AppConfig &cfg) {
   }
 }
 
-// Work-light controls for the status page. The list is drawn by the script from
-// /api/lights, so it always shows the real state; each button sends one change
-// and redraws from the response.
-// The "html" delimiter is needed because the markup itself contains )" (as in onclick="S(...)").
-const char kLightsSection[] = R"html(<h2>Work lights</h2><div id=wl>loading...</div>
-<p>Light <select id=lid></select> <button onclick="S('on=toggle')">toggle</button>
-<button onclick="L('/off')">all off</button></p>
-<p>Level <input id=lv type=range min=1 max=255 value=255 onchange="S('level='+this.value)"></p>
-<p>Colour <input id=lc type=color value=#ffffff onchange="S('color='+this.value.slice(1))">
-<button onclick="S('kelvin=2700')">warm</button> <button onclick="S('kelvin=4000')">neutral</button>
-<button onclick="S('kelvin=6500')">daylight</button></p>
-<p>Effect <button onclick="S('effect=solid')">solid</button> <button onclick="S('effect=breathe')">breathe</button>
-<button onclick="S('effect=rainbow')">rainbow</button> <span id=le></span></p>
-<script>
-async function L(q){const r=await fetch('/api/lights'+q);const j=await r.json();
-le.textContent=j.error||'';if(j.error)return;const keep=lid.value;
-wl.innerHTML=j.lights.map(l=>`<div>${l.name} (${l.type}): ${l.on?'on':'off'}, level ${l.level}${l.color?', '+l.color:''}, ${l.effect}${l.estimateMa!==undefined?', ~'+l.estimateMa+' mA':''}</div>`).join('')||'No work lights configured; set lights[].mode in config.';
-lid.innerHTML=j.lights.map(l=>`<option value=${l.id}>${l.name}</option>`).join('');if(keep)lid.value=keep}
-function S(p){L('/set?id='+lid.value+'&'+p)}
-L('');
-</script>)html";
-
-// Minimal landing page until the web UI arrives (Task 6).
-void registerStatusPage() {
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
-    if (network.state() != sb::WifiLink::State::Connected && network.portalActive()) {
-      req->redirect("/wifi");
-      return;
-    }
-    String html =
-        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Smart Bins</title><body style='font:16px system-ui;max-width:420px;margin:24px auto;padding:0 16px'>"
-        "<h1>Smart Bins</h1><p>Firmware " SB_FW_VERSION "</p><p>Device: ";
-    html += configStore.get().deviceName;
-    html += "<br>Uptime: " + String(millis() / 1000) + " s<br>Free heap: " + String(ESP.getFreeHeap()) +
-            " bytes</p><p><a href='/wifi'>Wi-Fi settings</a> &middot; <a href='/config'>edit config</a> &middot; "
-            "<a href='/api/led/status'>LED status</a></p>"
-            "<h2>LED tests</h2><p>"
-            "<a href='/api/led/test?pattern=walk'>walk bins</a> &middot; "
-            "<a href='/api/led/test?pattern=chain'>chain</a> &middot; "
-            "<a href='/api/led/test?pattern=rows'>rows</a> &middot; "
-            "<a href='/api/led/test?pattern=columns'>columns</a> &middot; "
-            "<a href='/api/led/test?pattern=colors'>colours</a> &middot; "
-            "<a href='/api/led/test?pattern=off'>stop</a></p>"
-            "<form action='/api/locate'>Locate bin x <input name=x size=2 value=0> y <input name=y size=2 value=0> "
-            "<button>Light</button> <a href='/api/locate/clear'>clear</a></form>";
-    html += kLightsSection;
-    req->send(200, "text/html; charset=utf-8", html);
-  });
-
-  // Read-only view of the active configuration (editing arrives with the settings UI).
-  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest *req) {
-    req->send(200, "application/json", sb::config::serialize(configStore.get()).c_str());
-  });
-
-  // Replaces the whole configuration with the posted JSON, then restarts to apply it.
-  // Temporary until the settings UI (Task 14); /config is a plain editor for it.
-  server.on(
-      "/api/config", HTTP_POST,
-      [](AsyncWebServerRequest *req) {
-        // The body is collected with malloc() because the server free()s _tempObject on aborted requests.
-        char *body = static_cast<char *>(req->_tempObject);
-        if (!body) return req->send(400, "application/json", "{\"error\":\"empty or too large body\"}");
-        sb::config::AppConfig cfg;
-        std::string err;
-        const bool ok = sb::config::parse(body, cfg, err) && configStore.save(cfg, err);
-        free(body);
-        req->_tempObject = nullptr;
-        if (!ok) {
-          JsonDocument doc;
-          doc["error"] = err;
-          String out;
-          serializeJson(doc, out);
-          return req->send(400, "application/json", out);
-        }
-        restartAt = millis() + 1000;
-        req->send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
-      },
-      nullptr,
-      [](AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t index, size_t total) {
-        if (total > 8192) return;
-        if (index == 0) req->_tempObject = calloc(total + 1, 1);
-        char *body = static_cast<char *>(req->_tempObject);
-        if (body && index + len <= total) memcpy(body + index, data, len);
-      });
-
-  server.on("/config", HTTP_GET, [](AsyncWebServerRequest *req) {
-    String html =
-        "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'>"
-        "<title>Smart Bins config</title><body style='font:16px system-ui;max-width:640px;margin:24px auto;padding:0 16px'>"
-        "<h1>config.json</h1><p>Edit and save; the board restarts to apply. Invalid values are rejected with the field "
-        "name.</p><textarea id=c spellcheck=false style='width:100%;height:60vh;font:13px monospace'></textarea>"
-        "<p><button id=s>Save and restart</button> <span id=m></span></p><script>"
-        "fetch('/api/config').then(r=>r.text()).then(t=>c.value=t);"
-        "s.onclick=async()=>{const r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},"
-        "body:c.value});const j=await r.json();m.textContent=r.ok?'Saved, restarting...':'Error: '+j.error;"
-        "if(r.ok)setTimeout(()=>location.reload(),6000)};</script>";
-    req->send(200, "text/html; charset=utf-8", html);
-  });
-}
-
-// BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset (Wi-Fi + config).
+// BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset (Wi-Fi,
+// config and web password).
 // Acts on release, so holding through 5 s on the way to 10 s doesn't trigger the first.
 void handleButton() {
   static uint32_t pressedAt = 0;
@@ -184,6 +97,7 @@ void handleButton() {
     if (held >= kFactoryResetHoldMs) {
       ESP_LOGW(TAG, "Factory reset");
       configStore.erase();
+      security.erase();
       network.forgetCredentials();
       delay(200);
       ESP.restart();
@@ -241,17 +155,29 @@ void setup() {
       sb::board::defaultPin("light_w4"), sb::board::defaultPin("light_w5")};
   workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
 
+  // Security first: its password check is middleware, and it must be in place
+  // before the server starts answering.
+  security.begin(server);
+  security.onChange([]() { otaHashChanged = true; });
+  network.setOtaPasswordHash(security.otaHash());
   network.begin(configStore.get().deviceName, server);
-  registerStatusPage();
-  sb::registerLedApi(server, leds);
+  sb::registerWebUi(server, network);
+  sb::registerSystemApi(server, configStore, network, security, scheduleRestart);
+  sb::registerLedApi(server, leds, configStore);
   sb::registerLightsApi(server, workLights);
+  live.begin(server, security, workLights, leds, network);
   server.begin();
   ESP_LOGI(TAG, "Boot complete, free heap %s", sb::formatBytes(ESP.getFreeHeap()));
 }
 
 void loop() {
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
+  if (otaHashChanged) {
+    otaHashChanged = false;
+    network.setOtaPasswordHash(security.otaHash());
+  }
   network.loop();
+  live.loop();
   handleButton();
   updateStatusLed();
 

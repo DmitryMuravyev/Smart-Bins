@@ -81,6 +81,11 @@ class BasicFader {
   }
 
   T value(uint32_t nowMs) const {
+    // A caller may hold a `nowMs` read just before another task called set();
+    // then start_ is a little later than nowMs and the unsigned difference would
+    // wrap to ~4 billion, which reads as "fade finished". Treat it as "not
+    // started yet" instead (signed difference below zero -> still at from_).
+    if (static_cast<int32_t>(nowMs - start_) < 0) return from_;
     const uint32_t elapsed = nowMs - start_;
     if (duration_ == 0 || elapsed >= duration_) return to_;
     // 64-bit intermediate: for uint16_t, 65535 x 5000 ms already exceeds int32.

@@ -208,6 +208,7 @@ void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
   s.on = on;
   l.level.set(targetLevel(l), now, fadeMs_);
   dirtySince_ = now | 1;  // never 0, which means "saved"
+  version_ = version_ + 1;
 }
 
 // Output level for the current state: level x maxBrightness, scaled from

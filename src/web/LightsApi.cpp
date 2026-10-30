@@ -34,14 +34,22 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
   }
 }
 
-void sendLights(AsyncWebServerRequest *req, led::WorkLights &lights) {
-  JsonDocument doc;
+}  // namespace
+
+void writeLights(JsonDocument &doc, led::WorkLights &lights) {
   JsonArray arr = doc["lights"].to<JsonArray>();
   led::WorkLights::Info info;
   for (uint8_t i = 0; i < lights.count(); i++) {
     if (lights.info(i, info)) addLight(arr, info);
   }
   doc["stripPower"] = lights.stripPower();
+}
+
+namespace {
+
+void sendLights(AsyncWebServerRequest *req, led::WorkLights &lights) {
+  JsonDocument doc;
+  writeLights(doc, lights);
   sendJson(req, 200, doc);
 }
 
@@ -54,12 +62,12 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
   server.on(AsyncURIMatcher::exact("/api/lights"), HTTP_GET,
             [&lights](AsyncWebServerRequest *req) { sendLights(req, lights); });
 
-  server.on("/api/lights/off", HTTP_GET, [&lights](AsyncWebServerRequest *req) {
+  server.on("/api/lights/off", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
     lights.allOff();
     sendLights(req, lights);
   });
 
-  server.on("/api/lights/set", HTTP_GET, [&lights](AsyncWebServerRequest *req) {
+  server.on("/api/lights/set", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
     long id;
     if (lights.count() == 0) return sendError(req, 404, "no work lights are configured (see lights in /config)");
     if (!intParam(req, "id", 0, lights.count() - 1, id)) return sendError(req, 400, "id must be a light number");
@@ -67,15 +75,15 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     // Every parameter is checked before anything changes, so a bad request
     // never leaves the light half-updated.
     led::WorkLights::Change c;
-    if (req->hasParam("on")) {
-      const String &v = req->getParam("on")->value();
+    if (hasParam(req, "on")) {
+      const String &v = param(req, "on")->value();
       if (v == "1" || v == "true") c.power = led::WorkLights::Change::Power::On;
       else if (v == "0" || v == "false") c.power = led::WorkLights::Change::Power::Off;
       else if (v == "toggle") c.power = led::WorkLights::Change::Power::Toggle;
       else return sendError(req, 400, "on must be 1, 0 or toggle");
     }
     long n;
-    if (req->hasParam("level")) {
+    if (hasParam(req, "level")) {
       if (!intParam(req, "level", 0, 255, n)) return sendError(req, 400, "level must be 0..255");
       c.hasLevel = true;
       c.level = static_cast<uint8_t>(n);
@@ -83,19 +91,19 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     // A colour picker and a white-tone slider may both be on the same form;
     // an explicit colour wins over kelvin.
     uint32_t rgb;
-    if (req->hasParam("color")) {
+    if (hasParam(req, "color")) {
       if (!colorParam(req, "color", rgb)) return sendError(req, 400, "color must be 6 hex digits, e.g. FF8800");
       c.hasColor = true;
       c.color = led::Rgb::fromHex(rgb);
-    } else if (req->hasParam("kelvin")) {
+    } else if (hasParam(req, "kelvin")) {
       if (!intParam(req, "kelvin", led::kMinKelvin, led::kMaxKelvin, n)) {
         return sendError(req, 400, "kelvin must be 1500..10000");
       }
       c.hasColor = true;
       c.color = led::kelvinToRgb(static_cast<uint16_t>(n));
     }
-    if (req->hasParam("effect")) {
-      if (!led::parseWorkEffect(req->getParam("effect")->value().c_str(), c.effect)) {
+    if (hasParam(req, "effect")) {
+      if (!led::parseWorkEffect(param(req, "effect")->value().c_str(), c.effect)) {
         return sendError(req, 400, "effect must be solid, breathe or rainbow");
       }
       c.hasEffect = true;
