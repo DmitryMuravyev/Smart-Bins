@@ -94,7 +94,8 @@ static void test_scale_and_gamma() {
   TEST_ASSERT_EQUAL(128, scale8(255, 128));
   Gamma gamma;
   TEST_ASSERT_EQUAL(0, gamma(0));
-  TEST_ASSERT_EQUAL(1, gamma(1));  // never rounds a lit value to off
+  TEST_ASSERT_EQUAL(0, gamma(1));   // the darkest inputs round to off, no stuck "1" tail
+  TEST_ASSERT_EQUAL(1, gamma(20));
   TEST_ASSERT_EQUAL(255, gamma(255));
   TEST_ASSERT_TRUE(gamma(128) < 70);
   TEST_ASSERT_TRUE(blendMax(Rgb(10, 200, 0), Rgb(50, 20, 0)) == Rgb(50, 200, 0));
