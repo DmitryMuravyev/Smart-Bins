@@ -124,7 +124,7 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
     l.prevEffect = l.state.effect;
     l.effectStart = l.prevEffectStart = l.colorStart = now;
     l.level.set(targetLevel(l), now, fadeMs_);
-    char name[8];
+    char name[WorkLights::kNameSize];
     lightName(l.type, l.channel, name, sizeof(name));
     ESP_LOGI(TAG, "Light %u: %s %s%s", i, name, config::toString(l.type), l.state.on ? ", on" : "");
   }
