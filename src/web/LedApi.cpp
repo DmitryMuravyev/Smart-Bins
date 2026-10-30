@@ -9,7 +9,8 @@
 namespace sb {
 
 void registerLedApi(AsyncWebServer &server, led::LedEngine &engine) {
-  server.on("/api/locate", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
+  // exact(): otherwise this route also catches "/api/locate/clear" (see LightsApi.cpp).
+  server.on(AsyncURIMatcher::exact("/api/locate"), HTTP_GET, [&engine](AsyncWebServerRequest *req) {
     const auto &g = engine.mapper().geometry();
     long x, y;
     if (!intParam(req, "x", 0, g.cols - 1, x) || !intParam(req, "y", 0, g.rows - 1, y)) {
