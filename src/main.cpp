@@ -72,7 +72,8 @@ void logConfig(const sb::config::AppConfig &cfg) {
 // Work-light controls for the status page. The list is drawn by the script from
 // /api/lights, so it always shows the real state; each button sends one change
 // and redraws from the response.
-const char kLightsSection[] = R"(<h2>Work lights</h2><div id=wl>loading...</div>
+// The "html" delimiter is needed because the markup itself contains )" (as in onclick="S(...)").
+const char kLightsSection[] = R"html(<h2>Work lights</h2><div id=wl>loading...</div>
 <p>Light <select id=lid></select> <button onclick="S('on=toggle')">toggle</button>
 <button onclick="L('/off')">all off</button></p>
 <p>Level <input id=lv type=range min=1 max=255 value=255 onchange="S('level='+this.value)"></p>
@@ -88,7 +89,7 @@ wl.innerHTML=j.lights.map(l=>`<div>${l.name} (${l.type}): ${l.on?'on':'off'}, le
 lid.innerHTML=j.lights.map(l=>`<option value=${l.id}>${l.name}</option>`).join('');if(keep)lid.value=keep}
 function S(p){L('/set?id='+lid.value+'&'+p)}
 L('');
-</script>)";
+</script>)html";
 
 // Minimal landing page until the web UI arrives (Task 6).
 void registerStatusPage() {
