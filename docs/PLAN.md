@@ -79,7 +79,7 @@ Final map is confirmed with the schematic in Task 2.
 | Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on LittleFS | Small page cache (tuned for no PSRAM). Search with `LIKE` across all text fields; FTS5 only if needed. |
 | LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, colour order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's colour math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
-| Web UI | Vanilla JS + small CSS, no framework, gzipped and served from LittleFS; strings in per-language JSON files (en, es, ru) | Small and fast on ESP32. Optional npm build step for minify/gzip. |
+| Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and LittleFS stays free for the inventory and photos. |
 | Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
 | Wi-Fi | Station mode + fallback access point with captive setup page, mDNS `http://smartbins.local` | No hard-coded credentials in source. |
 | Audio | **INMP441 I2S digital microphone** + `arduinoFFT` | Cleaner than analog mics on the noisy ESP32 ADC. Analog MAX9814 as fallback option. |
@@ -133,7 +133,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 ### Task 1: Project skeleton and build
 - PlatformIO project (`pioarduino` platform), environments `esp32-4mb`, `esp32-8mb`, `esp32-16mb`, `native` (tests).
 - Custom partition CSVs for 4 MB, 8 MB and 16 MB, LittleFS mounted at boot, serial logging with levels.
-- Source layout (`src/`, `lib/`, `data/` for web files, `test/`), `.clang-format`, GitHub Actions build.
+- Source layout (`src/`, `lib/`, `web/` for web files, `test/`), `.clang-format`, GitHub Actions build.
 - **Verify:** firmware builds in CI; on your board it boots, prints flash size, chip info and free LittleFS space.
 
 ### Task 2: Hardware reference design
@@ -162,10 +162,11 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** each light controllable independently via a temporary REST call.
 
 ### Task 6: Web server and REST API foundation
-- ESPAsyncWebServer, static gzipped files from LittleFS, JSON REST conventions, error format, WebSocket channel for state pushes.
-- Endpoints so far: system info, config get/set, LED test, locate bin, work lights.
-- Basic UI shell (navigation, status bar) with no inventory yet, and the translation mechanism: English, Spanish and Russian string files, language picker.
-- Optional password (off by default) protecting the UI and API.
+- ESPAsyncWebServer, gzipped UI files embedded in the firmware, JSON REST conventions, error format, WebSocket channel for state pushes.
+- Endpoints so far: system info, restart, config get/set, LED test, locate bin and locate defaults (mode, duration, colour), work lights.
+- Basic UI shell (navigation, status bar) with no inventory yet, and the translation mechanism: English, Spanish and Russian string files, language picker (per browser).
+- Pages so far: work lights (on/off, level, colour wheel and white tone sliders that fit a phone in portrait, effects), grid (tap a bin to locate it, locate mode/duration/colour, test patterns), settings (language, password, raw config editor), system info.
+- Optional password (off by default) protecting the UI, the API and over-the-air updates (HTTP digest auth; the Wi-Fi setup page stays open on the setup access point; a 10 s BOOT factory reset removes it).
 - **Verify:** UI loads on phone and desktop; "locate bin (x,y)" lights the right bin.
 
 ### Task 7: SQLite database layer

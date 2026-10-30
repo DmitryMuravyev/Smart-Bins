@@ -28,6 +28,12 @@ class WifiLink {
   // Clears saved credentials and opens the setup portal.
   void forgetCredentials();
 
+  // MD5 of the over-the-air update password, empty for none. Can be changed at
+  // any time; it applies to the next update.
+  void setOtaPasswordHash(const String &md5);
+  String ssid() const { return state_ == State::Connected ? ssid_ : String(); }
+  const char *hostName() const { return host_; }
+
  private:
   void registerRoutes(AsyncWebServer &server);
   void startConnecting();
@@ -42,6 +48,7 @@ class WifiLink {
   State state_ = State::Idle;
   bool portalActive_ = false;
   bool servicesStarted_ = false;
+  String otaHash_;
   uint32_t stateSince_ = 0;
   uint32_t lastRetry_ = 0;
   uint32_t portalCloseAt_ = 0;

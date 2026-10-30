@@ -21,3 +21,4 @@ secrets.h
 *.local.ini
 *.sqlite-journal
 backups/
+src/generated/

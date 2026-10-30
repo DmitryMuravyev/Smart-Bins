@@ -23,6 +23,15 @@
 namespace sb {
 namespace led {
 
+// The pulse of a highlight for a locate.mode value from the config.
+inline PulseMode pulseMode(config::LocateMode m) {
+  switch (m) {
+    case config::LocateMode::SlowPulse: return PulseMode::Slow;
+    case config::LocateMode::FastPulse: return PulseMode::Fast;
+    default: return PulseMode::Steady;
+  }
+}
+
 enum class TestPattern : uint8_t { None, Walk, Chain, Rows, Columns, Colors };
 
 const char *toString(TestPattern p);
@@ -49,6 +58,8 @@ class LedEngine {
   // durationMs 0 = until cleared.
   bool locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs);
   void clearLocates();
+  // Changes the colour, mode and duration used by locate(x, y) from now on.
+  void setLocateDefaults(const config::LocateConfig &locate);
 
   void startTest(TestPattern pattern);
   void setBrightness(uint8_t level);
@@ -63,7 +74,8 @@ class LedEngine {
     PulseMode mode;
     uint32_t start;
     uint32_t durationMs;  // 0 = until cleared
-    uint32_t releasedAt;  // 0 = still on
+    bool released;        // fading out (cleared, or its duration ran out)
+    uint32_t releasedAt;  // when the fade-out started; valid only when `released`
   };
 
   struct Segment {

@@ -120,6 +120,8 @@ static void test_envelopes() {
   TEST_ASSERT_EQUAL(100, f.value(1600));
   f.set(255, 1600, 400);  // reversing mid-way starts from the current value, no jump
   TEST_ASSERT_EQUAL(100, f.value(1600));
+  // A time read just before set() (another task) must not count as "finished".
+  TEST_ASSERT_EQUAL(100, f.value(1599));
   TEST_ASSERT_FALSE(f.settled(1900));
   TEST_ASSERT_TRUE(f.settled(2000));
 }

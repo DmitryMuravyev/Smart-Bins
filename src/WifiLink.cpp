@@ -99,6 +99,7 @@ void WifiLink::onConnected() {
   if (!servicesStarted_) {
     // ArduinoOTA.begin() also starts mDNS under the same host name.
     ArduinoOTA.setHostname(host_);
+    if (otaHash_.length()) ArduinoOTA.setPasswordHash(otaHash_.c_str());
     ArduinoOTA.onStart([]() { ESP_LOGW(TAG, "OTA update started"); });
     ArduinoOTA.onEnd([]() { ESP_LOGW(TAG, "OTA update finished, restarting"); });
     ArduinoOTA.onError([](ota_error_t e) { ESP_LOGE(TAG, "OTA error %u", (unsigned)e); });
@@ -107,6 +108,13 @@ void WifiLink::onConnected() {
     servicesStarted_ = true;
   }
   ESP_LOGI(TAG, "Open http://%s.local/ or http://%s/", host_, WiFi.localIP().toString().c_str());
+}
+
+void WifiLink::setOtaPasswordHash(const String &md5) {
+  otaHash_ = md5;
+  // ArduinoOTA checks the stored hash on each upload, so a change made after
+  // begin() applies to the next upload. An empty hash turns the check off.
+  if (servicesStarted_) ArduinoOTA.setPasswordHash(otaHash_.c_str());
 }
 
 void WifiLink::forgetCredentials() {

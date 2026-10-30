@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Smart Bins</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="#inventory"><img src="/favicon.svg" alt="" width="24" height="24"><span id="device-name">Smart Bins</span></a>
+  <nav class="tabs" id="tabs">
+    <a href="#inventory" data-page="inventory"><span class="ico">&#9638;</span><span data-i18n="nav.inventory">Inventory</span></a>
+    <a href="#lights" data-page="lights"><span class="ico">&#9728;</span><span data-i18n="nav.lights">Lights</span></a>
+    <a href="#grid" data-page="grid"><span class="ico">&#9635;</span><span data-i18n="nav.grid">Grid</span></a>
+    <a href="#settings" data-page="settings"><span class="ico">&#9881;</span><span data-i18n="nav.settings">Settings</span></a>
+    <a href="#system" data-page="system"><span class="ico">&#9432;</span><span data-i18n="nav.system">System</span></a>
+  </nav>
+  <div class="status" id="status-bar" aria-live="polite">
+    <span class="dot" id="live-dot" title=""></span>
+    <span id="status-wifi"></span>
+  </div>
+</header>
+
+<main>
+  <section id="page-inventory" class="page">
+    <h1 data-i18n="nav.inventory">Inventory</h1>
+    <div class="card empty">
+      <p data-i18n="inventory.soon">The parts inventory arrives in a later update. For now you can light bins from the Grid page.</p>
+      <a class="button" href="#grid" data-i18n="inventory.toGrid">Open the grid</a>
+    </div>
+  </section>
+
+  <section id="page-lights" class="page">
+    <div class="page-head">
+      <h1 data-i18n="nav.lights">Lights</h1>
+      <button class="secondary" id="lights-off" data-i18n="lights.allOff">All off</button>
+    </div>
+    <div id="lights-list" class="cards"></div>
+    <p class="muted" id="lights-empty" hidden data-i18n="lights.none">No work lights are configured. Set the lights section in Settings, Advanced.</p>
+  </section>
+
+  <section id="page-grid" class="page">
+    <div class="page-head">
+      <h1 data-i18n="nav.grid">Grid</h1>
+      <button class="secondary" id="locate-clear" data-i18n="grid.clear">Clear</button>
+    </div>
+    <p class="muted" data-i18n="grid.hint">Tap a bin to light it.</p>
+    <div id="grid-view" class="grid-view"></div>
+    <div class="card" id="locate-defaults">
+      <h2 data-i18n="grid.locate">How a bin lights up</h2>
+      <div class="chips" id="locate-mode">
+        <button data-mode="steady" data-i18n="grid.mode.steady">Steady</button>
+        <button data-mode="slow-pulse" data-i18n="grid.mode.slow">Slow pulse</button>
+        <button data-mode="fast-pulse" data-i18n="grid.mode.fast">Fast pulse</button>
+      </div>
+      <label class="row"><span data-i18n="grid.duration">Stays on for</span>
+        <select id="locate-duration">
+          <option value="10" data-i18n="grid.dur.10">10 seconds</option>
+          <option value="30" data-i18n="grid.dur.30">30 seconds</option>
+          <option value="60" data-i18n="grid.dur.60">1 minute</option>
+          <option value="300" data-i18n="grid.dur.300">5 minutes</option>
+          <option value="0" data-i18n="grid.dur.0">Until cleared</option>
+        </select>
+      </label>
+      <label class="row"><span data-i18n="grid.color">Colour</span><input type="color" id="locate-color"></label>
+    </div>
+    <div class="card">
+      <label class="row"><span data-i18n="grid.brightness">Grid brightness</span><output id="grid-brightness-out"></output></label>
+      <input type="range" id="grid-brightness" min="1" max="255">
+      <h2 data-i18n="grid.tests">Test patterns</h2>
+      <div class="chips" id="grid-tests">
+        <button data-pattern="walk" data-i18n="grid.test.walk">Walk bins</button>
+        <button data-pattern="chain" data-i18n="grid.test.chain">Chain</button>
+        <button data-pattern="rows" data-i18n="grid.test.rows">Rows</button>
+        <button data-pattern="columns" data-i18n="grid.test.columns">Columns</button>
+        <button data-pattern="colors" data-i18n="grid.test.colors">Colours</button>
+        <button data-pattern="off" data-i18n="grid.test.off">Stop</button>
+      </div>
+      <p class="muted small" id="grid-status"></p>
+    </div>
+  </section>
+
+  <section id="page-settings" class="page">
+    <h1 data-i18n="nav.settings">Settings</h1>
+    <div class="card">
+      <h2 data-i18n="settings.language">Language</h2>
+      <select id="language">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="ru">Русский</option>
+      </select>
+      <p class="muted small" data-i18n="settings.languageHint">Saved in this browser.</p>
+    </div>
+    <div class="card">
+      <h2 data-i18n="settings.password">Password</h2>
+      <p class="muted small" id="password-state"></p>
+      <form id="password-form" autocomplete="off">
+        <input type="password" id="password-new" data-i18n-ph="settings.passwordNew" placeholder="New password" minlength="4" maxlength="64" autocomplete="new-password">
+        <input type="password" id="password-repeat" data-i18n-ph="settings.passwordRepeat" placeholder="Repeat password" maxlength="64" autocomplete="new-password">
+        <div class="buttons">
+          <button type="submit" data-i18n="settings.passwordSet">Set password</button>
+          <button type="button" class="secondary" id="password-remove" data-i18n="settings.passwordRemove">Remove password</button>
+        </div>
+      </form>
+      <p class="muted small" data-i18n="settings.passwordHint">User name: admin. Holding the BOOT button for 10 s resets the device, including the password.</p>
+    </div>
+    <div class="card">
+      <h2 data-i18n="settings.wifi">Wi-Fi</h2>
+      <a class="button secondary" href="/wifi" data-i18n="settings.wifiOpen">Wi-Fi settings</a>
+    </div>
+    <details class="card">
+      <summary data-i18n="settings.advanced">Advanced: configuration file</summary>
+      <p class="muted small" data-i18n="settings.advancedHint">Edit config.json directly. Saving checks every field and restarts the device.</p>
+      <textarea id="config-text" spellcheck="false" rows="18"></textarea>
+      <button id="config-save" data-i18n="settings.saveRestart">Save and restart</button>
+    </details>
+  </section>
+
+  <section id="page-system" class="page">
+    <h1 data-i18n="nav.system">System</h1>
+    <div class="card"><dl id="system-info" class="info"></dl></div>
+    <button class="secondary" id="restart" data-i18n="system.restart">Restart device</button>
+  </section>
+</main>
+
+<div id="toast" class="toast" role="status" hidden></div>
+
+<template id="light-card">
+  <article class="card light">
+    <div class="light-head">
+      <div><strong class="light-name"></strong> <span class="muted small light-type"></span></div>
+      <label class="switch"><input type="checkbox" class="light-on"><span></span></label>
+    </div>
+    <label class="row"><span data-i18n="lights.level">Brightness</span><output class="light-level-out"></output></label>
+    <input type="range" class="light-level" min="1" max="255">
+    <div class="light-color">
+      <label class="row"><span data-i18n="lights.colour">Colour</span><span class="swatch light-swatch"></span></label>
+      <input type="range" class="hue" min="0" max="359">
+      <label class="row"><span data-i18n="lights.white">White tone</span><output class="light-kelvin-out"></output></label>
+      <input type="range" class="kelvin" min="1500" max="10000" step="100">
+      <div class="chips presets"></div>
+    </div>
+    <div class="chips effects">
+      <button data-effect="solid" data-i18n="lights.effect.solid">Solid</button>
+      <button data-effect="breathe" data-i18n="lights.effect.breathe">Breathe</button>
+      <button data-effect="rainbow" data-i18n="lights.effect.rainbow">Rainbow</button>
+    </div>
+    <p class="muted small light-power"></p>
+  </article>
+</template>
+
+<script src="/app.js"></script>
+</body>
+</html>

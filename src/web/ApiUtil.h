@@ -23,11 +23,22 @@ inline void sendError(AsyncWebServerRequest *req, int code, const char *message)
   sendJson(req, code, doc);
 }
 
-// Reads a whole-number query parameter. Returns false when it is missing, not a
+// A request parameter from the query string or, for a POST, from a form-encoded
+// body. Accepting both lets the UI use POST for changes while the plain URLs
+// (handy for testing in a browser or from scripts) keep working.
+inline const AsyncWebParameter *param(AsyncWebServerRequest *req, const char *name) {
+  if (const AsyncWebParameter *p = req->getParam(name)) return p;
+  return req->getParam(name, true);
+}
+
+inline bool hasParam(AsyncWebServerRequest *req, const char *name) { return param(req, name) != nullptr; }
+
+// Reads a whole-number parameter. Returns false when it is missing, not a
 // plain decimal number (strtol must consume the whole string) or out of range.
 inline bool intParam(AsyncWebServerRequest *req, const char *name, long min, long max, long &out) {
-  if (!req->hasParam(name)) return false;
-  const String &v = req->getParam(name)->value();
+  const AsyncWebParameter *p = param(req, name);
+  if (!p) return false;
+  const String &v = p->value();
   char *end = nullptr;
   long n = strtol(v.c_str(), &end, 10);
   if (v.isEmpty() || *end != '\0' || n < min || n > max) return false;
@@ -38,8 +49,9 @@ inline bool intParam(AsyncWebServerRequest *req, const char *name, long min, lon
 // Reads a colour given as 6 hex digits, with or without a leading '#'
 // (an HTML colour picker sends "#ff8800").
 inline bool colorParam(AsyncWebServerRequest *req, const char *name, uint32_t &out) {
-  if (!req->hasParam(name)) return false;
-  String v = req->getParam(name)->value();
+  const AsyncWebParameter *p = param(req, name);
+  if (!p) return false;
+  String v = p->value();
   if (v.startsWith("#")) v.remove(0, 1);
   char *end = nullptr;
   const unsigned long n = strtoul(v.c_str(), &end, 16);

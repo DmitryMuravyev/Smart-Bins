@@ -31,14 +31,6 @@ constexpr uint32_t kPowerOffDelayMs = 1500;
 // Test patterns stop by themselves in case nobody comes back to switch them off.
 constexpr uint32_t kTestTimeoutMs = 120000;
 
-PulseMode pulseMode(config::LocateMode m) {
-  switch (m) {
-    case config::LocateMode::SlowPulse: return PulseMode::Slow;
-    case config::LocateMode::FastPulse: return PulseMode::Fast;
-    default: return PulseMode::Steady;
-  }
-}
-
 using Lock = MutexLock;
 
 const char *const kTestNames[] = {"off", "walk", "chain", "rows", "columns", "colors"};
@@ -107,8 +99,18 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
 }
 
 bool LedEngine::locate(uint8_t x, uint8_t y) {
-  const uint32_t duration = static_cast<uint32_t>(cfg_.locate.durationS) * 1000;
-  return locate(x, y, Rgb::fromHex(cfg_.locate.color), pulseMode(cfg_.locate.mode), duration);
+  // Copied under the lock: setLocateDefaults() may change it from another request.
+  config::LocateConfig d;
+  {
+    Lock lock(lock_);
+    d = cfg_.locate;
+  }
+  return locate(x, y, Rgb::fromHex(d.color), pulseMode(d.mode), static_cast<uint32_t>(d.durationS) * 1000);
+}
+
+void LedEngine::setLocateDefaults(const config::LocateConfig &locate) {
+  Lock lock(lock_);
+  cfg_.locate = locate;
 }
 
 bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs) {
@@ -125,7 +127,7 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   }
   // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
-  highlights_.push_back({x, y, color, mode, now, durationMs, 0});
+  highlights_.push_back({x, y, color, mode, now, durationMs, false, 0});
   return true;
 }
 
@@ -133,8 +135,9 @@ void LedEngine::clearLocates() {
   Lock lock(lock_);
   const uint32_t now = millis();
   for (Highlight &h : highlights_) {
-    // `| 1` keeps the timestamp non-zero (0 means "still on"); being 1 ms off is invisible.
-    if (!h.releasedAt) h.releasedAt = now | 1;
+    if (h.released) continue;  // already fading out: keep its original start
+    h.released = true;
+    h.releasedAt = now;
   }
 }
 
@@ -171,10 +174,14 @@ void LedEngine::run() {
   uint32_t frames = 0;
   uint32_t fpsSince = millis();
   for (;;) {
-    const uint32_t now = millis();
+    uint32_t now;
     bool wantPower;
     {
       Lock lock(lock_);
+      // Read the clock under the lock: locate() and clearLocates() stamp their
+      // times under it too, so no stamp is ever later than `now`. Otherwise an
+      // unsigned `now - stamp` could wrap around and skip a fade entirely.
+      now = millis();
       renderLayers(now);
       wantPower = test_ != TestPattern::None || !highlights_.empty();
     }
@@ -257,11 +264,18 @@ void LedEngine::renderLayers(uint32_t now) {
     Highlight &h = *it;
     const uint32_t age = now - h.start;
     // A timed highlight releases itself; from then on it fades out like a manual clear.
-    if (!h.releasedAt && h.durationMs && age >= h.durationMs) h.releasedAt = now | 1;
+    // A separate flag rather than "releasedAt != 0": an earlier version used
+    // `now | 1` to keep the time non-zero, which lands 1 ms in the future on even
+    // milliseconds. `now - releasedAt` then wrapped around to ~4 billion, looked
+    // like a finished fade, and the bin went dark at once instead of fading.
+    if (!h.released && h.durationMs && age >= h.durationMs) {
+      h.released = true;
+      h.releasedAt = now;
+    }
     // Level = fade-in x pulse x fade-out, each 0..255, renormalised after every product.
     uint32_t level = rampUp(age, fade);
     level = level * pulseLevel(h.mode, age) / 255;
-    if (h.releasedAt) {
+    if (h.released) {
       const uint32_t since = now - h.releasedAt;
       if (since >= fade) {  // fully faded out: drop it (erase returns the next element)
         it = highlights_.erase(it);

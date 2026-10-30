@@ -4,60 +4,91 @@
 #include <ESPAsyncWebServer.h>
 
 #include "ApiUtil.h"
+#include "ConfigStore.h"
 #include "led/LedEngine.h"
 
 namespace sb {
 
-void registerLedApi(AsyncWebServer &server, led::LedEngine &engine) {
+namespace {
+
+// Reads the optional locate settings (color, mode, s) into `out`, leaving the
+// ones that are not given as they are. Returns an error message or nullptr.
+const char *readLocateParams(AsyncWebServerRequest *req, config::LocateConfig &out) {
+  if (hasParam(req, "color") && !colorParam(req, "color", out.color)) return "color must be 6 hex digits, e.g. FF0000";
+  if (const AsyncWebParameter *p = param(req, "mode")) {
+    const String &m = p->value();
+    // Same names as locate.mode in config.json.
+    if (m == "steady") out.mode = config::LocateMode::Steady;
+    else if (m == "slow-pulse") out.mode = config::LocateMode::SlowPulse;
+    else if (m == "fast-pulse") out.mode = config::LocateMode::FastPulse;
+    else return "mode must be steady, slow-pulse or fast-pulse";
+  }
+  long seconds;
+  if (hasParam(req, "s")) {
+    if (!intParam(req, "s", 0, 3600, seconds)) return "s must be 0..3600 (0 = until cleared)";
+    out.durationS = static_cast<uint16_t>(seconds);
+  }
+  return nullptr;
+}
+
+void sendLocateDefaults(AsyncWebServerRequest *req, const config::LocateConfig &d) {
+  JsonDocument doc;
+  char hex[8];
+  snprintf(hex, sizeof(hex), "%06lX", static_cast<unsigned long>(d.color & 0xFFFFFF));
+  doc["color"] = static_cast<const char *>(hex);  // cast: copy the text, see LightsApi.cpp
+  doc["mode"] = config::toString(d.mode);
+  doc["s"] = d.durationS;
+  sendJson(req, 200, doc);
+}
+
+}  // namespace
+
+void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore &config) {
   // exact(): otherwise this route also catches "/api/locate/clear" (see LightsApi.cpp).
-  server.on(AsyncURIMatcher::exact("/api/locate"), HTTP_GET, [&engine](AsyncWebServerRequest *req) {
+  server.on(AsyncURIMatcher::exact("/api/locate"), HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     const auto &g = engine.mapper().geometry();
     long x, y;
     if (!intParam(req, "x", 0, g.cols - 1, x) || !intParam(req, "y", 0, g.rows - 1, y)) {
       return sendError(req, 400, "x and y must be inside the grid");
     }
-    bool custom = req->hasParam("color") || req->hasParam("mode") || req->hasParam("s");
-    bool ok;
-    if (!custom) {
-      ok = engine.locate(x, y);
-    } else {
-      uint32_t color = 0x00FF40;
-      if (req->hasParam("color") && !colorParam(req, "color", color)) {
-        return sendError(req, 400, "color must be 6 hex digits, e.g. FF0000");
-      }
-      led::PulseMode mode = led::PulseMode::Steady;
-      if (req->hasParam("mode")) {
-        const String &m = req->getParam("mode")->value();
-        if (m == "slow-pulse") mode = led::PulseMode::Slow;
-        else if (m == "fast-pulse") mode = led::PulseMode::Fast;
-        else if (m != "steady") return sendError(req, 400, "mode must be steady, slow-pulse or fast-pulse");
-      }
-      long seconds = 30;
-      if (req->hasParam("s") && !intParam(req, "s", 0, 3600, seconds)) {
-        return sendError(req, 400, "s must be 0..3600 (0 = until cleared)");
-      }
-      ok = engine.locate(x, y, led::Rgb::fromHex(color), mode, static_cast<uint32_t>(seconds) * 1000);
-    }
+    // Anything not given comes from the configured locate defaults.
+    config::LocateConfig opts = config.get().locate;
+    if (const char *err = readLocateParams(req, opts)) return sendError(req, 400, err);
+    const bool ok = engine.locate(x, y, led::Rgb::fromHex(opts.color), led::pulseMode(opts.mode),
+                                  static_cast<uint32_t>(opts.durationS) * 1000);
     JsonDocument doc;
     doc["ok"] = ok;
     sendJson(req, ok ? 200 : 400, doc);
   });
 
-  server.on("/api/locate/clear", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
+  // The default colour, mode and duration of a locate. A change applies at
+  // once and is saved to config.json (locate.*), no restart needed.
+  server.on("/api/locate/defaults", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
+    const bool change = hasParam(req, "color") || hasParam(req, "mode") || hasParam(req, "s");
+    if (!change) return sendLocateDefaults(req, config.get().locate);
+    config::AppConfig cfg = config.get();
+    if (const char *err = readLocateParams(req, cfg.locate)) return sendError(req, 400, err);
+    std::string err;
+    if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+    engine.setLocateDefaults(cfg.locate);
+    sendLocateDefaults(req, cfg.locate);
+  });
+
+  server.on("/api/locate/clear", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
     engine.clearLocates();
     req->send(200, "application/json", "{\"ok\":true}");
   });
 
-  server.on("/api/led/test", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
+  server.on("/api/led/test", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
     led::TestPattern p;
-    if (!req->hasParam("pattern") || !led::parseTestPattern(req->getParam("pattern")->value().c_str(), p)) {
+    if (!hasParam(req, "pattern") || !led::parseTestPattern(param(req, "pattern")->value().c_str(), p)) {
       return sendError(req, 400, "pattern must be walk, chain, rows, columns, colors or off");
     }
     engine.startTest(p);
     req->send(200, "application/json", "{\"ok\":true}");
   });
 
-  server.on("/api/led/brightness", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
+  server.on("/api/led/brightness", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
     long v;
     if (!intParam(req, "value", 0, 255, v)) return sendError(req, 400, "value must be 0..255");
     engine.setBrightness(static_cast<uint8_t>(v));

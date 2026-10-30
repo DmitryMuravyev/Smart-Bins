@@ -43,13 +43,24 @@ The boot log shows chip, flash, memory and partition information. If the detecte
 3. Pick your network, enter the password and press **Connect**. The page shows the address once connected.
 4. From then on the board is at **http://smartbins.local/** on your network (or at the IP shown in the serial log).
 
-The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network, hold **10 s** and release for a factory reset (Wi-Fi and configuration). The LED lights steadily at 5 s and flickers at 10 s.
+The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network, hold **10 s** and release for a factory reset (Wi-Fi, configuration and web password). The LED lights steadily at 5 s and flickers at 10 s.
 
-The configuration is stored in `/config.json` on the board. Until the settings UI arrives, edit it as JSON at `http://smartbins.local/config`: saving validates every field, stores the file and restarts the board.
+### Web interface
+
+Open **http://smartbins.local/** (or the board's IP). The pages so far:
+
+- **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
+- **Grid:** tap a bin to light it. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, and its colour; saved at once, no restart), grid brightness and the test patterns.
+- **Settings:** language (English, Español, Русский; remembered per browser), the optional password, Wi-Fi, and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
+- **System:** firmware, chip, memory, storage and network details, and a restart button.
+
+The UI is built into the firmware (`web/` is gzipped into it at build time by `tools/embed_web.py`), so a firmware update, also over Wi-Fi, always brings the matching UI and there is no separate filesystem upload.
+
+**Password.** Off by default. Once set under Settings, the browser asks for it (user name `admin`) and over-the-air updates need it too (see below). The Wi-Fi setup page stays open on the board's own setup network, so a board that lost its Wi-Fi can always be brought back. Forgot it? A 10 s BOOT factory reset removes it.
 
 ### LED tests
 
-With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, the start page has test links:
+With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, the Grid page has the test patterns:
 
 | Test | What you should see |
 |---|---|
@@ -58,9 +69,7 @@ With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, t
 | rows / columns | one full row or column at a time |
 | colours | the whole grid red, green, blue, white. If red shows as green, change `colorOrder` (e.g. RGB instead of GRB). |
 
-`/api/locate?x=3&y=2` lights one bin with the configured locate colour and mode (`&color=FF0000&mode=fast-pulse&s=10` override them); `/api/locate/clear` fades all highlights out. `/api/led/status` shows the estimated current and whether the current limit is active.
-
-For a single-transistor (inverting) level shifter set `"invertData": true` in the grid section of the config (edit it at `/config`).
+For a single-transistor (inverting) level shifter set `"invertData": true` in the grid section of the config (Settings → Advanced).
 
 ### Work lights
 
@@ -83,11 +92,28 @@ Each of the five work channels is set in the `lights` array of the config (W1 fi
 ]
 ```
 
-The start page lists the lights with buttons for on/off, level, colour, white tone and effect. Every change fades (`fadeMs`), and the state is saved a few seconds after the last change and restored, with a fade-in, after a restart. The same controls as URLs:
+The Lights page controls them. Every change fades (`fadeMs`), and the state is saved a few seconds after the last change and restored, with a fade-in, after a restart.
 
-- `/api/lights` lists the lights (`id`, name, type, state).
-- `/api/lights/set?id=0&on=toggle` switches one; `&level=1..255`, `&color=FF8800`, `&kelvin=2700` and `&effect=solid|breathe|rainbow` change it (and switch it on).
-- `/api/lights/off` switches all of them off.
+### HTTP API
+
+Everything the UI does goes through a small JSON API, handy for scripts and home automation. Endpoints that change something accept POST with a form-encoded body and, for quick tests from the address bar, GET with the same parameters. Errors come back with a 4xx/5xx status and `{"error": "message"}`. With a password set, requests need HTTP digest auth (`curl --digest -u admin:PASSWORD ...`).
+
+| Endpoint | What it does |
+|---|---|
+| `GET /api/system` | firmware, chip, memory, storage, Wi-Fi, password on/off |
+| `POST /api/system/restart` | restarts the board |
+| `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
+| `/api/locate?x=3&y=2` | lights one bin; optional `color=FF0000`, `mode=steady\|slow-pulse\|fast-pulse`, `s=10` (0 = until cleared) |
+| `/api/locate/clear` | fades every located bin out |
+| `/api/locate/defaults` | without parameters: reads the defaults; with `color`, `mode`, `s`: changes and saves them |
+| `/api/led/test?pattern=walk\|chain\|rows\|columns\|colors\|off` | grid test patterns |
+| `/api/led/brightness?value=0..255` | grid brightness until the next restart |
+| `GET /api/led/status` | estimated grid current, frame rate, current limit active |
+| `GET /api/lights` | the work lights (`id`, name, type, state) |
+| `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
+| `/api/lights/off` | every light off |
+| `POST /api/security` | `password=...` sets the password (4–64 characters), empty removes it |
+| `ws://smartbins.local/ws` | WebSocket: pushes light changes, grid current and system status as JSON |
 
 ### Updating over Wi-Fi
 
@@ -95,6 +121,12 @@ Once the board is on your network, upload new firmware without a cable:
 
 ```sh
 pio run -e esp32-8mb-ota -t upload    # or esp32-16mb-ota
+```
+
+With a web password set, OTA uploads need it too. Add it to the OTA environment in `platformio.ini` (and keep that change out of version control):
+
+```ini
+upload_flags = --auth=YOUR_PASSWORD
 ```
 
 From the command line:
@@ -108,12 +140,13 @@ pio test -e native                          # host-side unit tests, no hardware 
 
 | Path | Contents |
 |---|---|
-| `src/` | Firmware entry point |
+| `src/` | Firmware entry point, web server and API (`src/web/`), LED drivers (`src/led/`) |
+| `web/` | Web UI: HTML, CSS, JS and translations (`web/i18n/`), embedded into the firmware at build time |
 | `lib/` | Firmware modules; hardware-independent ones are unit-tested on the host |
 | `test/` | Unit tests (`pio test -e native`) |
 | `partitions/` | Flash partition tables for 4, 8 and 16 MB boards |
 | `docs/` | Plan, hardware and user documentation |
-| `tools/` | Helper scripts (power budget calculator) |
+| `tools/` | Helper scripts (web UI bundler, power budget calculator) |
 
 ## License
 

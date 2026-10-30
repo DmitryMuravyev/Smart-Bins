@@ -80,6 +80,8 @@ class WorkLights {
   const char *set(uint8_t id, const Change &change);
   void allOff();
   bool stripPower();
+  // Increases with every state change; the WebSocket pushes the lights when it moves.
+  uint32_t version() const { return version_; }
 
  private:
   struct Light {
@@ -145,6 +147,9 @@ class WorkLights {
 
   // Time of the last unsaved change, 0 when everything is saved.
   uint32_t dirtySince_ = 0;
+  // Written under the lock, read without it: a 32-bit load is atomic on the ESP32,
+  // and a reader that sees the old value just picks up the change one poll later.
+  volatile uint32_t version_ = 0;
   SemaphoreHandle_t lock_ = nullptr;
 };
 
