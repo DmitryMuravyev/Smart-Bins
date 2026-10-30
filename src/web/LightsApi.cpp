@@ -13,7 +13,11 @@ namespace {
 void addLight(JsonArray arr, const led::WorkLights::Info &info) {
   JsonObject o = arr.add<JsonObject>();
   o["id"] = info.id;
-  o["name"] = info.name;
+  // The cast matters: ArduinoJson stores a `const char[N]` by pointer, as if
+  // it were a string literal, instead of copying it. sendLights() reuses one
+  // Info for every light, so without the copy every entry would end up
+  // showing the last light's name.
+  o["name"] = static_cast<const char *>(info.name);
   o["type"] = config::toString(info.type);
   o["on"] = info.state.on;
   o["level"] = info.state.level;
