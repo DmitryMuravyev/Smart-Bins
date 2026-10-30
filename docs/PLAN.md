@@ -28,11 +28,11 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 
 ### LED and power architecture (chosen)
 
-- **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights use the universal channels described below. FastLED drives the addressable outputs in parallel via the ESP32 RMT peripheral.
+- **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights use the universal channels described below. The firmware's own RMT driver runs each addressable output on its own RMT channel, in parallel.
 - **Within the grid, rows are chained serpentine** (row 1 left→right, row 2 right→left...) so each segment needs just one data wire. The mapper supports progressive wiring and any start corner too, so physical layout stays flexible.
 - **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 3 universal work-light lines (W1–W3) from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
 - **Power switching with MOSFETs:** each addressable power domain (bin grid, addressable work strips) gets a high-side P-channel MOSFET (AO4407A, driven by a small NPN, with a gate divider chosen for 5, 12 or 24 V) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
-- **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (FastLED `setMaxPowerInVoltsAndMilliamps`).
+- **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (estimated from the pixel data, per grid and per addressable work strip).
 - **Smooth transitions:** the LED engine fades every on/off and brightness change (decision 8). Power switches turn on before a fade-in starts and off only after a fade-out ends.
 
 ### Work-light channels
@@ -99,7 +99,7 @@ Final map is confirmed with the schematic in Task 2.
  │      │                                                 │
  │  ConfigService (config.json) ── GridMapper (bin x,y → pixel idx)
  │                                    │                   │
- │  LedEngine (FastLED, render task) ◄┘                   │
+ │  LedEngine (RMT, render task)     ◄┘                   │
  │    ├─ Locate/highlight layer (top priority, fades)     │
  │    ├─ Effects: fire, sparks, relax, music, demo        │
  │    └─ Work lights W1..W5 (PWM or addressable)          │
@@ -157,7 +157,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
 ### Task 5: Workspace lights
-- Channels per section 0: W1–W3 universal (off / white PWM / RGB group / addressable), W4–W5 white PWM. LEDC PWM with gamma correction, FastLED for addressable work strips, smooth fades on every change.
+- Channels per section 0: W1–W3 universal (off / white PWM / RGB group / addressable), W4–W5 white PWM. LEDC PWM (12-bit, 19.5 kHz) with gamma correction, the same RMT driver as the grid for addressable work strips, smooth fades on every change.
 - On/off, brightness, color and white tone, simple per-strip effects; state persisted across reboots.
 - **Verify:** each light controllable independently via a temporary REST call.
 

@@ -3,35 +3,10 @@
 #include <ArduinoJson.h>
 #include <ESPAsyncWebServer.h>
 
+#include "ApiUtil.h"
 #include "led/LedEngine.h"
 
 namespace sb {
-
-namespace {
-
-void sendJson(AsyncWebServerRequest *req, int code, const JsonDocument &doc) {
-  String out;
-  serializeJson(doc, out);
-  req->send(code, "application/json", out);
-}
-
-void sendError(AsyncWebServerRequest *req, int code, const char *message) {
-  JsonDocument doc;
-  doc["error"] = message;
-  sendJson(req, code, doc);
-}
-
-bool intParam(AsyncWebServerRequest *req, const char *name, long min, long max, long &out) {
-  if (!req->hasParam(name)) return false;
-  const String &v = req->getParam(name)->value();
-  char *end = nullptr;
-  long n = strtol(v.c_str(), &end, 10);
-  if (v.isEmpty() || *end != '\0' || n < min || n > max) return false;
-  out = n;
-  return true;
-}
-
-}  // namespace
 
 void registerLedApi(AsyncWebServer &server, led::LedEngine &engine) {
   server.on("/api/locate", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
@@ -46,11 +21,8 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine) {
       ok = engine.locate(x, y);
     } else {
       uint32_t color = 0x00FF40;
-      if (req->hasParam("color")) {
-        const String &c = req->getParam("color")->value();
-        char *end = nullptr;
-        color = strtoul(c.c_str(), &end, 16);
-        if (c.length() != 6 || *end != '\0') return sendError(req, 400, "color must be 6 hex digits, e.g. FF0000");
+      if (req->hasParam("color") && !colorParam(req, "color", color)) {
+        return sendError(req, 400, "color must be 6 hex digits, e.g. FF0000");
       }
       led::PulseMode mode = led::PulseMode::Steady;
       if (req->hasParam("mode")) {

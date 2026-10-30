@@ -45,10 +45,24 @@ struct GridConfig {
 
 constexpr int kMaxGridPixels = 1500;
 
+constexpr int kMaxLightPixels = 1000;  // per addressable work strip
+
+// One work-light channel. Which fields matter depends on `mode`:
+//   off          the pin is held low
+//   white        `maxBrightness` only
+//   rgb          W1, W2 and W3 together drive one analog RGB strip (R, G, B);
+//                the group uses W1's `maxBrightness`
+//   addressable  every field; the strip's data line is this channel's pin
 struct LightConfig {
   LightMode mode = LightMode::Off;
-  uint8_t brightness = 200;
-  uint16_t pixels = 0;  // addressable mode only
+  // Output at 100 % in the UI, 0..255. Lets a strip that is too bright for the
+  // room be capped once instead of never using the top of the slider.
+  uint8_t maxBrightness = 255;
+  uint16_t pixels = 60;
+  Chipset chipset = Chipset::WS2812B;
+  char colorOrder[4] = "GRB";
+  bool invertData = false;          // single-transistor (inverting) level shifter
+  uint16_t currentLimitMa = 2000;   // addressable strips are dimmed to stay under this
 };
 
 struct LocateConfig {
@@ -75,6 +89,9 @@ bool validate(const AppConfig &cfg, std::string &error);
 
 // Serializes the full configuration, including defaults, as pretty JSON.
 std::string serialize(const AppConfig &cfg);
+
+// True when `order` is three letters using each of R, G and B once (e.g. "GRB").
+bool isValidColorOrder(const char *order);
 
 // Total pixels on the grid and on one data segment.
 int gridPixels(const GridConfig &grid);

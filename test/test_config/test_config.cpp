@@ -33,7 +33,12 @@ static void test_round_trip() {
   a.grid.segments = 2;
   a.grid.splitRow = 2;
   a.lights[0].mode = LightMode::Addressable;
-  a.lights[0].pixels = 60;
+  a.lights[0].pixels = 144;
+  a.lights[0].chipset = Chipset::SK6812_RGBW;
+  strcpy(a.lights[0].colorOrder, "RGB");
+  a.lights[0].invertData = true;
+  a.lights[0].currentLimitMa = 3000;
+  a.lights[3].maxBrightness = 180;
   a.lights[3].mode = LightMode::White;
   a.locate.color = 0x123ABC;
   a.locate.mode = LocateMode::FastPulse;
@@ -47,7 +52,12 @@ static void test_round_trip() {
   TEST_ASSERT_EQUAL_STRING("lab-bins", b.deviceName);
   TEST_ASSERT_EQUAL_STRING("ru", b.language);
   TEST_ASSERT_TRUE(b.lights[0].mode == LightMode::Addressable);
-  TEST_ASSERT_EQUAL(60, b.lights[0].pixels);
+  TEST_ASSERT_EQUAL(144, b.lights[0].pixels);
+  TEST_ASSERT_TRUE(b.lights[0].chipset == Chipset::SK6812_RGBW);
+  TEST_ASSERT_EQUAL_STRING("RGB", b.lights[0].colorOrder);
+  TEST_ASSERT_TRUE(b.lights[0].invertData);
+  TEST_ASSERT_EQUAL(3000, b.lights[0].currentLimitMa);
+  TEST_ASSERT_EQUAL(180, b.lights[3].maxBrightness);
   TEST_ASSERT_EQUAL_HEX32(0x123ABC, b.locate.color);
   TEST_ASSERT_TRUE(b.grid.invertData);
   TEST_ASSERT_EQUAL(32, segmentPixels(b.grid, 0));  // 2 rows x 8 cols x 2 px
@@ -86,6 +96,17 @@ static void test_rejects_bad_values() {
   expectError("{\"grid\":{\"cols\":64,\"rows\":64,\"pixelsPerBin\":1}}", "maximum is 1500");
 }
 
+static void test_addressable_light_rules() {
+  expectError("{\"lights\":[{\"mode\":\"addressable\",\"pixels\":0}]}", "lights[0].pixels");
+  expectError("{\"lights\":[{\"mode\":\"addressable\",\"colorOrder\":\"RRB\"}]}", "lights[0].colorOrder");
+  expectError("{\"lights\":[{\"maxBrightness\":0}]}", "lights[0].maxBrightness");
+  expectError("{\"lights\":[{},{\"chipset\":\"APA102\"}]}", "lights[1].chipset");
+  // An unused channel's strip settings are not checked: only addressable mode uses them.
+  AppConfig cfg;
+  std::string err;
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"lights\":[{\"mode\":\"white\",\"pixels\":0}]}", cfg, err), err.c_str());
+}
+
 static void test_light_channel_rules() {
   expectError("{\"lights\":[{},{},{},{\"mode\":\"addressable\"}]}", "W4");
   expectError("{\"lights\":[{\"mode\":\"rgb\"},{\"mode\":\"rgb\"}]}", "rgb mode needs W1, W2 and W3");
@@ -114,6 +135,7 @@ int main(int, char **) {
   RUN_TEST(test_unknown_keys_ignored);
   RUN_TEST(test_rejects_bad_values);
   RUN_TEST(test_light_channel_rules);
+  RUN_TEST(test_addressable_light_rules);
   RUN_TEST(test_host_names);
   return UNITY_END();
 }

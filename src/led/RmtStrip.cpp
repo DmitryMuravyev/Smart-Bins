@@ -7,8 +7,11 @@ namespace led {
 
 namespace {
 const char *TAG = "rmt";
-constexpr uint32_t kResolutionHz = 40000000;  // 25 ns per tick
+// RMT tick rate. 40 MHz (25 ns per tick) divides the 80 MHz APB clock evenly
+// and is fine enough that every LED timing is within 12 ns of its target.
+constexpr uint32_t kResolutionHz = 40000000;
 
+// Nanoseconds to ticks, rounded to the nearest tick (+12 is half of 25 ns).
 constexpr uint16_t ticks(uint16_t ns) { return static_cast<uint16_t>((ns + 12) / 25); }
 }  // namespace
 
@@ -19,7 +22,12 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   ch.gpio_num = static_cast<gpio_num_t>(gpio);
   ch.clk_src = RMT_CLK_SRC_DEFAULT;
   ch.resolution_hz = kResolutionHz;
+  // One 64-symbol RAM block per channel: the ESP32 has eight, so the two grid
+  // lines and three work strips all get their own. The driver refills the
+  // block from an interrupt while it transmits, so frames of any length work.
   ch.mem_block_symbols = 64;
+  // Only one frame is ever queued (write() waits for the previous one), but a
+  // depth of 2 leaves room so rmt_transmit() never blocks.
   ch.trans_queue_depth = 2;
   ch.flags.invert_out = invert;
   esp_err_t err = rmt_new_tx_channel(&ch, &channel_);
@@ -29,6 +37,9 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
     return false;
   }
 
+  // The bytes encoder turns every data bit into one RMT symbol: a high period
+  // then a low period, whose lengths say whether the bit is 0 or 1. Bits go out
+  // most significant first, which is what every WS281x/SK6812 chip expects.
   rmt_bytes_encoder_config_t enc = {};
   enc.bit0.level0 = 1;
   enc.bit0.duration0 = ticks(timing.t0h);

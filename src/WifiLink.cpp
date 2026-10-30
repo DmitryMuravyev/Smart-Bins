@@ -124,6 +124,10 @@ void WifiLink::forgetCredentials() {
 void WifiLink::loop() {
   const uint32_t now = millis();
 
+  // New credentials arrive from the web server's task (POST /api/wifi). They
+  // are applied here, on the loop task, because the HTTP response has to go
+  // out before the radio leaves the current network, and Wi-Fi and NVS calls
+  // should not run inside the async web server's callback.
   if (pendingConnect_) {
     pendingConnect_ = false;
     ssid_ = pendingSsid_;
@@ -162,6 +166,8 @@ void WifiLink::loop() {
       }
       break;
 
+    // Short drops are left to the driver's auto-reconnect. Only a long outage
+    // opens the portal, so a router reboot doesn't expose a setup network.
     case State::Connected:
       if (linked) {
         stateSince_ = now;  // last time the link was seen up
@@ -196,6 +202,10 @@ void WifiLink::registerRoutes(AsyncWebServer &server) {
     req->send(200, "application/json", out);
   });
 
+  // Scanning takes a few seconds, too long to block a request. The first call
+  // starts an asynchronous scan and answers {"scanning": true}; the setup page
+  // polls until the results are in. Results are deleted once delivered, so the
+  // next call starts a fresh scan.
   server.on("/api/wifi/scan", HTTP_GET, [](AsyncWebServerRequest *req) {
     JsonDocument doc;
     int n = WiFi.scanComplete();
