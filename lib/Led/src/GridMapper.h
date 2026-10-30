@@ -51,6 +51,13 @@ class GridMapper {
   // Returns false for coordinates outside the grid.
   bool binSpan(uint8_t x, uint8_t y, PixelSpan &out) const {
     if (x >= g_.cols || y >= g_.rows) return false;
+    // 1. Row in wiring order: counted from the corner where the strip starts.
+    // 2. Which data line: rows from splitRow on belong to segment B, which
+    //    restarts its own count (and its own serpentine direction) from 0.
+    // 3. Direction of this row: the start side, flipped on every odd row of
+    //    a serpentine layout because the strip doubles back.
+    // 4. Pixel index = whole rows before it + bins before it in this row,
+    //    times pixels per bin.
     const int wiringRow = g_.startTop ? y : g_.rows - 1 - y;
     const bool onB = segmentCount() == 2 && wiringRow >= g_.splitRow;
     const int rowInSegment = onB ? wiringRow - g_.splitRow : wiringRow;
@@ -64,6 +71,8 @@ class GridMapper {
   }
 
   // Inverse of binSpan: which bin owns a pixel. Returns false past the segment end.
+  // Undoes the steps of binSpan in reverse order (pixel -> bin in segment ->
+  // row and column in wiring order -> front-view coordinates).
   bool binAt(uint8_t segment, uint16_t pixel, uint8_t &x, uint8_t &y) const {
     if (segment >= segmentCount() || pixel >= segmentLength(segment)) return false;
     const int binIndex = pixel / g_.pixelsPerBin;

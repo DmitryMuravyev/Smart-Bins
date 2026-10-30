@@ -21,6 +21,8 @@ void ConfigStore::begin() {
     save(cfg_, err);
     return;
   }
+  // Read in small chunks into a string sized up front: one allocation, and no
+  // large stack buffer on the loop task.
   std::string json;
   json.reserve(f.size());
   while (f.available()) {
@@ -37,12 +39,17 @@ void ConfigStore::begin() {
     ESP_LOGI(TAG, "Loaded %s", kPath);
     return;
   }
+  // Keep the broken file for inspection (download it over the web UI later)
+  // rather than deleting the user's settings, and boot with defaults.
   ESP_LOGE(TAG, "%s is invalid (%s); kept as %s, using defaults", kPath, err.c_str(), kBadPath);
   if (LittleFS.exists(kBadPath)) LittleFS.remove(kBadPath);
   LittleFS.rename(kPath, kBadPath);
   save(cfg_, err);
 }
 
+// Writes the new file next to the old one and then renames it over the old
+// one. A power cut at any point leaves either the complete old file or the
+// complete new one, never a half-written config.
 bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
   if (!config::validate(cfg, error)) return false;
   const std::string json = config::serialize(cfg);
@@ -58,10 +65,15 @@ bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
     error = "filesystem full";
     return false;
   }
-  if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
+  // LittleFS replaces an existing target atomically on rename. The remove-and-
+  // retry fallback only runs if a filesystem layer refuses to overwrite; it has
+  // a short window with no config file, which then means defaults on next boot.
   if (!LittleFS.rename(kTempPath, kPath)) {
-    error = "cannot replace config file";
-    return false;
+    if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
+    if (!LittleFS.rename(kTempPath, kPath)) {
+      error = "cannot replace config file";
+      return false;
+    }
   }
   cfg_ = cfg;
   ESP_LOGI(TAG, "Saved %s (%u bytes)", kPath, (unsigned)json.size());

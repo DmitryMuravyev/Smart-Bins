@@ -121,6 +121,10 @@ int segmentPixels(const GridConfig &grid, int segment) {
   return rows * grid.cols * grid.pixelsPerBin;
 }
 
+bool isValidColorOrder(const char *order) {
+  return order && strlen(order) == 3 && strchr(order, 'R') && strchr(order, 'G') && strchr(order, 'B');
+}
+
 bool validate(const AppConfig &cfg, std::string &error) {
   if (!isValidHostName(cfg.deviceName)) {
     error = "device.name must be 1-32 characters of a-z, 0-9 and '-'";
@@ -135,8 +139,7 @@ bool validate(const AppConfig &cfg, std::string &error) {
     error = "grid.splitRow must be between 1 and rows - 1 when using 2 segments";
     return false;
   }
-  if (strlen(g.colorOrder) != 3 || !strchr(g.colorOrder, 'R') || !strchr(g.colorOrder, 'G') ||
-      !strchr(g.colorOrder, 'B')) {
+  if (!isValidColorOrder(g.colorOrder)) {
     error = "grid.colorOrder must be a permutation of RGB, e.g. GRB";
     return false;
   }
@@ -149,6 +152,17 @@ bool validate(const AppConfig &cfg, std::string &error) {
       return false;
     }
     if (m == LightMode::Rgb) rgb++;
+    if (m == LightMode::Addressable) {
+      const std::string name = "lights[" + std::to_string(i) + "]";
+      if (cfg.lights[i].pixels < 1) {
+        error = name + ".pixels must be at least 1 for an addressable strip";
+        return false;
+      }
+      if (!isValidColorOrder(cfg.lights[i].colorOrder)) {
+        error = name + ".colorOrder must be a permutation of RGB, e.g. GRB";
+        return false;
+      }
+    }
   }
   if (rgb != 0 && rgb != kUniversalChannels) {
     error = "rgb mode needs W1, W2 and W3 all set to rgb";
@@ -207,14 +221,24 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
       r.fail("lights", "must be an array of up to 5 channels");
     }
     for (int i = 0; r.ok() && i < kLightChannels && i < static_cast<int>(lights.size()); i++) {
-      char field[32];
+      char field[48];
       JsonVariantConst ch = lights[i];
+      LightConfig &l = cfg.lights[i];
+      // One buffer for all field names: each reader call uses it before the next snprintf overwrites it.
       snprintf(field, sizeof(field), "lights[%d].mode", i);
-      r.choice(ch["mode"], field, kLightModes, cfg.lights[i].mode);
-      snprintf(field, sizeof(field), "lights[%d].brightness", i);
-      r.integer(ch["brightness"], field, 0, 255, cfg.lights[i].brightness);
+      r.choice(ch["mode"], field, kLightModes, l.mode);
+      snprintf(field, sizeof(field), "lights[%d].maxBrightness", i);
+      r.integer(ch["maxBrightness"], field, 1, 255, l.maxBrightness);
       snprintf(field, sizeof(field), "lights[%d].pixels", i);
-      r.integer(ch["pixels"], field, 0, 1000, cfg.lights[i].pixels);
+      r.integer(ch["pixels"], field, 0, kMaxLightPixels, l.pixels);
+      snprintf(field, sizeof(field), "lights[%d].chipset", i);
+      r.choice(ch["chipset"], field, kChipsets, l.chipset);
+      snprintf(field, sizeof(field), "lights[%d].colorOrder", i);
+      r.text(ch["colorOrder"], field, l.colorOrder, sizeof(l.colorOrder));
+      snprintf(field, sizeof(field), "lights[%d].invertData", i);
+      r.boolean(ch["invertData"], field, l.invertData);
+      snprintf(field, sizeof(field), "lights[%d].currentLimitMa", i);
+      r.integer(ch["currentLimitMa"], field, 100, 30000, l.currentLimitMa);
     }
   }
 
@@ -258,8 +282,12 @@ std::string serialize(const AppConfig &cfg) {
   for (const LightConfig &l : cfg.lights) {
     JsonObject ch = lights.add<JsonObject>();
     ch["mode"] = toString(l.mode);
-    ch["brightness"] = l.brightness;
+    ch["maxBrightness"] = l.maxBrightness;
     ch["pixels"] = l.pixels;
+    ch["chipset"] = toString(l.chipset);
+    ch["colorOrder"] = l.colorOrder;
+    ch["invertData"] = l.invertData;
+    ch["currentLimitMa"] = l.currentLimitMa;
   }
 
   doc["fadeMs"] = cfg.fadeMs;

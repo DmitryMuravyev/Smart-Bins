@@ -261,7 +261,7 @@ Main LED wiring:   22 AWG (0.35 mm2), inject power every ~1 m or every row
 
 Rules of thumb:
 - Full white per pixel: about 60 mA at 5 V (WS2812B), about 20–25 mA at 12 V (WS2815, WS2811 segment). Real strips vary by ±20 %.
-- The firmware limits the total current (FastLED power limiting, Task 4), so the supply only has to cover that limit plus the ESP32, with 20 % headroom. A 12 V 3 A supply runs the reference grid even at full white.
+- The firmware limits the total current (estimated from the pixel data, Task 4), so the supply only has to cover that limit plus the ESP32, with 20 % headroom. A 12 V 3 A supply runs the reference grid even at full white.
 - Fuses: F1 (grid) and F2 (work strips) at about 1.25 × the firmware limit, slow-blow or automotive blade fuses. F3 (plain strips) from the strips' W/m rating.
 
 ---

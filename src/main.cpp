@@ -14,7 +14,9 @@
 #include "PinMap.h"
 #include "WifiLink.h"
 #include "led/LedEngine.h"
+#include "led/WorkLights.h"
 #include "web/LedApi.h"
+#include "web/LightsApi.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -32,6 +34,7 @@ constexpr uint32_t kFactoryResetHoldMs = 10000;
 sb::ConfigStore configStore;
 sb::WifiLink network;
 sb::led::LedEngine leds;
+sb::led::WorkLights workLights;
 AsyncWebServer server(80);
 uint32_t restartAt = 0;  // set by the config endpoint; restart happens in loop()
 
@@ -56,9 +59,36 @@ void logConfig(const sb::config::AppConfig &cfg) {
            g.pixelsPerBin, sb::config::gridPixels(g), sb::config::toString(g.chipset), g.colorOrder, g.voltage,
            sb::config::toString(g.layout), sb::config::toString(g.start), g.segments);
   for (int i = 0; i < sb::config::kLightChannels; i++) {
-    ESP_LOGI(TAG, "Light W%d: %s", i + 1, sb::config::toString(cfg.lights[i].mode));
+    const auto &l = cfg.lights[i];
+    if (l.mode == sb::config::LightMode::Addressable) {
+      ESP_LOGI(TAG, "Light W%d: addressable, %u px %s %s%s", i + 1, l.pixels, sb::config::toString(l.chipset),
+               l.colorOrder, l.invertData ? ", inverted data" : "");
+    } else {
+      ESP_LOGI(TAG, "Light W%d: %s", i + 1, sb::config::toString(l.mode));
+    }
   }
 }
+
+// Work-light controls for the status page. The list is drawn by the script from
+// /api/lights, so it always shows the real state; each button sends one change
+// and redraws from the response.
+const char kLightsSection[] = R"(<h2>Work lights</h2><div id=wl>loading...</div>
+<p>Light <select id=lid></select> <button onclick="S('on=toggle')">toggle</button>
+<button onclick="L('/off')">all off</button></p>
+<p>Level <input id=lv type=range min=1 max=255 value=255 onchange="S('level='+this.value)"></p>
+<p>Colour <input id=lc type=color value=#ffffff onchange="S('color='+this.value.slice(1))">
+<button onclick="S('kelvin=2700')">warm</button> <button onclick="S('kelvin=4000')">neutral</button>
+<button onclick="S('kelvin=6500')">daylight</button></p>
+<p>Effect <button onclick="S('effect=solid')">solid</button> <button onclick="S('effect=breathe')">breathe</button>
+<button onclick="S('effect=rainbow')">rainbow</button> <span id=le></span></p>
+<script>
+async function L(q){const r=await fetch('/api/lights'+q);const j=await r.json();
+le.textContent=j.error||'';if(j.error)return;const keep=lid.value;
+wl.innerHTML=j.lights.map(l=>`<div>${l.name} (${l.type}): ${l.on?'on':'off'}, level ${l.level}${l.color?', '+l.color:''}, ${l.effect}${l.estimateMa!==undefined?', ~'+l.estimateMa+' mA':''}</div>`).join('')||'No work lights configured; set lights[].mode in config.';
+lid.innerHTML=j.lights.map(l=>`<option value=${l.id}>${l.name}</option>`).join('');if(keep)lid.value=keep}
+function S(p){L('/set?id='+lid.value+'&'+p)}
+L('');
+</script>)";
 
 // Minimal landing page until the web UI arrives (Task 6).
 void registerStatusPage() {
@@ -84,6 +114,7 @@ void registerStatusPage() {
             "<a href='/api/led/test?pattern=off'>stop</a></p>"
             "<form action='/api/locate'>Locate bin x <input name=x size=2 value=0> y <input name=y size=2 value=0> "
             "<button>Light</button> <a href='/api/locate/clear'>clear</a></form>";
+    html += kLightsSection;
     req->send(200, "text/html; charset=utf-8", html);
   });
 
@@ -203,9 +234,16 @@ void setup() {
   leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
              sb::board::defaultPin("grid_power"));
 
+  // W1-W5 in channel order; the config decides what each one drives.
+  const int8_t lightPins[sb::config::kLightChannels] = {
+      sb::board::defaultPin("light_w1"), sb::board::defaultPin("light_w2"), sb::board::defaultPin("light_w3"),
+      sb::board::defaultPin("light_w4"), sb::board::defaultPin("light_w5")};
+  workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
+
   network.begin(configStore.get().deviceName, server);
   registerStatusPage();
   sb::registerLedApi(server, leds);
+  sb::registerLightsApi(server, workLights);
   server.begin();
   ESP_LOGI(TAG, "Boot complete, free heap %s", sb::formatBytes(ESP.getFreeHeap()));
 }

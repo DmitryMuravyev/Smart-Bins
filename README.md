@@ -62,6 +62,33 @@ With a strip connected to GPIO16 (data A) and the grid power switch on GPIO32, t
 
 For a single-transistor (inverting) level shifter set `"invertData": true` in the grid section of the config (edit it at `/config`).
 
+### Work lights
+
+Each of the five work channels is set in the `lights` array of the config (W1 first). `mode` is one of:
+
+| Mode | Channels | What it drives |
+|---|---|---|
+| `off` | any | nothing; the pin stays low |
+| `white` | W1–W5 | a plain (single-colour) strip through its N-MOSFET, 12-bit PWM |
+| `rgb` | W1+W2+W3 together | an analog RGB strip: W1 = red, W2 = green, W3 = blue |
+| `addressable` | W1–W3 | an addressable strip on that channel's data line, powered through the work-strip switch (GPIO33) |
+
+`maxBrightness` (1–255) caps a channel that is too bright for the room. Addressable channels also take `pixels`, `chipset`, `colorOrder`, `invertData` and `currentLimitMa`, as for the grid. Example for option 2 with an addressable strip on W1 and white strips on W4 and W5:
+
+```json
+"lights": [
+  {"mode": "addressable", "pixels": 120, "chipset": "WS2812B", "colorOrder": "GRB"},
+  {"mode": "off"}, {"mode": "off"},
+  {"mode": "white"}, {"mode": "white"}
+]
+```
+
+The start page lists the lights with buttons for on/off, level, colour, white tone and effect. Every change fades (`fadeMs`), and the state is saved a few seconds after the last change and restored, with a fade-in, after a restart. The same controls as URLs:
+
+- `/api/lights` lists the lights (`id`, name, type, state).
+- `/api/lights/set?id=0&on=toggle` switches one; `&level=1..255`, `&color=FF8800`, `&kelvin=2700` and `&effect=solid|breathe|rainbow` change it (and switch it on).
+- `/api/lights/off` switches all of them off.
+
 ### Updating over Wi-Fi
 
 Once the board is on your network, upload new firmware without a cable:

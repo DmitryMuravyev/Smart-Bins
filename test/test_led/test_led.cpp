@@ -4,6 +4,7 @@
 #include "Envelope.h"
 #include "GridMapper.h"
 #include "PowerLimit.h"
+#include "WorkEffects.h"
 
 using namespace sb::led;
 
@@ -131,6 +132,70 @@ static void test_power_limit() {
   TEST_ASSERT_EQUAL(127, limitLevel(1000, 500));
 }
 
+static void test_fader16() {
+  Fader16 f(0);
+  f.set(65535, 0, 5000);  // 65535 x 5000 overflows int32: checks the 64-bit maths
+  TEST_ASSERT_EQUAL(32767, f.value(2500));
+  TEST_ASSERT_EQUAL(65535, f.value(5000));
+  f.reset(100);
+  TEST_ASSERT_EQUAL(100, f.value(0));
+  TEST_ASSERT_TRUE(f.settled(0));
+}
+
+static void test_hue_and_kelvin() {
+  TEST_ASSERT_TRUE(hueToRgb(0) == Rgb(255, 0, 0));
+  TEST_ASSERT_TRUE(hueToRgb(85) == Rgb(1, 255, 0));    // a hair before pure green
+  TEST_ASSERT_TRUE(hueToRgb(128) == Rgb(0, 255, 255));  // cyan, opposite red
+  // Yellow keeps both channels at full value (the six-sector wheel).
+  const Rgb y = hueToRgb(42);
+  TEST_ASSERT_EQUAL(255, y.r);
+  TEST_ASSERT_GREATER_THAN(240, y.g);
+
+  const Rgb warm = kelvinToRgb(2700);
+  TEST_ASSERT_EQUAL(255, warm.r);
+  TEST_ASSERT_LESS_THAN(warm.g, warm.b);  // warm light has less blue than green
+  const Rgb day = kelvinToRgb(6600);
+  TEST_ASSERT_GREATER_THAN(245, day.g);
+  TEST_ASSERT_GREATER_THAN(245, day.b);
+  TEST_ASSERT_TRUE(kelvinToRgb(100) == kelvinToRgb(kMinKelvin));  // clamped
+}
+
+static void test_work_effects() {
+  const Rgb base(200, 100, 50);
+  TEST_ASSERT_TRUE(effectPixel(WorkEffect::Solid, base, 3, 10, 1234) == base);
+  TEST_ASSERT_TRUE(effectPixel(WorkEffect::Breathe, base, 0, 1, 0) == base);  // starts at full level
+  const Rgb low = effectPixel(WorkEffect::Breathe, base, 0, 1, kBreathePeriodMs / 2);
+  TEST_ASSERT_EQUAL(scale8(200, kBreatheMinLevel), low.r);
+  // Rainbow: one full wheel along the strip, so pixel 0 and pixel n/2 are opposite hues.
+  TEST_ASSERT_TRUE(effectPixel(WorkEffect::Rainbow, base, 0, 6, 0) == Rgb(255, 0, 0));
+  TEST_ASSERT_TRUE(effectPixel(WorkEffect::Rainbow, base, 3, 6, 0) == hueToRgb(128));
+  // ...and it turns with time.
+  TEST_ASSERT_TRUE(effectPixel(WorkEffect::Rainbow, base, 0, 1, kRainbowCycleMs / 2) == hueToRgb(128));
+
+  WorkEffect e;
+  TEST_ASSERT_TRUE(parseWorkEffect("breathe", e));
+  TEST_ASSERT_TRUE(e == WorkEffect::Breathe);
+  TEST_ASSERT_FALSE(parseWorkEffect("fire", e));
+  TEST_ASSERT_TRUE(lerp(Rgb(0, 0, 0), Rgb(255, 100, 0), 255) == Rgb(255, 100, 0));
+  TEST_ASSERT_TRUE(lerp(Rgb(0, 0, 0), Rgb(255, 100, 0), 0) == Rgb(0, 0, 0));
+}
+
+static void test_pwm_duty() {
+  TEST_ASSERT_EQUAL(0, pwmDuty(0, 4095));
+  TEST_ASSERT_EQUAL(1, pwmDuty(1, 4095));  // never stuck at 0 while fading in
+  TEST_ASSERT_EQUAL(4095, pwmDuty(65535, 4095));
+  // Half perceived brightness is about 22 % duty with gamma 2.2.
+  const uint16_t half = pwmDuty(32768, 4095);
+  TEST_ASSERT_INT_WITHIN(10, 896, half);
+  // Monotonic: a fade never steps backwards.
+  uint16_t prev = 0;
+  for (uint32_t v = 0; v <= 65535; v += 97) {
+    const uint16_t d = pwmDuty(static_cast<uint16_t>(v), 4095);
+    TEST_ASSERT_TRUE(d >= prev);
+    prev = d;
+  }
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_serpentine_top_left);
@@ -140,5 +205,9 @@ int main(int, char **) {
   RUN_TEST(test_scale_and_gamma);
   RUN_TEST(test_envelopes);
   RUN_TEST(test_power_limit);
+  RUN_TEST(test_fader16);
+  RUN_TEST(test_hue_and_kelvin);
+  RUN_TEST(test_work_effects);
+  RUN_TEST(test_pwm_duty);
   return UNITY_END();
 }

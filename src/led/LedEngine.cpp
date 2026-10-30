@@ -5,6 +5,9 @@
 #include <algorithm>
 #include <cstring>
 
+#include "Chips.h"
+#include "util/MutexLock.h"
+
 namespace sb {
 namespace led {
 
@@ -12,29 +15,21 @@ namespace {
 
 const char *TAG = "led";
 
-constexpr uint32_t kFrameMs = 16;           // ~60 fps while powered
-constexpr uint32_t kIdleFrameMs = 40;       // while the strips are switched off
-constexpr uint32_t kPowerSettleMs = 30;     // let the strip supply settle before sending data
-constexpr uint32_t kPowerOffDelayMs = 1500; // stay powered briefly after the last pixel goes dark
-constexpr uint32_t kTestTimeoutMs = 120000; // test patterns stop by themselves
-
-struct ChipInfo {
-  BitTiming timing;
-  uint8_t channels;
-  ChipCurrent current;
-};
-
-ChipInfo chipInfo(config::Chipset chip) {
-  switch (chip) {
-    case config::Chipset::SK6812: return {{300, 900, 600, 600}, 3, {200, 10}};
-    case config::Chipset::SK6812_RGBW: return {{300, 900, 600, 600}, 4, {200, 10}};
-    case config::Chipset::WS2811: return {{250, 1000, 600, 650}, 3, {67, 10}};   // 12 V, one IC per segment
-    case config::Chipset::WS2815: return {{300, 900, 750, 400}, 3, {83, 10}};    // 12 V
-    case config::Chipset::WS2812:
-    case config::Chipset::WS2812B:
-    default: return {{400, 850, 800, 450}, 3, {200, 10}};
-  }
-}
+// Frame period while powered. 16 ms gives ~60 fps, smooth for fades, and a
+// 1200-pixel grid split over two data lines needs about 18 ms per line at
+// 30 us per pixel, so with two segments the RMT is still mostly idle.
+constexpr uint32_t kFrameMs = 16;
+// While the strips are switched off there is nothing to send; the task only
+// wakes to notice new requests, so a slower tick saves CPU time.
+constexpr uint32_t kIdleFrameMs = 40;
+// After the power switch closes, the strip's supply rail and the pixel ICs need
+// a moment to come up. Data sent earlier can be lost or misread as garbage.
+constexpr uint32_t kPowerSettleMs = 30;
+// Stay powered briefly after the last pixel went dark, so locating bins one
+// after another doesn't click the supply on and off every time.
+constexpr uint32_t kPowerOffDelayMs = 1500;
+// Test patterns stop by themselves in case nobody comes back to switch them off.
+constexpr uint32_t kTestTimeoutMs = 120000;
 
 PulseMode pulseMode(config::LocateMode m) {
   switch (m) {
@@ -44,14 +39,7 @@ PulseMode pulseMode(config::LocateMode m) {
   }
 }
 
-class Lock {
- public:
-  explicit Lock(SemaphoreHandle_t m) : m_(m) { xSemaphoreTake(m_, portMAX_DELAY); }
-  ~Lock() { xSemaphoreGive(m_); }
-
- private:
-  SemaphoreHandle_t m_;
-};
+using Lock = MutexLock;
 
 const char *const kTestNames[] = {"off", "walk", "chain", "rows", "columns", "colors"};
 
@@ -87,10 +75,7 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
   const ChipInfo chip = chipInfo(g.chipset);
   channels_ = chip.channels;
   current_ = chip.current;
-  for (int i = 0; i < 3; i++) {
-    const char c = g.colorOrder[i];
-    order_[i] = c == 'R' ? 0 : c == 'G' ? 1 : 2;
-  }
+  colorOrderMap(g.colorOrder, order_);
 
   powerPin_ = powerPin;
   if (powerPin_ >= 0) {
@@ -98,6 +83,10 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
     digitalWrite(powerPin_, LOW);
   }
 
+  // `pixels` holds what each layer wants to show (full scale, before brightness
+  // and gamma); `out` is the encoded byte stream handed to the RMT. They are
+  // separate because the RMT reads `out` in the background while the next
+  // frame is already being rendered into `pixels`.
   const int pins[2] = {dataPinA, dataPinB};
   bool ok = true;
   for (uint8_t s = 0; s < mapper_.segmentCount(); s++) {
@@ -128,10 +117,13 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   Lock lock(lock_);
   const uint32_t now = millis();
   // Re-locating a bin restarts it instead of stacking a second highlight.
+  // erase() returns the next element, so the iterator only advances when
+  // nothing was removed.
   for (auto it = highlights_.begin(); it != highlights_.end();) {
     if (it->x == x && it->y == y) it = highlights_.erase(it);
     else ++it;
   }
+  // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
   highlights_.push_back({x, y, color, mode, now, durationMs, 0});
   return true;
@@ -141,7 +133,8 @@ void LedEngine::clearLocates() {
   Lock lock(lock_);
   const uint32_t now = millis();
   for (Highlight &h : highlights_) {
-    if (!h.releasedAt) h.releasedAt = now | 1;  // never 0, which means "on"
+    // `| 1` keeps the timestamp non-zero (0 means "still on"); being 1 ms off is invisible.
+    if (!h.releasedAt) h.releasedAt = now | 1;
   }
 }
 
@@ -164,6 +157,15 @@ LedEngine::Status LedEngine::status() {
 
 void LedEngine::taskEntry(void *arg) { static_cast<LedEngine *>(arg)->run(); }
 
+// Render loop. Each pass: render the layers under the lock, decide whether the
+// strips need power, then encode and send outside the lock so web requests are
+// never blocked by the (comparatively slow) encoding.
+//
+// Power logic: `wantPower` is "something is requested" (a highlight or test,
+// even one still fading in from zero), `lit` is "a pixel is visibly on right
+// now". Power goes on as soon as something is requested, and off only when
+// nothing is requested, nothing is lit and that has lasted kPowerOffDelayMs,
+// so fade-outs always finish before the switch opens.
 void LedEngine::run() {
   TickType_t wake = xTaskGetTickCount();
   uint32_t frames = 0;
@@ -191,13 +193,18 @@ void LedEngine::run() {
       frames = 0;
       fpsSince = now;
     }
+    // vTaskDelayUntil keeps a steady frame rate: the time spent rendering is
+    // subtracted from the wait instead of being added to it.
     vTaskDelayUntil(&wake, pdMS_TO_TICKS(powered_ ? kFrameMs : kIdleFrameMs));
   }
 }
 
 void LedEngine::setPower(bool on) {
   if (!on) {
-    // Send one dark frame, then cut power; the data lines then rest low (no phantom power).
+    // Send one dark frame before cutting power. Otherwise the last frame stays
+    // latched in pixels that are still faintly powered through their data
+    // inputs. After this the data lines rest low, so no current leaks into an
+    // unpowered strip through its data pin ("phantom power").
     for (Segment &seg : segments_) {
       if (!seg.strip.ready()) continue;
       std::fill(seg.out.begin(), seg.out.end(), 0);
@@ -211,6 +218,9 @@ void LedEngine::setPower(bool on) {
   ESP_LOGI(TAG, "Grid power %s", on ? "on" : "off");
 }
 
+// Adds a colour to a bin's pixels. blendMax rather than overwrite, so two
+// overlapping layers (or a bin located twice with different colours while one
+// fades out) never darken each other.
 void LedEngine::lightBin(uint8_t x, uint8_t y, Rgb color) {
   PixelSpan span;
   if (!mapper_.binSpan(x, y, span)) return;
@@ -227,6 +237,9 @@ bool LedEngine::anyLit() const {
   return false;
 }
 
+// Builds this frame's pixels from scratch. Called with the lock held.
+// A running test pattern replaces the highlights entirely (it returns early),
+// so highlights keep their timers and reappear when the test ends.
 void LedEngine::renderLayers(uint32_t now) {
   for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), Rgb());
 
@@ -243,12 +256,14 @@ void LedEngine::renderLayers(uint32_t now) {
   for (auto it = highlights_.begin(); it != highlights_.end();) {
     Highlight &h = *it;
     const uint32_t age = now - h.start;
+    // A timed highlight releases itself; from then on it fades out like a manual clear.
     if (!h.releasedAt && h.durationMs && age >= h.durationMs) h.releasedAt = now | 1;
+    // Level = fade-in x pulse x fade-out, each 0..255, renormalised after every product.
     uint32_t level = rampUp(age, fade);
     level = level * pulseLevel(h.mode, age) / 255;
     if (h.releasedAt) {
       const uint32_t since = now - h.releasedAt;
-      if (since >= fade) {
+      if (since >= fade) {  // fully faded out: drop it (erase returns the next element)
         it = highlights_.erase(it);
         continue;
       }
@@ -297,6 +312,10 @@ void LedEngine::renderTest(uint32_t now) {
   }
 }
 
+// Turns pixels into the byte stream: brightness first, then gamma (gamma must
+// come last so dimming stays perceptually even), then colour order. The current
+// limit is applied after the estimate, as one factor across both segments,
+// because both run from the same supply.
 void LedEngine::encodeAndSend(uint32_t now) {
   uint8_t level;
   {
@@ -308,18 +327,7 @@ void LedEngine::encodeAndSend(uint32_t now) {
     Segment &seg = segments_[s];
     seg.strip.waitDone(50);  // the previous frame must be out before its buffer changes
     uint8_t *o = seg.out.data();
-    for (const Rgb &px : seg.pixels) {
-      const Rgb c = gamma_(scale(px, level));
-      uint8_t ch[3] = {c.r, c.g, c.b};
-      if (channels_ == 4) {  // RGBW: move the common part of R, G and B to the white LED
-        const uint8_t w = std::min(c.r, std::min(c.g, c.b));
-        for (uint8_t &v : ch) v -= w;
-        for (int i = 0; i < 3; i++) *o++ = ch[order_[i]];
-        *o++ = w;
-      } else {
-        for (int i = 0; i < 3; i++) *o++ = ch[order_[i]];
-      }
-    }
+    for (const Rgb &px : seg.pixels) o = encodePixel(gamma_(scale(px, level)), channels_, order_, o);
     estimate += estimateMilliamps(seg.out.data(), seg.pixels.size(), channels_, current_);
   }
 
