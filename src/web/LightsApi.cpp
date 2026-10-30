@@ -44,7 +44,11 @@ void sendLights(AsyncWebServerRequest *req, led::WorkLights &lights) {
 }  // namespace
 
 void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
-  server.on("/api/lights", HTTP_GET, [&lights](AsyncWebServerRequest *req) { sendLights(req, lights); });
+  // exact(): a plain "/api/lights" route would also match "/api/lights/set" and
+  // "/api/lights/off" (the library treats a path as a prefix of "path/..."),
+  // and as the first route registered it would answer them with the list.
+  server.on(AsyncURIMatcher::exact("/api/lights"), HTTP_GET,
+            [&lights](AsyncWebServerRequest *req) { sendLights(req, lights); });
 
   server.on("/api/lights/off", HTTP_GET, [&lights](AsyncWebServerRequest *req) {
     lights.allOff();
