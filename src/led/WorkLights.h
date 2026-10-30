@@ -15,6 +15,7 @@
 // Output runs on its own task, like the grid: PWM duty is written only when it
 // changes, addressable strips are refreshed while anything moves.
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -52,9 +53,14 @@ class WorkLights {
     WorkEffect effect = WorkEffect::Solid;
   };
 
+  // Longest name is "W1-W3" (6 bytes with the terminator). The compiler can't
+  // see that the channel is at most 4, so it sizes the warning check for any
+  // uint8_t ("W256-W258"); 12 bytes fits that and keeps -Wformat-truncation quiet.
+  static constexpr size_t kNameSize = 12;
+
   struct Info {
     uint8_t id;
-    char name[8];
+    char name[kNameSize];
     config::LightMode type;
     uint16_t pixels;  // addressable only
     State state;
