@@ -327,11 +327,20 @@ void WorkLights::run() {
         }
         wantStrips |= l.level.target() > 0;
         stripsLit |= l.level.value(now) > 0;
-        // Send while moving, and resend a still picture every kStripRefreshMs:
-        // a pixel that caught a glitch (noise on a long data wire) would
-        // otherwise keep the wrong colour until the next change.
-        if (powered_ && now - poweredAt_ >= kPowerSettleMs && (m || now - l.lastSent >= kStripRefreshMs)) {
+        // Send while moving, plus one more frame after the movement stops:
+        // `moving` turns false on the first pass where the fade has ended, and
+        // the frame sent on the pass before still shows the last in-between
+        // step (the faint tail of a fade-out). `finalFrame` stays set until
+        // that closing frame has really gone out, even if the strip was
+        // waiting for power at that moment.
+        // Also resend a still picture every kStripRefreshMs: a pixel that caught
+        // a glitch (noise on a long data wire) would otherwise keep the wrong
+        // colour until the next change.
+        if (m) l.finalFrame = true;
+        if (powered_ && now - poweredAt_ >= kPowerSettleMs &&
+            (m || l.finalFrame || now - l.lastSent >= kStripRefreshMs)) {
           renderStrip(l, now);
+          if (!m) l.finalFrame = false;
         }
       }
       if (stripsLit) lastLit_ = now;

@@ -116,6 +116,7 @@ class WorkLights {
     uint32_t estimateMa = 0;
     uint8_t limitLevel = 255;
     uint32_t lastSent = 0;
+    bool finalFrame = false;  // a fade just ended and its last frame is not sent yet
   };
 
   static void taskEntry(void *arg);
