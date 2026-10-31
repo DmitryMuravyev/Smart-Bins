@@ -5,6 +5,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -222,6 +223,36 @@ static void test_filters_and_bins() {
   TEST_ASSERT_EQUAL_STRING("GRM188", loose[0].c_str());
 }
 
+// countByBin(): where a query's parts are, one entry per bin that has any.
+static void test_count_by_bin() {
+  addCatalogue();
+  auto counts = [](const PartQuery &q) {
+    std::map<std::pair<int, int>, int64_t> out;
+    TEST_ASSERT_TRUE_MESSAGE(db.countByBin(q, [&](const BinCount &c) { out[{c.bin.x, c.bin.y}] = c.parts; }, err) ==
+                                 Result::Ok,
+                             err.c_str());
+    return out;
+  };
+  // No filter: every part, and the loose one under x = -1.
+  auto all = counts(PartQuery());
+  TEST_ASSERT_EQUAL(4, all.size());
+  TEST_ASSERT_EQUAL(1, (all[{0, 0}]));
+  TEST_ASSERT_EQUAL(2, (all[{1, 0}]));
+  TEST_ASSERT_EQUAL(1, (all[{-1, -1}]));
+  // A search: only the bins that hold matches.
+  PartQuery q;
+  q.search = "mcu";  // category of the STM32 and the ATmega
+  q.sort = SortKey::PartNumber;
+  q.limit = 1;  // ignored here
+  auto mcu = counts(q);
+  TEST_ASSERT_EQUAL(2, mcu.size());
+  TEST_ASSERT_EQUAL(1, (mcu[{0, 0}]));
+  TEST_ASSERT_EQUAL(1, (mcu[{1, 0}]));
+  q = PartQuery();
+  q.search = "nothing-like-this";
+  TEST_ASSERT_EQUAL(0, counts(q).size());
+}
+
 static void test_sorting_and_pages() {
   addCatalogue();
   PartQuery q;
@@ -437,6 +468,7 @@ int main() {
   RUN_TEST(test_list_pages);
   RUN_TEST(test_search_any_field_any_case);
   RUN_TEST(test_filters_and_bins);
+  RUN_TEST(test_count_by_bin);
   RUN_TEST(test_sorting_and_pages);
   RUN_TEST(test_empty_values_sort_last);
   RUN_TEST(test_list_values);

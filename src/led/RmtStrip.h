@@ -86,5 +86,13 @@ class FlashGuard {
   FlashGuard &operator=(const FlashGuard &) = delete;
 };
 
+// The clock every light effect runs on: milliseconds like millis(), except
+// that it stands still while a FlashGuard is held. Strips can't send frames
+// during a flash write anyway; with effects timed by millis() they would
+// jump ahead by the length of the write when it ends (a pulse skipping part
+// of its cycle, a fade suddenly further along). On this clock they pause and
+// carry on from the same point. Any task may call it.
+uint32_t effectMillis();
+
 }  // namespace led
 }  // namespace sb

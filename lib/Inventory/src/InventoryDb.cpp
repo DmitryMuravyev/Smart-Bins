@@ -306,6 +306,39 @@ const char *fixedVfs() {
 }
 #endif
 
+// The WHERE conditions for a PartQuery's filters (search words, category,
+// manufacturer, bin), joined with AND; empty when no filter is set. The
+// conditions refer to the parts table as "p". Their parameters are numbered
+// (?1, ?2, ...) in the order they are appended to `params`, so a caller binds
+// params[i] to i + 1. Shared by findParts() and countByBin(), so both apply
+// exactly the same filters.
+std::string partFilter(const PartQuery &query, std::vector<std::string> &params) {
+  std::string where;
+  auto add = [&](const std::string &clause) { where += (where.empty() ? "" : " AND ") + clause; };
+  auto param = [&](const std::string &value) {
+    params.push_back(value);
+    return "?" + std::to_string(params.size());
+  };
+  if (query.search.find_first_not_of(" \t") != std::string::npos) {
+    std::string fields;
+    for (const TextFieldInfo &f : kTextFields) fields += std::string(", p.") + f.column;
+    add("sb_match(" + param(query.search) + fields + ")");
+  }
+  if (!query.category.empty()) add("sb_fold(p.category) = " + param(folded(trimmed(query.category))));
+  if (!query.manufacturer.empty()) {
+    add("sb_fold(p.manufacturer) = " + param(folded(trimmed(query.manufacturer))));
+  }
+  if (query.bin) {
+    if (query.bin->valid()) {
+      add("p.bin_id = (SELECT id FROM bins WHERE x = " + param(std::to_string(query.bin->x)) +
+          " AND y = " + param(std::to_string(query.bin->y)) + ")");
+    } else {
+      add("p.bin_id IS NULL");
+    }
+  }
+  return where;
+}
+
 }  // namespace
 
 const TextFieldInfo &textField(int field) { return kTextFields[field]; }
@@ -743,33 +776,9 @@ Result InventoryDb::findParts(const PartQuery &query, const std::function<void(c
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
 
-  // The WHERE clause and its parameters, built from the filters that are set.
-  // Parameters are numbered (?1, ?2, ...) in the order they are added to
-  // `params`, so the same clause serves the count and the page query.
-  std::string where;  // the conditions joined with AND, empty when none
+  // The WHERE clause and its parameters, from the filters that are set.
   std::vector<std::string> params;
-  auto add = [&](const std::string &clause) { where += (where.empty() ? "" : " AND ") + clause; };
-  auto param = [&](const std::string &value) {
-    params.push_back(value);
-    return "?" + std::to_string(params.size());
-  };
-  if (query.search.find_first_not_of(" \t") != std::string::npos) {
-    std::string fields;
-    for (const TextFieldInfo &f : kTextFields) fields += std::string(", p.") + f.column;
-    add("sb_match(" + param(query.search) + fields + ")");
-  }
-  if (!query.category.empty()) add("sb_fold(p.category) = " + param(folded(trimmed(query.category))));
-  if (!query.manufacturer.empty()) {
-    add("sb_fold(p.manufacturer) = " + param(folded(trimmed(query.manufacturer))));
-  }
-  if (query.bin) {
-    if (query.bin->valid()) {
-      add("p.bin_id = (SELECT id FROM bins WHERE x = " + param(std::to_string(query.bin->x)) +
-          " AND y = " + param(std::to_string(query.bin->y)) + ")");
-    } else {
-      add("p.bin_id IS NULL");
-    }
-  }
+  const std::string where = partFilter(query, params);
   auto bindAll = [&](Stmt &q) {
     for (size_t i = 0; i < params.size(); i++) q.bind(static_cast<int>(i + 1), params[i]);
   };
@@ -840,6 +849,35 @@ Result InventoryDb::findParts(const PartQuery &query, const std::function<void(c
     }
     q.reset();
   }
+  return Result::Ok;
+}
+
+Result InventoryDb::countByBin(const PartQuery &query, const std::function<void(const BinCount &)> &each,
+                               std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  // Same filters as findParts(); sort, offset and limit don't apply. One
+  // pass over the parts, grouped by bin; parts in no bin form one group whose
+  // b.x and b.y are NULL.
+  std::vector<std::string> params;
+  const std::string where = partFilter(query, params);
+  const std::string sql = "SELECT b.x, b.y, count(*) FROM parts p LEFT JOIN bins b ON b.id = p.bin_id" +
+                          (where.empty() ? std::string() : " WHERE " + where) + " GROUP BY p.bin_id";
+  Stmt q(db_, sql.c_str());
+  if (!q.ok()) return err = lastError(), Result::Error;
+  for (size_t i = 0; i < params.size(); i++) q.bind(static_cast<int>(i + 1), params[i]);
+  int rc;
+  while ((rc = q.step()) == SQLITE_ROW) {
+    BinCount c;
+    if (q.isNull(0)) {
+      c.bin = {-1, -1};
+    } else {
+      c.bin = {static_cast<int>(q.integer(0)), static_cast<int>(q.integer(1))};
+    }
+    c.parts = q.integer(2);
+    each(c);
+  }
+  if (rc != SQLITE_DONE) return err = lastError(), Result::Error;
   return Result::Ok;
 }
 
