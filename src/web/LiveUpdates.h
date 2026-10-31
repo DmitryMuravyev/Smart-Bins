@@ -4,8 +4,8 @@
 // phone (or the BOOT button, or a script) shows up on all the others at once.
 //
 // Messages are JSON objects with a "type":
-//   {"type":"lights", "lights":[...], "stripPower":bool}   on every light change
-//   {"type":"leds", "estimateMa":n, "fps":n, "currentLimited":bool, "lit":[[x,y],...]}
+//   {"type":"lights", "version":n, "lights":[...], "stripPower":bool}   on every light change
+//   {"type":"leds", "estimateMa":n, "fps":n, "currentLimited":bool, "version":n, "lit":[[x,y],...]}
 //       every 2 s, and at once when the lit bins change
 //   {"type":"system", "system":{uptimeS, heapFree, heapMin, wifi{...}}}   every 2 s
 // A new client gets all three at once. The socket only pushes; changes are

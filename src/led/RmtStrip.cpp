@@ -30,7 +30,32 @@ SemaphoreHandle_t gate() {
 
 // Longest wait for a frame in flight: 1000 RGBW pixels take about 40 ms.
 constexpr uint32_t kFrameWaitMs = 60;
+
+// Transmit memory. The ESP32's RMT has 8 blocks of 64 symbols (one symbol is
+// one data bit). A frame is longer than that, so the driver sends from the
+// block as a ring: when half of it has gone out, an interrupt refills that
+// half while the other half is on the wire. If the interrupt comes late (other
+// interrupts, or a critical section elsewhere masking it), the hardware runs
+// into stale symbols: the frame is cut off or repeats bits, which the strip
+// shows as a flicker or a pixel lit past the end of the grid. Half a block is
+// all the slack there is: 32 bits = 40 us with one block, 80 us with two,
+// and so on, so each strip is given as many blocks as the plan allows.
+constexpr int kMemBlocks = 8;
+constexpr int kSymbolsPerBlock = 64;
+int plannedStrips = 0;         // strips still to be started (planStrips)
+int freeBlocks = kMemBlocks;   // blocks not yet given to a strip
+
+// Interrupt level for the refill interrupt. 3 is the highest a handler written
+// in C may use; it lets the refill pre-empt the many level-1 interrupts
+// (timers, GPIO, UART, the scheduler tick). All channels share one interrupt,
+// so every strip must use the same level.
+constexpr int kIntrPriority = 3;
 }  // namespace
+
+void RmtStrip::planStrips(int count) {
+  plannedStrips = count;
+  freeBlocks = kMemBlocks;
+}
 
 // Done interrupt for one frame. Only clears the flag; returns false because
 // no higher-priority task was woken. In IRAM in case the build makes the RMT
@@ -60,15 +85,32 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   ch.gpio_num = static_cast<gpio_num_t>(gpio);
   ch.clk_src = RMT_CLK_SRC_DEFAULT;
   ch.resolution_hz = kResolutionHz;
-  // One 64-symbol RAM block per channel: the ESP32 has eight, so the two grid
-  // lines and three work strips all get their own. The driver refills the
-  // block from an interrupt while it transmits, so frames of any length work.
-  ch.mem_block_symbols = 64;
+  // This strip's share of the transmit memory: the free blocks divided among
+  // the strips still to come, rounded up. The grid lines are started first, so
+  // they get any spare block: with 5 strips that is 2+2+2+1+1, with 3 it is
+  // 3+3+2, a single strip gets all 8.
+  // A channel with N blocks also uses the blocks of the next N-1 channels,
+  // which then can't be used; the driver handles that as long as the blocks
+  // are free, which they are when strips are started in turn like this.
+  int blocks = 1;
+  if (plannedStrips > 0) {
+    blocks = (freeBlocks + plannedStrips - 1) / plannedStrips;
+    if (blocks < 1) blocks = 1;
+  }
   // Only one frame is ever queued (write() waits for the previous one), but a
   // depth of 2 leaves room so rmt_transmit() never blocks.
   ch.trans_queue_depth = 2;
+  ch.intr_priority = kIntrPriority;
   ch.flags.invert_out = invert;
+  ch.mem_block_symbols = blocks * kSymbolsPerBlock;
   esp_err_t err = rmt_new_tx_channel(&ch, &channel_);
+  if (err != ESP_OK && blocks > 1) {
+    // Not enough contiguous free blocks (more strips than planned): fall back
+    // to the minimum rather than leave the strip dark.
+    blocks = 1;
+    ch.mem_block_symbols = kSymbolsPerBlock;
+    err = rmt_new_tx_channel(&ch, &channel_);
+  }
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "GPIO%d: no RMT channel (%s)", gpio, esp_err_to_name(err));
     channel_ = nullptr;
@@ -106,7 +148,11 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
     }
   }
   xSemaphoreGive(gate());
-  ESP_LOGI(TAG, "GPIO%d ready (%s)", gpio, invert ? "inverted" : "normal");
+  if (plannedStrips > 0) {
+    plannedStrips--;
+    freeBlocks = freeBlocks > blocks ? freeBlocks - blocks : 0;
+  }
+  ESP_LOGI(TAG, "GPIO%d ready (%s, %d symbols)", gpio, invert ? "inverted" : "normal", blocks * kSymbolsPerBlock);
   return true;
 }
 

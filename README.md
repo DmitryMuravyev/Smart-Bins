@@ -108,7 +108,7 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `/api/locate/defaults` | without parameters: reads the defaults; with `color`, `mode`, `s`: changes and saves them |
 | `/api/led/test?pattern=walk\|chain\|rows\|columns\|colors\|off` | grid test patterns |
 | `/api/led/brightness?value=1..255` | grid brightness, applied and saved |
-| `GET /api/led/status` | estimated grid current, frame rate, current limit active, lit bins (`lit: [[x, y], ...]`) |
+| `GET /api/led/status` | estimated grid current, frame rate, current limit active, lit bins (`lit: [[x, y], ...]`) and their `version`; `/api/locate` and `/api/locate/clear` answer with the same status |
 | `GET /api/lights` | the work lights (`id`, name, type, state) |
 | `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
 | `/api/lights/off` | every light off |

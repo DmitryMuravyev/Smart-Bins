@@ -65,8 +65,9 @@ class LedEngine {
     uint8_t x, y;
   };
   // Writes the bins that are lit (not yet fading out) into `out` and returns
-  // how many there are, at most `max`.
-  uint8_t litBins(Bin *out, uint8_t max);
+  // how many there are, at most `max`. `version`, if given, receives version()
+  // as of that same moment, so the list and its number always match.
+  uint8_t litBins(Bin *out, uint8_t max, uint32_t *version = nullptr);
   // Increases whenever the set of lit bins changes (located, cleared, timed
   // out); the WebSocket pushes the new set when it moves.
   uint32_t version() const { return version_; }
