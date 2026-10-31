@@ -259,10 +259,13 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     PartQuery query;
     std::string err;
     if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
-    // Written part by part into the response, so only one part's JSON
+    // Written part by part into one string, so only one part's JSON
     // document exists at a time (the database hands them over one by one).
-    AsyncResponseStream *res = req->beginResponseStream("application/json");
-    res->print("{\"parts\":[");
+    // See StringPrint for why this isn't an AsyncResponseStream.
+    std::string body;
+    body.reserve(4096);
+    StringPrint res(body);
+    res.print("{\"parts\":[");
     bool first = true;
     int64_t total = 0;
     const Result r = db.findParts(
@@ -270,17 +273,16 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
         [&](const Part &p) {
           JsonDocument doc;
           writePart(doc.to<JsonObject>(), p);
-          if (!first) res->print(',');
+          if (!first) res.print(',');
           first = false;
-          serializeJson(doc, *res);
+          serializeJson(doc, res);
         },
         total, err);
     if (r != Result::Ok) {
-      delete res;  // not sent yet: answer with the error instead
       return sendResult(req, r, err);
     }
-    res->printf("],\"total\":%lld,\"offset\":%d}", (long long)total, query.offset);
-    req->send(res);
+    res.printf("],\"total\":%lld,\"offset\":%d}", (long long)total, query.offset);
+    sendText(req, 200, "application/json", std::move(body));
   });
 
   // Distinct values of one text field with their part counts, most used
@@ -299,8 +301,9 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       return sendError(req, 400, "limit must be 1 to 500");
     }
     const AsyncWebParameter *contains = param(req, "q");
-    AsyncResponseStream *res = req->beginResponseStream("application/json");
-    res->print("{\"values\":[");
+    std::string body;
+    StringPrint res(body);
+    res.print("{\"values\":[");
     bool first = true;
     std::string err;
     const Result r = db.listValues(
@@ -310,17 +313,16 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
           JsonDocument doc;
           doc["value"] = v.value.c_str();
           doc["parts"] = v.parts;
-          if (!first) res->print(',');
+          if (!first) res.print(',');
           first = false;
-          serializeJson(doc, *res);
+          serializeJson(doc, res);
         },
         err);
     if (r != Result::Ok) {
-      delete res;
       return sendResult(req, r, err);
     }
-    res->print("]}");
-    req->send(res);
+    res.print("]}");
+    sendText(req, 200, "application/json", std::move(body));
   });
 
   server.on(AsyncURIMatcher::exact("/api/part"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
@@ -383,8 +385,9 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     if (!ready(req)) return;
     // At most 255 x 255 bins in theory, a few hundred in practice: streamed
     // like the parts list so a large grid doesn't need one big document.
-    AsyncResponseStream *res = req->beginResponseStream("application/json");
-    res->print("{\"bins\":[");
+    std::string body;
+    StringPrint res(body);
+    res.print("{\"bins\":[");
     bool first = true;
     std::string err;
     const Result r = db.listBins(
@@ -395,17 +398,16 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
           doc["label"] = b.label.c_str();
           doc["parts"] = b.parts;
           if (!b.inGrid) doc["outside"] = true;  // left over after the grid shrank
-          if (!first) res->print(',');
+          if (!first) res.print(',');
           first = false;
-          serializeJson(doc, *res);
+          serializeJson(doc, res);
         },
         err);
     if (r != Result::Ok) {
-      delete res;
       return sendResult(req, r, err);
     }
-    res->print("]}");
-    req->send(res);
+    res.print("]}");
+    sendText(req, 200, "application/json", std::move(body));
   });
 
   server.on("/api/bin/label", HTTP_GET | HTTP_POST, [&db, ready](AsyncWebServerRequest *req) {
