@@ -56,8 +56,11 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     if (const char *err = readLocateParams(req, opts)) return sendError(req, 400, err);
     const bool ok = engine.locate(x, y, led::Rgb::fromHex(opts.color), led::pulseMode(opts.mode),
                                   static_cast<uint32_t>(opts.durationS) * 1000);
+    // The answer carries the new grid status (lit bins and their version), so
+    // the page can show the result without waiting for the WebSocket.
     JsonDocument doc;
     doc["ok"] = ok;
+    writeLedStatus(doc, engine);
     sendJson(req, ok ? 200 : 400, doc);
   });
 
@@ -86,7 +89,11 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     } else {
       engine.clearLocates();
     }
-    req->send(200, "application/json", "{\"ok\":true}");
+    // With the new grid status, as for /api/locate.
+    JsonDocument doc;
+    doc["ok"] = true;
+    writeLedStatus(doc, engine);
+    sendJson(req, 200, doc);
   });
 
   server.on("/api/led/test", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
@@ -129,7 +136,12 @@ void writeLedStatus(JsonDocument &doc, led::LedEngine &engine) {
   doc["fps"] = s.fps;
   // Lit bins as [x, y] pairs, so every open page shows the same highlights.
   led::LedEngine::Bin bins[led::LedEngine::kMaxHighlights];
-  const uint8_t n = engine.litBins(bins, led::LedEngine::kMaxHighlights);
+  uint32_t version;
+  const uint8_t n = engine.litBins(bins, led::LedEngine::kMaxHighlights, &version);
+  // The page drops a status older than one it has already shown: a push built
+  // just before a bin was toggled would otherwise undo the toggle on screen
+  // for a moment.
+  doc["version"] = version;
   JsonArray lit = doc["lit"].to<JsonArray>();
   for (uint8_t i = 0; i < n; i++) {
     JsonArray b = lit.add<JsonArray>();

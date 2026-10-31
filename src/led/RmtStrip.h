@@ -32,6 +32,12 @@ class RmtStrip {
   bool begin(int gpio, const BitTiming &timing, bool invert);
   void end();
 
+  // Shares the RMT's transmit memory among the strips about to be started.
+  // Call once, before the first begin(), with the number of strips that will
+  // be started; each begin() then takes its share (see .cpp for why it
+  // matters). Without a plan every strip gets the minimum, one block.
+  static void planStrips(int count);
+
   // Starts sending `len` bytes. `data` must stay unchanged until the next call
   // to write() or waitDone(), which wait for the previous frame to finish.
   bool write(const uint8_t *data, size_t len);

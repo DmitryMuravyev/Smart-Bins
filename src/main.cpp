@@ -13,6 +13,7 @@
 #include "PinMap.h"
 #include "WifiLink.h"
 #include "led/LedEngine.h"
+#include "led/RmtStrip.h"
 #include "led/WorkLights.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
@@ -157,13 +158,28 @@ void setup() {
   configStore.begin();
   logConfig(configStore.get());
 
-  leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
-             sb::board::defaultPin("grid_power"));
-
   // W1-W5 in channel order; the config decides what each one drives.
   const int8_t lightPins[sb::config::kLightChannels] = {
       sb::board::defaultPin("light_w1"), sb::board::defaultPin("light_w2"), sb::board::defaultPin("light_w3"),
       sb::board::defaultPin("light_w4"), sb::board::defaultPin("light_w5")};
+
+  // Count the addressable strips before starting any, so the RMT's transmit
+  // memory is shared among exactly those (more memory per strip means more
+  // tolerance for a late refill interrupt, see RmtStrip.cpp). The grid starts
+  // first and so gets any spare memory.
+  {
+    const sb::config::AppConfig &cfg = configStore.get();
+    int strips = 0;
+    if (sb::board::defaultPin("grid_data_a") >= 0) strips++;
+    if (cfg.grid.segments >= 2 && sb::board::defaultPin("grid_data_b") >= 0) strips++;
+    for (int i = 0; i < sb::config::kLightChannels; i++) {
+      if (cfg.lights[i].mode == sb::config::LightMode::Addressable && lightPins[i] >= 0) strips++;
+    }
+    sb::led::RmtStrip::planStrips(strips);
+  }
+
+  leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
+             sb::board::defaultPin("grid_power"));
   workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
 
   // Security first: its password check is middleware, and it must be in place

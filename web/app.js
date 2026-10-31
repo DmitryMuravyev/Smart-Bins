@@ -24,6 +24,8 @@ const state = {
   locate: null,   // locate defaults: {color, mode, s}
   lights: [],
   litBins: [],    // bins the board reports as lit, [[x, y], ...]
+  versions: { lights: -1, leds: -1 },  // newest state numbers shown, see isStale()
+  binRequests: 0, // bin toggles sent and not answered yet
 };
 
 // ---------------------------------------------------------------------------
@@ -140,12 +142,39 @@ const PRESETS = [
 
 async function loadLights() {
   const res = await attempt(() => api('/api/lights'));
-  if (res) updateLights(res.lights);
+  if (res) updateLights(res);
 }
 
-function updateLights(lights) {
-  state.lights = lights;
+// Stale updates. The board numbers every state it reports (`version`, one
+// counter for the lights and one for the lit bins), and its answers to changes
+// carry the number after the change. A WebSocket push can be built just before
+// a change and arrive after the answer; shown as is, it would put the old
+// value back for a moment (a slider jumping back, a bin going dark and lit
+// again). So anything numbered below what the page already shows is dropped.
+// The numbers restart with the board, so they are reset when the socket
+// (re)connects.
+function isStale(kind, version) {
+  if (version === undefined) return false;
+  if (version < state.versions[kind]) return true;
+  state.versions[kind] = version;
+  return false;
+}
+
+// `data`: {version, lights, stripPower} from an answer or a push.
+// A stale list is not used, but the page is still refreshed from the newest
+// one it has: a light whose change was on its way skipped that list's update
+// (see lightBusy()) and is only now free to show it.
+function updateLights(data) {
+  if (!isStale('lights', data.version)) state.lights = data.lights;
   renderLights(false);
+}
+
+// A light with a change still on its way (being sent, or waiting to be sent
+// after the one in flight) keeps what the user set: the board's state for it
+// is about to change anyway, and showing the current one would flick back.
+function lightBusy(id) {
+  const q = lightQueue.get(id);
+  return !!q && (q.busy || q.pending !== null);
 }
 
 // Builds one card per light. Cards are rebuilt only when the set of lights
@@ -159,7 +188,7 @@ function renderLights(force) {
     list.replaceChildren(...state.lights.map(buildLightCard));
   }
   $('#lights-empty').hidden = state.lights.length > 0;
-  state.lights.forEach((l, i) => fillLightCard(list.children[i], l));
+  state.lights.forEach((l, i) => { if (!lightBusy(l.id)) fillLightCard(list.children[i], l); });
 }
 
 function buildLightCard(light) {
@@ -310,7 +339,7 @@ async function flushLight(id) {
   q.busy = true;
   const res = await attempt(() => api('/api/lights/set', { form: { id, ...params } }));
   q.busy = false;
-  if (res) updateLights(res.lights);
+  if (res) updateLights(res);
   if (q.pending) flushLight(id);
 }
 
@@ -365,7 +394,12 @@ function showLocateDefaults(d) {
 
 // `quiet`: no "saved" message, for the colour slider, which saves as it moves.
 async function saveLocateDefaults(params, quiet = false) {
+  // Numbered so that only the answer to the newest save is shown: an older
+  // answer (a slow one, or one overtaken while the colour slider moves on)
+  // would put an earlier setting back on screen for a moment.
+  const seq = ++locateSaves;
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
+  if (seq !== locateSaves || locateHueTimer) return;
   if (d) {
     showLocateDefaults(d);
     if (!quiet) toast(t('grid.saved'));
@@ -376,12 +410,16 @@ async function saveLocateDefaults(params, quiet = false) {
 // not sent move by move: the swatch follows at once, and the colour is saved
 // once the slider has rested for a moment.
 let locateHue;
-let locateHueTimer = 0;
+let locateHueTimer = 0;  // a colour waiting to be saved; 0 when none
+let locateSaves = 0;     // saves started, see saveLocateDefaults()
 function onLocateHue(hue) {
   const hex = hueToHex(hue);
   $('#locate-swatch').style.background = `#${hex}`;
   clearTimeout(locateHueTimer);
-  locateHueTimer = setTimeout(() => saveLocateDefaults({ color: hex }, true), 400);
+  locateHueTimer = setTimeout(() => {
+    locateHueTimer = 0;
+    saveLocateDefaults({ color: hex }, true);
+  }, 400);
 }
 
 // Bins are named like spreadsheet cells: column letters, row number (A1 = top left).
@@ -394,10 +432,25 @@ function binLabel(x, y) {
 // Tapping a dark bin lights it, tapping a lit one turns it off. The button
 // changes at once; the board then confirms with the list of lit bins over the
 // WebSocket (also when a bin times out or another page changes it).
+//
+// While toggles are unanswered the buttons show what the user tapped and the
+// board's lit list is not applied: a list from before the last tap would
+// undo it on screen. The answer to the last outstanding toggle brings the
+// board's list (and its number, see isStale()), which then takes over.
 async function toggleBin(x, y, button) {
   const lit = button.classList.toggle('lit');
-  const ok = await attempt(() => api(lit ? '/api/locate' : '/api/locate/clear', { form: { x, y } }));
-  if (!ok) button.classList.toggle('lit', !lit);
+  state.binRequests++;
+  const res = await attempt(() => api(lit ? '/api/locate' : '/api/locate/clear', { form: { x, y } }));
+  state.binRequests--;
+  if (!res) button.classList.toggle('lit', !lit);
+  else if (state.binRequests === 0) updateLitBins(res);
+}
+
+// `status`: a grid status ({version, lit, ...}) from an answer or a push.
+function updateLitBins(status) {
+  if (state.binRequests > 0 || isStale('leds', status.version)) return;
+  state.litBins = status.lit || [];
+  showLitBins();
 }
 
 // Marks the buttons of the bins the board reports as lit ([[x, y], ...]).
@@ -620,6 +673,8 @@ async function connectLive() {
   socket = new WebSocket(`${proto}://${location.host}/ws${token}`);
   socket.onopen = () => {
     retryMs = 1000;
+    // A new connection may be to a restarted board, whose numbers start over.
+    state.versions = { lights: -1, leds: -1 };
     $('#live-dot').classList.add('live');
     $('#live-dot').title = t('status.live');
   };
@@ -633,13 +688,12 @@ async function connectLive() {
   socket.onmessage = ev => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch (e) { return; }
-    if (msg.type === 'lights') updateLights(msg.lights);
+    if (msg.type === 'lights') updateLights(msg);
     else if (msg.type === 'system' && state.system) {
       Object.assign(state.system, msg.system);
       renderSystem();
     } else if (msg.type === 'leds') {
-      state.litBins = msg.lit || [];
-      showLitBins();
+      updateLitBins(msg);
       $('#grid-status').textContent = t('grid.status', { ma: msg.estimateMa, fps: msg.fps })
         + (msg.currentLimited ? ` ${t('grid.limited')}` : '');
     }
@@ -662,13 +716,11 @@ function bindControls() {
   });
   $('#lights-off').addEventListener('click', async () => {
     const res = await attempt(() => api('/api/lights/off', { method: 'POST' }));
-    if (res) updateLights(res.lights);
+    if (res) updateLights(res);
   });
   $('#locate-clear').addEventListener('click', async () => {
-    if (await attempt(() => api('/api/locate/clear', { method: 'POST' }))) {
-      state.litBins = [];
-      showLitBins();
-    }
+    const res = await attempt(() => api('/api/locate/clear', { method: 'POST' }));
+    if (res) updateLitBins(res);
   });
   // Locate colour: the same hue slider and colour presets as the lights
   // (presets that set a colour temperature don't apply to a bin and are left out).

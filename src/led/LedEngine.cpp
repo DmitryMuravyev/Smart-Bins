@@ -169,8 +169,10 @@ bool LedEngine::clearLocate(uint8_t x, uint8_t y) {
   return false;
 }
 
-uint8_t LedEngine::litBins(Bin *out, uint8_t max) {
+uint8_t LedEngine::litBins(Bin *out, uint8_t max, uint32_t *version) {
   Lock lock(lock_);
+  // Under the same lock as every change, which bumps version_ after the change.
+  if (version) *version = version_;
   uint8_t n = 0;
   for (const Highlight &h : highlights_) {
     if (h.released || n >= max) continue;

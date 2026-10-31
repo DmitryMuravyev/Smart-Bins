@@ -20,7 +20,7 @@ class WorkLights;
 // level=0 switches it off and keeps the previous level for the next "on".
 void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights);
 
-// Fills `doc` with {"lights": [...], "stripPower": bool}, as returned by
+// Fills `doc` with {"version": n, "lights": [...], "stripPower": bool}, as returned by
 // /api/lights and pushed over the WebSocket.
 void writeLights(JsonDocument &doc, led::WorkLights &lights);
 

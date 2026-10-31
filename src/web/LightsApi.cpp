@@ -37,6 +37,14 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
 }  // namespace
 
 void writeLights(JsonDocument &doc, led::WorkLights &lights) {
+  // The change counter, read before the lights themselves: a change made in
+  // between then shows up in the list under the older number, which is safe
+  // (the page may skip it, and the change's own push follows). Reading it
+  // after could label an old list with a new number, and the page would keep
+  // showing that old state. The page drops any list numbered below one it has
+  // already shown, so a push built just before a change can't undo it on
+  // screen.
+  doc["version"] = lights.version();
   JsonArray arr = doc["lights"].to<JsonArray>();
   led::WorkLights::Info info;
   for (uint8_t i = 0; i < lights.count(); i++) {
