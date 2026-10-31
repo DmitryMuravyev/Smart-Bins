@@ -378,6 +378,7 @@ const inv = {
   seq: 0,             // searches started; only the newest one's answer is shown
   searching: false,   // a search is on its way to the board (see search())
   searchAgain: false, // and another was asked for meanwhile
+  lastKey: '',        // searchKey() of the last search sent (see searchKey())
   bins: [],           // /api/bins: {x, y, label, parts, outside}
   binHits: null,      // bin grid while searching: "x,y" -> matching parts (see searchBins)
   located: '',        // the result set auto-locate last lit, so it lights once
@@ -439,7 +440,17 @@ function fillFilter(select, res, allKey, current) {
 
 function scheduleSearch() {
   clearTimeout(inv.searchTimer);
-  inv.searchTimer = setTimeout(() => search(), SEARCH_DELAY_MS);
+  inv.searchTimer = setTimeout(() => { if (searchKey() !== inv.lastKey) search(); }, SEARCH_DELAY_MS);
+}
+
+// Everything that decides what the list shows, as one string. Typing and
+// the Search key compare it with the last search sent (inv.lastKey) and
+// skip asking the board again for the same thing: by the time the Search
+// key is pressed, the typing pause has usually searched already, and
+// typing a letter and deleting it again lands on the same text.
+// Saving, deleting and "Show more" call search() directly and always ask.
+function searchKey() {
+  return JSON.stringify([inv.view, inv.q.trim(), inv.category, inv.manufacturer, inv.sort, inv.order, inv.bin]);
 }
 
 // Fetches the first page (or, with `more`, the next one) for the current
@@ -477,6 +488,7 @@ function stale(seq) {
 
 async function runSearch(more) {
   const seq = ++inv.seq;
+  if (!more) inv.lastKey = searchKey();
   if (inv.view === 'bins') return searchBins(seq);
   const params = searchParams();
   params.set('sort', inv.sort);
@@ -510,6 +522,7 @@ function searchParams() {
 }
 
 function searchFailed(e) {
+  inv.lastKey = '';  // nothing was shown, so the same search may be tried again
   // 503: no database (failed to open); everything else is a passing error.
   const unavailable = /unavailable/.test(e.message);
   $('#inv-unavailable').hidden = !unavailable;
@@ -920,7 +933,8 @@ function bindInventory() {
     if (e.key !== 'Enter') return;
     e.preventDefault();
     e.target.blur();
-    search();
+    clearTimeout(inv.searchTimer);
+    if (searchKey() !== inv.lastKey) search();
   });
   $('#inv-category').addEventListener('change', e => { inv.category = e.target.value; search(); });
   $('#inv-maker').addEventListener('change', e => { inv.manufacturer = e.target.value; search(); });
