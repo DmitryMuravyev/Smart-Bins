@@ -9,6 +9,8 @@
 
 #include <Arduino.h>
 
+#include "AppConfig.h"
+
 class AsyncWebServer;
 
 namespace sb {
@@ -18,7 +20,8 @@ class WifiLink {
   enum class State : uint8_t { Idle, Connecting, Connected, Portal };
 
   // Registers the setup routes on `server`; call before server.begin().
-  void begin(const char *hostName, AsyncWebServer &server);
+  // `network` says whether to use DHCP or a fixed address on the home network.
+  void begin(const char *hostName, const config::NetworkConfig &network, AsyncWebServer &server);
   void loop();
 
   State state() const { return state_; }
@@ -49,6 +52,7 @@ class WifiLink {
   bool portalActive_ = false;
   bool servicesStarted_ = false;
   String otaHash_;
+  config::NetworkConfig network_;
   uint32_t stateSince_ = 0;
   uint32_t lastRetry_ = 0;
   uint32_t portalCloseAt_ = 0;

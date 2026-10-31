@@ -74,8 +74,18 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     sendLocateDefaults(req, cfg.locate);
   });
 
+  // Without x and y every located bin fades out; with them, just that one.
   server.on("/api/locate/clear", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
-    engine.clearLocates();
+    if (hasParam(req, "x") || hasParam(req, "y")) {
+      const auto &g = engine.mapper().geometry();
+      long x, y;
+      if (!intParam(req, "x", 0, g.cols - 1, x) || !intParam(req, "y", 0, g.rows - 1, y)) {
+        return sendError(req, 400, "x and y must be inside the grid");
+      }
+      engine.clearLocate(x, y);
+    } else {
+      engine.clearLocates();
+    }
     req->send(200, "application/json", "{\"ok\":true}");
   });
 
@@ -88,24 +98,44 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     req->send(200, "application/json", "{\"ok\":true}");
   });
 
-  server.on("/api/led/brightness", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
+  // Applies at once (with a fade) and is saved as grid.brightness. The UI
+  // sends it when the slider is released, so a drag costs one flash write.
+  server.on("/api/led/brightness", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     long v;
-    if (!intParam(req, "value", 0, 255, v)) return sendError(req, 400, "value must be 0..255");
+    if (!intParam(req, "value", 1, 255, v)) return sendError(req, 400, "value must be 1..255");
     engine.setBrightness(static_cast<uint8_t>(v));
+    config::AppConfig cfg = config.get();
+    if (cfg.grid.brightness != v) {
+      cfg.grid.brightness = static_cast<uint8_t>(v);
+      std::string err;
+      if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+    }
     req->send(200, "application/json", "{\"ok\":true}");
   });
 
   server.on("/api/led/status", HTTP_GET, [&engine](AsyncWebServerRequest *req) {
-    const led::LedEngine::Status s = engine.status();
     JsonDocument doc;
-    doc["powered"] = s.powered;
-    doc["highlights"] = s.highlights;
-    doc["test"] = led::toString(s.test);
-    doc["estimateMa"] = s.estimateMa;
-    doc["currentLimited"] = s.limitLevel < 255;
-    doc["fps"] = s.fps;
+    writeLedStatus(doc, engine);
     sendJson(req, 200, doc);
   });
+}
+
+void writeLedStatus(JsonDocument &doc, led::LedEngine &engine) {
+  const led::LedEngine::Status s = engine.status();
+  doc["powered"] = s.powered;
+  doc["test"] = led::toString(s.test);
+  doc["estimateMa"] = s.estimateMa;
+  doc["currentLimited"] = s.limitLevel < 255;
+  doc["fps"] = s.fps;
+  // Lit bins as [x, y] pairs, so every open page shows the same highlights.
+  led::LedEngine::Bin bins[led::LedEngine::kMaxHighlights];
+  const uint8_t n = engine.litBins(bins, led::LedEngine::kMaxHighlights);
+  JsonArray lit = doc["lit"].to<JsonArray>();
+  for (uint8_t i = 0; i < n; i++) {
+    JsonArray b = lit.add<JsonArray>();
+    b.add(bins[i].x);
+    b.add(bins[i].y);
+  }
 }
 
 }  // namespace sb

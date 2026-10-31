@@ -71,9 +71,24 @@ struct LocateConfig {
   LocateMode mode = LocateMode::Steady;
 };
 
+// IPv4 address as four bytes, most significant first (192.168.1.50 = {192, 168, 1, 50}).
+using Ipv4 = uint8_t[4];
+
+// How the board gets its address on the home network. DHCP (the router hands
+// one out) unless a fixed address is set, e.g. for a router without
+// reservations or a network where .local names don't resolve.
+struct NetworkConfig {
+  bool staticIp = false;
+  Ipv4 ip = {0, 0, 0, 0};
+  Ipv4 gateway = {0, 0, 0, 0};
+  Ipv4 subnet = {255, 255, 255, 0};
+  Ipv4 dns = {0, 0, 0, 0};  // 0.0.0.0 = use the gateway
+};
+
 struct AppConfig {
   char deviceName[33] = "smartbins";
   char language[3] = "en";
+  NetworkConfig network;
   GridConfig grid;
   LightConfig lights[kLightChannels];
   uint16_t fadeMs = 400;
@@ -89,6 +104,11 @@ bool validate(const AppConfig &cfg, std::string &error);
 
 // Serializes the full configuration, including defaults, as pretty JSON.
 std::string serialize(const AppConfig &cfg);
+
+// Parses dotted IPv4 text ("192.168.1.50"); false for anything else.
+bool parseIpv4(const char *text, Ipv4 &out);
+// Writes "a.b.c.d" into `out` (at least 16 bytes).
+void formatIpv4(const Ipv4 &ip, char *out);
 
 // True when `order` is three letters using each of R, G and B once (e.g. "GRB").
 bool isValidColorOrder(const char *order);

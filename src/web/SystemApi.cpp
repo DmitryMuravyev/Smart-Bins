@@ -30,6 +30,13 @@ void writeSystemStatus(JsonObject out, WifiLink &network) {
   wifi["ssid"] = ssid;
   wifi["rssi"] = ssid.isEmpty() ? 0 : WiFi.RSSI();
   wifi["ip"] = network.ipAddress();
+  // The rest of the current address setup, so Settings can offer it as the
+  // starting point for a fixed address.
+  if (!ssid.isEmpty()) {
+    wifi["gateway"] = WiFi.gatewayIP().toString();
+    wifi["subnet"] = WiFi.subnetMask().toString();
+    wifi["dns"] = WiFi.dnsIP().toString();
+  }
   wifi["host"] = String(network.hostName()) + ".local";
 }
 

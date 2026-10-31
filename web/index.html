@@ -52,9 +52,9 @@
   <section id="page-grid" class="page">
     <div class="page-head">
       <h1 data-i18n="nav.grid">Grid</h1>
-      <button class="secondary" id="locate-clear" data-i18n="grid.clear">Clear</button>
+      <button class="secondary" id="locate-clear" data-i18n="grid.clear">Clear all</button>
     </div>
-    <p class="muted" data-i18n="grid.hint">Tap a bin to light it.</p>
+    <p class="muted" data-i18n="grid.hint">Tap a bin to light it, tap it again to turn it off.</p>
     <div id="grid-view" class="grid-view"></div>
     <div class="card" id="locate-defaults">
       <h2 data-i18n="grid.locate">How a bin lights up</h2>
@@ -72,11 +72,13 @@
           <option value="0" data-i18n="grid.dur.0">Until cleared</option>
         </select>
       </label>
-      <label class="row"><span data-i18n="grid.color">Color</span><input type="color" id="locate-color"></label>
-    </div>
-    <div class="card">
+      <div class="row"><span data-i18n="grid.color">Color</span><span class="swatch" id="locate-swatch"></span></div>
+      <div class="gslider hue" id="locate-hue" role="slider" tabindex="0"><span class="thumb"></span></div>
+      <div class="chips presets" id="locate-presets"></div>
       <label class="row"><span data-i18n="grid.brightness">Grid brightness</span><output id="grid-brightness-out"></output></label>
       <input type="range" id="grid-brightness" min="1" max="255">
+    </div>
+    <div class="card">
       <h2 data-i18n="grid.tests">Test patterns</h2>
       <div class="chips" id="grid-tests">
         <button data-pattern="walk" data-i18n="grid.test.walk">Walk bins</button>
@@ -133,6 +135,20 @@
     <div class="card">
       <h2 data-i18n="settings.wifi">Wi-Fi</h2>
       <a class="button secondary" href="/wifi" data-i18n="settings.wifiOpen">Wi-Fi settings</a>
+      <label class="row"><span data-i18n="settings.ipMode">IP address</span>
+        <select id="ip-mode">
+          <option value="dhcp" data-i18n="settings.ipDhcp">Automatic (DHCP)</option>
+          <option value="static" data-i18n="settings.ipStatic">Fixed</option>
+        </select>
+      </label>
+      <form id="ip-form" class="ip-fields" autocomplete="off" hidden>
+        <label><span data-i18n="settings.ipAddress">Address</span><input type="text" id="ip-address" inputmode="decimal" placeholder="192.168.1.50"></label>
+        <label><span data-i18n="settings.ipGateway">Gateway</span><input type="text" id="ip-gateway" inputmode="decimal" placeholder="192.168.1.1"></label>
+        <label><span data-i18n="settings.ipSubnet">Subnet mask</span><input type="text" id="ip-subnet" inputmode="decimal" placeholder="255.255.255.0"></label>
+        <label><span data-i18n="settings.ipDns">DNS server</span><input type="text" id="ip-dns" inputmode="decimal" data-i18n-ph="settings.ipDnsAuto" placeholder="Same as gateway"></label>
+      </form>
+      <button id="ip-save" data-i18n="settings.saveRestart">Save and restart</button>
+      <p class="muted small" data-i18n="settings.ipHint">If the board can't be reached after a change, hold its BOOT button for 5 s: it forgets the Wi-Fi network and goes back to an automatic address.</p>
     </div>
     <details class="card">
       <summary data-i18n="settings.advanced">Advanced: configuration file</summary>

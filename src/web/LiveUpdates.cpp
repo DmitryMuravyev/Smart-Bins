@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 
+#include "LedApi.h"
 #include "LightsApi.h"
 #include "Security.h"
 #include "SystemApi.h"
@@ -25,6 +26,7 @@ void LiveUpdates::begin(AsyncWebServer &server, Security &security, led::WorkLig
   leds_ = &leds;
   network_ = &network;
   sentVersion_ = lights.version();
+  sentLedsVersion_ = leds.version();
 
   // The password check exempts /ws (a browser can't answer a digest challenge
   // on a WebSocket); the session token from /api/session is checked here instead.
@@ -55,6 +57,7 @@ void LiveUpdates::loop() {
   // on, and a client that connects later gets a snapshot anyway.
   if (ws_.count() == 0) {
     sentVersion_ = lights_->version();
+    sentLedsVersion_ = leds_->version();
     return;
   }
 
@@ -67,9 +70,15 @@ void LiveUpdates::loop() {
     ws_.textAll(lightsMessage());
   }
 
+  // Lit bins changed (located, cleared, timed out): push the grid status now
+  // rather than at the next 2 s tick, so the bin buttons follow at once.
+  const uint32_t ledsVersion = leds_->version();
+  const bool ledsChanged = ledsVersion != sentLedsVersion_;
+  sentLedsVersion_ = ledsVersion;
+
+  if (ledsChanged || now - lastStatus_ >= kStatusPeriodMs) ws_.textAll(ledsMessage());
   if (now - lastStatus_ >= kStatusPeriodMs) {
     lastStatus_ = now;
-    ws_.textAll(ledsMessage());
     ws_.textAll(systemMessage());
   }
 }
@@ -84,12 +93,9 @@ String LiveUpdates::lightsMessage() {
 }
 
 String LiveUpdates::ledsMessage() {
-  const led::LedEngine::Status s = leds_->status();
   JsonDocument doc;
   doc["type"] = "leds";
-  doc["estimateMa"] = s.estimateMa;
-  doc["fps"] = s.fps;
-  doc["currentLimited"] = s.limitLevel < 255;
+  writeLedStatus(doc, *leds_);
   String out;
   serializeJson(doc, out);
   return out;

@@ -91,6 +91,9 @@ textarea { font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 
 .row { display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 14px; color: var(--muted); }
 .row select { width: auto; min-width: 45%; margin: 0; }
 .inline-form { display: flex; gap: 8px; align-items: center; }
+.ip-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
+.ip-fields label { font-size: 14px; color: var(--muted); }
+#ip-save { margin-top: 12px; }
 .inline-form input { flex: 1; }
 input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
@@ -122,9 +125,12 @@ input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
 .presets button { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
 
 /* Bin grid: one button per bin, columns set from the configuration. */
+/* Columns are minmax(0, 1fr) (set in app.js), so ten or more bins always fit
+   the width of a phone; overflow only kicks in for very wide grids, where the
+   buttons would otherwise get too small to tap. */
 .grid-view { display: grid; gap: 4px; margin-bottom: 12px; overflow-x: auto; }
-.grid-view button { aspect-ratio: 1.4; min-width: 30px; padding: 0; font-size: 12px; background: var(--card); color: var(--muted);
-  border: 1px solid var(--border); border-radius: 6px; }
+.grid-view button { aspect-ratio: 1.4; min-width: 0; padding: 0; font-size: clamp(10px, 3vw, 13px); background: var(--card);
+  color: var(--muted); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .grid-view button.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 
 .toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--tabbar) + 16px + env(safe-area-inset-bottom));

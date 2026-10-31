@@ -58,6 +58,18 @@ class LedEngine {
   // durationMs 0 = until cleared.
   bool locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs);
   void clearLocates();
+  // Fades one located bin out; false when it wasn't lit.
+  bool clearLocate(uint8_t x, uint8_t y);
+
+  struct Bin {
+    uint8_t x, y;
+  };
+  // Writes the bins that are lit (not yet fading out) into `out` and returns
+  // how many there are, at most `max`.
+  uint8_t litBins(Bin *out, uint8_t max);
+  // Increases whenever the set of lit bins changes (located, cleared, timed
+  // out); the WebSocket pushes the new set when it moves.
+  uint32_t version() const { return version_; }
   // Changes the colour, mode and duration used by locate(x, y) from now on.
   void setLocateDefaults(const config::LocateConfig &locate);
 
@@ -105,6 +117,8 @@ class LedEngine {
 
   SemaphoreHandle_t lock_ = nullptr;
   std::vector<Highlight> highlights_;
+  // Written under the lock, read without it (a 32-bit load is atomic).
+  volatile uint32_t version_ = 0;
   TestPattern test_ = TestPattern::None;
   uint32_t testStart_ = 0;
 

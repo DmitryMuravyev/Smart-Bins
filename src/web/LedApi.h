@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ArduinoJson.h>
+
 class AsyncWebServer;
 
 namespace sb {
@@ -13,13 +15,18 @@ class LedEngine;
 // a browser's address bar) and POST with a form-encoded body (used by the UI).
 //   /api/locate?x=3&y=2[&color=FF0000][&mode=steady|slow-pulse|fast-pulse][&s=30]
 //       lights a bin; anything left out comes from the locate defaults
-//   /api/locate/clear                    fades every located bin out
+//   /api/locate/clear[?x=3&y=2]          fades every located bin (or just one) out
 //   /api/locate/defaults[?color=..&mode=..&s=..]
 //       GET without parameters reads the defaults; with them (or POST) changes
 //       and saves them (config.json locate.*), effective at once
 //   /api/led/test?pattern=walk|chain|rows|columns|colors|off
-//   /api/led/brightness?value=0..255     until the next restart
-//   GET /api/led/status
+//   /api/led/brightness?value=1..255     applied and saved (grid.brightness)
+//   GET /api/led/status                  current, frame rate and lit bins
 void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore &config);
+
+// Fills `doc` with the grid status, as returned by /api/led/status and pushed
+// over the WebSocket: powered, test, estimateMa, currentLimited, fps and
+// lit ([[x, y], ...]).
+void writeLedStatus(JsonDocument &doc, led::LedEngine &engine);
 
 }  // namespace sb
