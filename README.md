@@ -161,7 +161,7 @@ pio test -e native                          # host-side unit tests, no hardware 
 | `test/` | Unit tests (`pio test -e native`) |
 | `partitions/` | Flash partition tables for 4, 8 and 16 MB boards |
 | `docs/` | Plan, hardware and user documentation |
-| `tools/` | Helper scripts (web UI bundler, power budget calculator) |
+| `tools/` | Helper scripts (web UI bundler, power budget calculator, `seed_parts.py` to fill a board with test parts) |
 
 ## License
 
