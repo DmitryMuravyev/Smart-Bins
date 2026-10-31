@@ -92,6 +92,7 @@ async function setLanguage(lang) {
   renderLights(true);
   renderSystem();
   renderPasswordState();
+  renderDeviceName();
 }
 
 // ---------------------------------------------------------------------------
@@ -116,7 +117,25 @@ function showPage() {
 // ---------------------------------------------------------------------------
 // Work lights
 
-const PRESETS = ['#ffffff', '#ff8a12', '#ff0000', '#ffb000', '#00ff40', '#00c8ff', '#0030ff', '#c000ff'];
+// Colour presets: white, warm white, then the primaries and their mixes around
+// the colour wheel. A few are tuned for LEDs rather than taken literally: on a
+// strip the green die is much brighter than red, so "yellow" needs less green
+// (ffb000) and orange even less, or both look green-tinted. Warm white is sent
+// as a colour temperature, which the board turns into the matching RGB mix.
+const PRESETS = [
+  { name: 'white', css: '#ffffff', params: { color: 'ffffff' } },
+  { name: 'warm', css: '#ffc58f', params: { kelvin: 2700 } },
+  { name: 'red', css: '#ff0000', params: { color: 'ff0000' } },
+  { name: 'orange', css: '#ff8000', params: { color: 'ff4000' } },
+  { name: 'yellow', css: '#ffd000', params: { color: 'ffb000' } },
+  { name: 'green', css: '#00ff00', params: { color: '00ff00' } },
+  { name: 'cyan', css: '#00ffff', params: { color: '00ffff' } },
+  { name: 'azure', css: '#0080ff', params: { color: '0080ff' } },
+  { name: 'blue', css: '#0000ff', params: { color: '0000ff' } },
+  { name: 'purple', css: '#8000ff', params: { color: '8000ff' } },
+  { name: 'magenta', css: '#ff00ff', params: { color: 'ff00ff' } },
+  { name: 'pink', css: '#ff4080', params: { color: 'ff2060' } },
+];
 
 async function loadLights() {
   const res = await attempt(() => api('/api/lights'));
@@ -156,19 +175,18 @@ function buildLightCard(light) {
     card.querySelector('.light-level-out').textContent = percent(level.value);
     sendLight(id, { level: level.value });
   });
-  const hue = card.querySelector('.hue');
-  hue.addEventListener('input', () => sendLight(id, { color: hueToHex(+hue.value) }));
-  const kelvin = card.querySelector('.kelvin');
-  kelvin.addEventListener('input', () => {
-    card.querySelector('.light-kelvin-out').textContent = `${kelvin.value} K`;
-    sendLight(id, { kelvin: kelvin.value });
+  // Kept on the card so fillLightCard() can move the hue thumb to the light's colour.
+  card.hueSlider = makeSlider(card.querySelector('.hue'), 0, 359, 1, v => sendLight(id, { color: hueToHex(v) }));
+  makeSlider(card.querySelector('.kelvin'), 1500, 10000, 100, v => {
+    card.querySelector('.light-kelvin-out').textContent = `${v} K`;
+    sendLight(id, { kelvin: v });
   });
   const presets = card.querySelector('.presets');
-  for (const c of PRESETS) {
+  for (const p of PRESETS) {
     const b = document.createElement('button');
-    b.style.background = c;
-    b.title = c;
-    b.addEventListener('click', () => sendLight(id, { color: c.slice(1) }));
+    b.style.background = p.css;
+    b.dataset.preset = p.name;
+    b.addEventListener('click', () => sendLight(id, p.params));
     presets.append(b);
   }
   for (const b of $$('.effects button', card)) b.addEventListener('click', () => sendLight(id, { effect: b.dataset.effect }));
@@ -182,7 +200,14 @@ function fillLightCard(card, l) {
   card.querySelector('.light-on').checked = l.on;
   setIfIdle(card.querySelector('.light-level'), l.level);
   card.querySelector('.light-level-out').textContent = percent(l.level);
-  if (l.color) card.querySelector('.light-swatch').style.background = l.color;
+  if (l.color) {
+    card.querySelector('.light-swatch').style.background = l.color;
+    // Only a clearly coloured light has a place on the hue track; for white or
+    // pastel tones the thumb stays where it was.
+    const hue = hexToHue(l.color);
+    if (hue !== null) card.hueSlider.set(hue);
+  }
+  for (const b of $$('.presets button', card)) b.title = t(`lights.preset.${b.dataset.preset}`);
   for (const b of $$('.effects button', card)) b.classList.toggle('on', b.dataset.effect === l.effect);
   const power = card.querySelector('.light-power');
   power.textContent = l.estimateMa !== undefined
@@ -195,6 +220,68 @@ function setIfIdle(input, value) {
 }
 
 function percent(level) { return `${Math.max(1, Math.round(level * 100 / 255))} %`; }
+
+// Hue (0..359) of a "#rrggbb" colour, or null when it is too close to white or
+// grey to have a meaningful hue (saturation below 50 %).
+function hexToHue(hex) {
+  const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  if (max === 0 || d / max < 0.5) return null;
+  let h = max === r ? (g - b) / d : max === g ? 2 + (b - r) / d : 4 + (r - g) / d;
+  return Math.round((h * 60 + 360) % 360);
+}
+
+// A slider on a gradient track (hue and white tone), built by hand because
+// restyled range inputs proved unreliable on phones: the drag was taken by the
+// browser as a back-swipe or scroll and the thumb stuck. Here:
+//   - CSS touch-action: none stops the browser from claiming the gesture;
+//   - pointer capture keeps the drag going when the finger leaves the track;
+//   - while dragging, updates from the board (set()) are ignored, so the thumb
+//     never jumps back under the finger;
+//   - arrow keys and Home/End work for keyboard users.
+// onInput(value) is called for every change the user makes.
+function makeSlider(el, min, max, step, onInput) {
+  let value = min, dragging = false;
+  el.setAttribute('aria-valuemin', min);
+  el.setAttribute('aria-valuemax', max);
+  const show = (v, notify) => {
+    v = Math.min(max, Math.max(min, Math.round(v / step) * step));
+    if (v === value && !notify) return;
+    const changed = v !== value;
+    value = v;
+    el.style.setProperty('--pos', (v - min) / (max - min));
+    el.setAttribute('aria-valuenow', v);
+    if (notify && changed) onInput(v);
+  };
+  // The thumb's centre travels from 16 px inside the left edge to 16 px inside
+  // the right one (1 px border + half of the 30 px thumb area), see app.css.
+  const fromX = x => {
+    const r = el.getBoundingClientRect();
+    return min + (x - r.left - 16) / Math.max(1, r.width - 32) * (max - min);
+  };
+  el.addEventListener('pointerdown', e => {
+    dragging = true;
+    el.setPointerCapture(e.pointerId);
+    show(fromX(e.clientX), true);
+    e.preventDefault();  // no text selection or emulated mouse events
+  });
+  el.addEventListener('pointermove', e => { if (dragging) show(fromX(e.clientX), true); });
+  const end = () => { dragging = false; };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('keydown', e => {
+    const big = (max - min) / 10;
+    const delta = { ArrowLeft: -step, ArrowDown: -step, ArrowRight: step, ArrowUp: step, PageDown: -big, PageUp: big }[e.key];
+    if (delta !== undefined) show(value + delta, true);
+    else if (e.key === 'Home') show(min, true);
+    else if (e.key === 'End') show(max, true);
+    else return;
+    e.preventDefault();
+  });
+  el.style.setProperty('--pos', 0);
+  el.setAttribute('aria-valuenow', min);
+  return { set: v => { if (!dragging) show(v, false); } };
+}
 
 function hueToHex(h) {
   const f = n => {
@@ -345,12 +432,17 @@ async function waitForRestart() {
 // ---------------------------------------------------------------------------
 // System
 
+const DEFAULT_DEVICE_NAME = 'smartbins';
+
 async function loadSystem() {
   const sys = await attempt(() => api('/api/system'));
   if (sys) {
     state.system = sys;
-    $('#device-name').textContent = sys.device;
-    document.title = `${sys.device} - Smart Bins`;
+    // The product name is always shown; the device (network) name only when it
+    // was changed from the default, to tell several boards apart.
+    const custom = sys.device !== DEFAULT_DEVICE_NAME;
+    $('#device-name').textContent = custom ? sys.device : '';
+    document.title = custom ? `${sys.device} - Smart Bins` : 'Smart Bins';
     renderSystem();
   }
   return sys;
@@ -388,7 +480,54 @@ function renderSystem() {
     dd.textContent = v;
     return [dt, dd];
   }));
-  $('#status-wifi').textContent = s.wifi.ssid ? `${s.wifi.rssi} dBm` : '';
+  renderWifi(s.wifi);
+  renderDeviceName();
+}
+
+// Signal bars in the top bar: four at -55 dBm or better, one below -75 dBm.
+function renderWifi(wifi) {
+  const el = $('#status-wifi');
+  el.hidden = !wifi.ssid;
+  if (!wifi.ssid) return;
+  const bars = wifi.rssi >= -55 ? 4 : wifi.rssi >= -65 ? 3 : wifi.rssi >= -75 ? 2 : 1;
+  [...el.children].forEach((bar, i) => bar.classList.toggle('on', i < bars));
+  el.title = t('status.wifi', { ssid: wifi.ssid, rssi: wifi.rssi });
+}
+
+function renderDeviceName() {
+  const s = state.system;
+  if (!s) return;
+  setIfIdle($('#device-name-input'), s.device);
+  $('#device-name-hint').textContent = t('settings.deviceNameHint', { name: s.device });
+}
+
+// The device name is also the network name (NAME.local), so it follows host
+// name rules, and a new name needs a restart. After that the old address no
+// longer answers, so the page moves to the new one when it was opened by name.
+async function saveDeviceName(name) {
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  cfg.device.name = name;
+  if (!await attempt(() => api('/api/config', { json: JSON.stringify(cfg) }))) return;
+  if (location.hostname.endsWith('.local')) {
+    toast(t('system.restarting'));
+    setTimeout(() => { location.href = `${location.protocol}//${name}.local/#settings`; }, 8000);
+  } else {
+    waitForRestart();
+  }
+}
+
+// Theme: "auto" follows the system; light and dark override it. The choice is
+// kept per browser, like the language, and applied by a script in the page
+// head on the next load so the page never flashes the wrong theme.
+function storedTheme() {
+  try { return localStorage.getItem('theme') || 'auto'; } catch (e) { return 'auto'; }
+}
+
+function setTheme(theme) {
+  try { localStorage.setItem('theme', theme); } catch (e) { /* not remembered */ }
+  if (theme === 'auto') delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = theme;
 }
 
 // ---------------------------------------------------------------------------
@@ -436,6 +575,15 @@ async function connectLive() {
 
 function bindControls() {
   $('#language').addEventListener('change', e => setLanguage(e.target.value));
+  $('#theme').value = storedTheme();
+  $('#theme').addEventListener('change', e => setTheme(e.target.value));
+  $('#name-form').addEventListener('submit', e => {
+    e.preventDefault();
+    const name = $('#device-name-input').value.trim().toLowerCase();
+    if (!/^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/.test(name)) return toast(t('settings.deviceNameInvalid'), true);
+    if (state.system && name === state.system.device) return;
+    if (confirm(t('settings.deviceNameConfirm', { name }))) saveDeviceName(name);
+  });
   $('#lights-off').addEventListener('click', async () => {
     const res = await attempt(() => api('/api/lights/off', { method: 'POST' }));
     if (res) updateLights(res.lights);

@@ -49,9 +49,9 @@ The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi netwo
 
 Open **http://smartbins.local/** (or the board's IP). The pages so far:
 
-- **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
+- **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), 12 colour presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
 - **Grid:** tap a bin to light it. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, and its colour; saved at once, no restart), grid brightness and the test patterns.
-- **Settings:** language (English, Español, Русский; remembered per browser), the optional password, Wi-Fi, and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
+- **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
 - **System:** firmware, chip, memory, storage and network details, and a restart button.
 
 The UI is built into the firmware (`web/` is gzipped into it at build time by `tools/embed_web.py`), so a firmware update, also over Wi-Fi, always brings the matching UI and there is no separate filesystem upload.

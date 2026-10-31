@@ -6,10 +6,18 @@
 <title>Smart Bins</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="/app.css">
+<script>
+  // Applied before the page is drawn, so a manually chosen theme never flashes
+  // the other one first. "auto" (or nothing saved) follows the system setting.
+  try {
+    const theme = localStorage.getItem('theme');
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+  } catch (e) { /* storage blocked: follow the system */ }
+</script>
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="#inventory"><img src="/favicon.svg" alt="" width="24" height="24"><span id="device-name">Smart Bins</span></a>
+  <a class="brand" href="#inventory"><img src="/favicon.svg" alt="" width="24" height="24"><span>Smart Bins</span><span class="device-name muted" id="device-name"></span></a>
   <nav class="tabs" id="tabs">
     <a href="#inventory" data-page="inventory"><span class="ico">&#9638;</span><span data-i18n="nav.inventory">Inventory</span></a>
     <a href="#lights" data-page="lights"><span class="ico">&#9728;</span><span data-i18n="nav.lights">Lights</span></a>
@@ -19,7 +27,7 @@
   </nav>
   <div class="status" id="status-bar" aria-live="polite">
     <span class="dot" id="live-dot" title=""></span>
-    <span id="status-wifi"></span>
+    <span class="wifi" id="status-wifi" hidden><i></i><i></i><i></i><i></i></span>
   </div>
 </header>
 
@@ -64,7 +72,7 @@
           <option value="0" data-i18n="grid.dur.0">Until cleared</option>
         </select>
       </label>
-      <label class="row"><span data-i18n="grid.color">Colour</span><input type="color" id="locate-color"></label>
+      <label class="row"><span data-i18n="grid.color">Color</span><input type="color" id="locate-color"></label>
     </div>
     <div class="card">
       <label class="row"><span data-i18n="grid.brightness">Grid brightness</span><output id="grid-brightness-out"></output></label>
@@ -75,7 +83,7 @@
         <button data-pattern="chain" data-i18n="grid.test.chain">Chain</button>
         <button data-pattern="rows" data-i18n="grid.test.rows">Rows</button>
         <button data-pattern="columns" data-i18n="grid.test.columns">Columns</button>
-        <button data-pattern="colors" data-i18n="grid.test.colors">Colours</button>
+        <button data-pattern="colors" data-i18n="grid.test.colors">Colors</button>
         <button data-pattern="off" data-i18n="grid.test.off">Stop</button>
       </div>
       <p class="muted small" id="grid-status"></p>
@@ -85,13 +93,29 @@
   <section id="page-settings" class="page">
     <h1 data-i18n="nav.settings">Settings</h1>
     <div class="card">
-      <h2 data-i18n="settings.language">Language</h2>
-      <select id="language">
-        <option value="en">English</option>
-        <option value="es">Español</option>
-        <option value="ru">Русский</option>
-      </select>
+      <label class="row"><span data-i18n="settings.language">Language</span>
+        <select id="language">
+          <option value="en">English</option>
+          <option value="es">Español</option>
+          <option value="ru">Русский</option>
+        </select>
+      </label>
+      <label class="row"><span data-i18n="settings.theme">Theme</span>
+        <select id="theme">
+          <option value="auto" data-i18n="settings.theme.auto">Automatic</option>
+          <option value="light" data-i18n="settings.theme.light">Light</option>
+          <option value="dark" data-i18n="settings.theme.dark">Dark</option>
+        </select>
+      </label>
       <p class="muted small" data-i18n="settings.languageHint">Saved in this browser.</p>
+    </div>
+    <div class="card">
+      <h2 data-i18n="settings.deviceName">Device name</h2>
+      <form id="name-form" class="inline-form" autocomplete="off">
+        <input type="text" id="device-name-input" maxlength="32" pattern="[a-z0-9]([a-z0-9\-]*[a-z0-9])?" autocapitalize="none" spellcheck="false">
+        <button type="submit" data-i18n="settings.save">Save</button>
+      </form>
+      <p class="muted small" id="device-name-hint"></p>
     </div>
     <div class="card">
       <h2 data-i18n="settings.password">Password</h2>
@@ -136,10 +160,10 @@
     <label class="row"><span data-i18n="lights.level">Brightness</span><output class="light-level-out"></output></label>
     <input type="range" class="light-level" min="1" max="255">
     <div class="light-color">
-      <label class="row"><span data-i18n="lights.colour">Colour</span><span class="swatch light-swatch"></span></label>
-      <input type="range" class="hue" min="0" max="359">
-      <label class="row"><span data-i18n="lights.white">White tone</span><output class="light-kelvin-out"></output></label>
-      <input type="range" class="kelvin" min="1500" max="10000" step="100">
+      <div class="row"><span data-i18n="lights.color">Color</span><span class="swatch light-swatch"></span></div>
+      <div class="gslider hue" role="slider" tabindex="0"><span class="thumb"></span></div>
+      <div class="row"><span data-i18n="lights.white">White tone</span><output class="light-kelvin-out"></output></div>
+      <div class="gslider kelvin" role="slider" tabindex="0"><span class="thumb"></span></div>
       <div class="chips presets"></div>
     </div>
     <div class="chips effects">
