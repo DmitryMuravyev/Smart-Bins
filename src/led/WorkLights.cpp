@@ -120,7 +120,7 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
   restore();
 
   // Everything starts dark; lights that were on before the restart fade in.
-  const uint32_t now = millis();
+  const uint32_t now = effectMillis();
   for (uint8_t i = 0; i < count_; i++) {
     Light &l = lights_[i];
     l.level.reset(0);
@@ -162,7 +162,7 @@ const char *WorkLights::set(uint8_t id, const Change &change) {
     if (change.hasColor) return "a white light has no colour";
     if (change.hasEffect && change.effect == WorkEffect::Rainbow) return "a white light can't show a rainbow";
   }
-  applyChange(l, change, millis());
+  applyChange(l, change, effectMillis());
   return nullptr;
 }
 
@@ -170,7 +170,7 @@ void WorkLights::allOff() {
   Lock lock(lock_);
   Change off;
   off.power = Change::Power::Off;
-  const uint32_t now = millis();
+  const uint32_t now = effectMillis();
   for (uint8_t i = 0; i < count_; i++) applyChange(lights_[i], off, now);
 }
 
@@ -300,7 +300,7 @@ void WorkLights::setStripPower(bool on) {
   }
   if (powerPin_ >= 0) digitalWrite(powerPin_, on ? HIGH : LOW);
   powered_ = on;
-  poweredAt_ = millis();
+  poweredAt_ = effectMillis();
   ESP_LOGI(TAG, "Work strip power %s", on ? "on" : "off");
 }
 
@@ -315,7 +315,7 @@ void WorkLights::taskEntry(void *arg) { static_cast<WorkLights *>(arg)->run(); }
 void WorkLights::run() {
   TickType_t wake = xTaskGetTickCount();
   for (;;) {
-    const uint32_t now = millis();
+    const uint32_t now = effectMillis();
     bool anyMoving = false;
     bool saveNow = false;
     {

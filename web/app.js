@@ -672,6 +672,9 @@ function fillPart(el, p) {
   }
   set('.qty-value', String(p.quantity));
   el.classList.toggle('out', p.quantity === 0);
+  // Nothing to take away at zero: the minus button is disabled, not silent.
+  const minus = el.querySelector('.qty-btn[data-delta="-1"]');
+  if (minus) minus.disabled = p.quantity <= 0;
   const bin = el.querySelector('.bin-btn');
   bin.textContent = p.bin ? binName(p.bin.x, p.bin.y) : t('inv.noBin');
   bin.disabled = !p.bin;

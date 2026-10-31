@@ -122,7 +122,7 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   PixelSpan span;
   if (!mapper_.binSpan(x, y, span)) return false;
   Lock lock(lock_);
-  const uint32_t now = millis();
+  const uint32_t now = effectMillis();
   // Re-locating a bin replaces its highlight instead of stacking a second one.
   // If the old one is still on (not fading out), the new one takes over its
   // start time, so the bin doesn't dip to dark and fade in again and a pulse
@@ -148,7 +148,7 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
 
 void LedEngine::clearLocates() {
   Lock lock(lock_);
-  const uint32_t now = millis();
+  const uint32_t now = effectMillis();
   for (Highlight &h : highlights_) {
     if (h.released) continue;  // already fading out: keep its original start
     h.released = true;
@@ -162,7 +162,7 @@ bool LedEngine::clearLocate(uint8_t x, uint8_t y) {
   for (Highlight &h : highlights_) {
     if (h.x != x || h.y != y || h.released) continue;
     h.released = true;
-    h.releasedAt = millis();
+    h.releasedAt = effectMillis();
     version_ = version_ + 1;
     return true;
   }
@@ -184,13 +184,13 @@ uint8_t LedEngine::litBins(Bin *out, uint8_t max, uint32_t *version) {
 void LedEngine::startTest(TestPattern pattern) {
   Lock lock(lock_);
   test_ = pattern;
-  testStart_ = millis();
+  testStart_ = effectMillis();
   ESP_LOGI(TAG, "Test pattern: %s", toString(pattern));
 }
 
 void LedEngine::setBrightness(uint8_t level) {
   Lock lock(lock_);
-  brightness_.set(level, millis(), cfg_.fadeMs);
+  brightness_.set(level, effectMillis(), cfg_.fadeMs);
 }
 
 LedEngine::Status LedEngine::status() {
@@ -212,7 +212,7 @@ void LedEngine::taskEntry(void *arg) { static_cast<LedEngine *>(arg)->run(); }
 void LedEngine::run() {
   TickType_t wake = xTaskGetTickCount();
   uint32_t frames = 0;
-  uint32_t fpsSince = millis();
+  uint32_t fpsSince = effectMillis();
   for (;;) {
     uint32_t now;
     bool wantPower;
@@ -221,7 +221,7 @@ void LedEngine::run() {
       // Read the clock under the lock: locate() and clearLocates() stamp their
       // times under it too, so no stamp is ever later than `now`. Otherwise an
       // unsigned `now - stamp` could wrap around and skip a fade entirely.
-      now = millis();
+      now = effectMillis();
       renderLayers(now);
       wantPower = test_ != TestPattern::None || !highlights_.empty();
     }
@@ -261,7 +261,7 @@ void LedEngine::setPower(bool on) {
   }
   if (powerPin_ >= 0) digitalWrite(powerPin_, on ? HIGH : LOW);
   powered_ = on;
-  poweredAt_ = millis();
+  poweredAt_ = effectMillis();
   ESP_LOGI(TAG, "Grid power %s", on ? "on" : "off");
 }
 

@@ -1,5 +1,6 @@
 #include "RmtStrip.h"
 
+#include <Arduino.h>
 #include <esp_attr.h>
 #include <esp_log.h>
 
@@ -27,6 +28,15 @@ SemaphoreHandle_t gate() {
   static SemaphoreHandle_t g = xSemaphoreCreateMutex();
   return g;
 }
+
+// The effect clock's pauses (see effectMillis()). `pausedTotal` is the
+// length of every finished FlashGuard so far; `pausedAt` is when the current
+// one began, valid while `paused` is set. Shared between tasks, so read and
+// written under a spinlock (a few instructions, never blocks).
+portMUX_TYPE clockMux = portMUX_INITIALIZER_UNLOCKED;
+uint32_t pausedTotal = 0;
+uint32_t pausedAt = 0;
+bool paused = false;
 
 // Longest wait for a frame in flight: 1000 RGBW pixels take about 40 ms.
 constexpr uint32_t kFrameWaitMs = 60;
@@ -71,6 +81,13 @@ FlashGuard::~FlashGuard() { unlock(); }
 
 void FlashGuard::lock() {
   xSemaphoreTake(gate(), portMAX_DELAY);
+  // Stop the effect clock now, before waiting for frames in flight: what is
+  // on the wire was rendered for the current time, and nothing after it will
+  // be sent until unlock().
+  portENTER_CRITICAL(&clockMux);
+  pausedAt = millis();
+  paused = true;
+  portEXIT_CRITICAL(&clockMux);
   // Polling rather than rmt_tx_wait_all_done(): that call takes finished
   // frames off the driver's internal queue, so running it here as well as in
   // the strip's own task (waitDone) would let one of them miss the event.
@@ -80,7 +97,22 @@ void FlashGuard::lock() {
   }
 }
 
-void FlashGuard::unlock() { xSemaphoreGive(gate()); }
+void FlashGuard::unlock() {
+  portENTER_CRITICAL(&clockMux);
+  pausedTotal += millis() - pausedAt;
+  paused = false;
+  portEXIT_CRITICAL(&clockMux);
+  xSemaphoreGive(gate());
+}
+
+uint32_t effectMillis() {
+  // Unsigned arithmetic, so the result wraps around like millis() does
+  // (after about 49 days) and differences between two readings stay right.
+  portENTER_CRITICAL(&clockMux);
+  const uint32_t now = (paused ? pausedAt : millis()) - pausedTotal;
+  portEXIT_CRITICAL(&clockMux);
+  return now;
+}
 
 bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   end();
