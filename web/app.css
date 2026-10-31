@@ -191,14 +191,24 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .check { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
 
-/* Part cards: text on the left, quantity and bin on the right. */
-.parts { display: grid; gap: 8px; }
+/* Part cards. The text (part number, description, category line) comes first
+   and the photo's thumbnail floats at its start, as tall as those three lines.
+   Quantity and bin sit to the right of the text on a wide card, and on a row
+   of their own along the bottom of a narrow one (a phone held upright), so
+   the text keeps the card's full width. */
+.parts { display: grid; gap: 8px; container-type: inline-size; }
 .card.part { display: flex; gap: 12px; margin: 0; padding: 12px; cursor: pointer; }
-.part-main { flex: 1; min-width: 0; }
+/* flow-root: the card grows to fit the thumbnail when the text is shorter. */
+.part-main { flex: 1; min-width: 0; display: flow-root; }
 .part-title { overflow-wrap: anywhere; }
 .part-desc { font-size: 14px; overflow-wrap: anywhere; }
 .part-meta { margin-top: 2px; overflow-wrap: anywhere; }
 .part-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+@container (max-width: 560px) {
+  .card.part { flex-direction: column; gap: 8px; }
+  .part-side { flex-direction: row; justify-content: space-between; align-items: center; }
+  .part-side .bin-btn { max-width: 60%; }
+}
 .qty { display: flex; align-items: center; gap: 4px; }
 .qty-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; background: var(--bg); color: var(--text);
   border: 1px solid var(--border); font-size: 20px; line-height: 1; }
@@ -246,3 +256,28 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .dialog-buttons { align-items: center; }
 .dialog-buttons .spacer { flex: 1; }
 button.danger { background: var(--err); color: #fff; }
+
+/* Photos. Thumbnails are 128 px files; on a card they are shown at 64 px, the
+   height of the three text lines beside them (23 + 20 + 20 px), sharp on 2x screens. */
+.part-thumb { flex: none; width: 64px; height: 64px; object-fit: cover; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--border); cursor: zoom-in; }
+.card.part .part-thumb { float: left; margin: 2px 10px 2px 0; }
+.part-thumb[hidden] { display: none; }
+.parts-table .thumb-col { width: 40px; padding-right: 0; }
+.parts-table .part-thumb { width: 36px; height: 36px; border-radius: 6px; }
+/* The form's photo: a framed preview beside its buttons. */
+.part-photo { display: flex; gap: 12px; align-items: center; margin: 0 0 12px; }
+.photo-frame { flex: none; width: 96px; height: 96px; padding: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px dashed var(--border); border-radius: 10px; overflow: hidden; cursor: zoom-in; }
+.photo-frame img { width: 100%; height: 100%; object-fit: cover; }
+.photo-frame img[hidden], .photo-empty[hidden] { display: none; }
+.photo-empty { padding: 4px; text-align: center; }
+.photo-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.photo-actions .button.small { padding: 6px 12px; font-size: 14px; cursor: pointer; }
+.photo-actions .button.disabled { opacity: .5; pointer-events: none; }
+.photo-actions .link[hidden] { display: none; }
+/* Full-size view: the photo on a dark backdrop; any tap closes it. */
+.photo-viewer { padding: 0; border: 0; background: transparent; max-width: 100vw; max-height: 100vh; }
+.photo-viewer::backdrop { background: rgba(0, 0, 0, .85); }
+.photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
+#part-title:focus { outline: none; }

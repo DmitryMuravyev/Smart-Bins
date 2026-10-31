@@ -253,6 +253,28 @@ static void test_count_by_bin() {
   TEST_ASSERT_EQUAL(0, counts(q).size());
 }
 
+// setPhoto(): stores the name, hands back the old one, counts in stats.
+static void test_set_photo() {
+  Part p;
+  TEST_ASSERT_TRUE(db.addPart(named("LM317", 3), p, err) == Result::Ok);
+  TEST_ASSERT_EQUAL_STRING("", p.photo.c_str());
+  std::string previous = "x";
+  TEST_ASSERT_TRUE_MESSAGE(db.setPhoto(p.id, "1-a1b2c3", previous, p, err) == Result::Ok, err.c_str());
+  TEST_ASSERT_EQUAL_STRING("", previous.c_str());
+  TEST_ASSERT_EQUAL_STRING("1-a1b2c3", p.photo.c_str());
+  Stats s;
+  TEST_ASSERT_TRUE(db.stats(s, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, s.photos);
+  TEST_ASSERT_TRUE(db.setPhoto(p.id, "1-d4e5f6", previous, p, err) == Result::Ok);
+  TEST_ASSERT_EQUAL_STRING("1-a1b2c3", previous.c_str());
+  TEST_ASSERT_TRUE(db.setPhoto(p.id, "", previous, p, err) == Result::Ok);
+  TEST_ASSERT_EQUAL_STRING("1-d4e5f6", previous.c_str());
+  TEST_ASSERT_EQUAL_STRING("", p.photo.c_str());
+  TEST_ASSERT_TRUE(db.stats(s, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(0, s.photos);
+  TEST_ASSERT_TRUE(db.setPhoto(9999, "x", previous, p, err) == Result::NotFound);
+}
+
 static void test_sorting_and_pages() {
   addCatalogue();
   PartQuery q;
@@ -469,6 +491,7 @@ int main() {
   RUN_TEST(test_search_any_field_any_case);
   RUN_TEST(test_filters_and_bins);
   RUN_TEST(test_count_by_bin);
+  RUN_TEST(test_set_photo);
   RUN_TEST(test_sorting_and_pages);
   RUN_TEST(test_empty_values_sort_last);
   RUN_TEST(test_list_values);

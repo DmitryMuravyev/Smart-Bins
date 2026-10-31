@@ -10,7 +10,7 @@
 //   GET  /api/part?id=N                   one part
 //   POST /api/part/add                    creates a part from the fields given
 //   POST /api/part/update?id=N            changes only the fields given
-//   POST /api/part/delete?id=N
+//   POST /api/part/delete?id=N            also deletes its photo
 //   POST /api/part/adjust?id=N&delta=-1   quantity +/- (never below 0)
 //   GET  /api/bins                        every bin with its label and part count
 //   POST /api/bin/label?x=&y=&label=      names a bin (empty label: back to "A1")
@@ -23,15 +23,25 @@
 
 #include <ArduinoJson.h>
 
+#include <functional>
+#include <string>
+
 class AsyncWebServer;
 
 namespace sb {
 
 namespace inventory {
 class InventoryDb;
+struct Part;
 }
 
-void registerInventoryApi(AsyncWebServer &server, inventory::InventoryDb &db, int gridCols, int gridRows);
+// `photoRemoved` is called with the photo name of a part that was deleted, so
+// its files can go too.
+void registerInventoryApi(AsyncWebServer &server, inventory::InventoryDb &db, int gridCols, int gridRows,
+                          std::function<void(const std::string &photo)> photoRemoved);
+
+// A part as the API answers it (see the top of this file).
+void writePart(JsonObject out, const inventory::Part &p);
 
 // Adds the inventory figures to `out` (System page): parts, quantity, photos,
 // categories, manufacturers, binsUsed, binsTotal, dbBytes. Leaves `out` empty

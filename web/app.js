@@ -38,6 +38,11 @@ async function api(path, opts = {}) {
     // as query strings, so one handler serves both.
     init.method = opts.method || 'POST';
     init.body = new URLSearchParams(opts.form);
+  } else if (opts.body !== undefined) {
+    // Raw bytes, e.g. a photo as image/jpeg; the board stores them as they arrive.
+    init.method = opts.method || 'POST';
+    init.headers['Content-Type'] = opts.type;
+    init.body = opts.body;
   } else if (opts.json !== undefined) {
     init.method = opts.method || 'POST';
     init.headers['Content-Type'] = 'application/json';
@@ -654,7 +659,8 @@ function buildPartCard(p) {
 function buildPartRow(p) {
   const tr = document.createElement('tr');
   tr.dataset.id = p.id;
-  tr.innerHTML = '<td><b class="part-pn"></b></td><td class="part-desc"></td><td class="part-maker"></td>'
+  tr.innerHTML = '<td class="thumb-col"><img class="part-thumb" alt="" loading="lazy" decoding="async" hidden></td>'
+    + '<td><b class="part-pn"></b></td><td class="part-desc"></td><td class="part-maker"></td>'
     + '<td class="part-pkg"></td><td class="num"><div class="qty small"><button class="qty-btn" data-delta="-1">&minus;</button>'
     + '<span class="qty-value"></span><button class="qty-btn" data-delta="1">+</button></div></td>'
     + '<td><button class="bin-btn secondary small"></button></td>';
@@ -688,6 +694,12 @@ function fillPart(el, p) {
   // Nothing to take away at zero: the minus button is disabled, not silent.
   const minus = el.querySelector('.qty-btn[data-delta="-1"]');
   if (minus) minus.disabled = p.quantity <= 0;
+  const thumb = el.querySelector('.part-thumb');
+  if (thumb) {
+    thumb.hidden = !p.photo;
+    if (p.photo) thumb.src = photoUrl(p.photo, true);
+    else thumb.removeAttribute('src');
+  }
   const bin = el.querySelector('.bin-btn');
   bin.textContent = p.bin ? binName(p.bin.x, p.bin.y) : t('inv.noBin');
   bin.disabled = !p.bin;
@@ -695,6 +707,14 @@ function fillPart(el, p) {
 }
 
 function wirePartButtons(el, id) {
+  const thumb = el.querySelector('.part-thumb');
+  if (thumb) {
+    thumb.addEventListener('click', e => {
+      e.stopPropagation();  // the card or row itself opens the edit form
+      const p = inv.parts.find(x => x.id === id);
+      if (p && p.photo) openPhoto(photoUrl(p.photo));
+    });
+  }
   for (const b of $$('.qty-btn', el)) b.addEventListener('click', () => adjustQuantity(id, Number(b.dataset.delta)));
   el.querySelector('.bin-btn').addEventListener('click', () => {
     const p = inv.parts.find(x => x.id === id);
@@ -861,10 +881,12 @@ async function openPart(id) {
     form.elements.manufacturer.value = inv.manufacturer;
   }
   binOptions(part ? part.bin : inv.bin);
+  resetPhotoEdit();
   $('#part-times').textContent = part ? partTimes(part) : '';
   $('#part-dialog').showModal();
   if (!part) form.elements.partNumber.focus();
   loadSuggestions();
+  loadPhotoInfo();
 }
 
 function partTimes(p) {
@@ -888,13 +910,199 @@ async function savePart() {
   if (bin) [data.x, data.y] = bin.split(',');
   else data.x = -1;
   if (editing) data.id = editing.id;
-  const res = await attempt(() => api(editing ? '/api/part/update' : '/api/part/add', { form: data }));
-  if (!res) return;
+  const save = $('#part-save');
+  save.disabled = true;
+  try {
+    const res = await attempt(() => api(editing ? '/api/part/update' : '/api/part/add', { form: data }));
+    if (!res) return;
+    // From here on the part exists: a retry after a failed photo upload
+    // updates it instead of adding it a second time.
+    editing = res;
+    if (!await savePhoto(res)) return;  // the dialog stays open to try again
+  } finally {
+    save.disabled = photoEdit.busy;
+  }
   $('#part-dialog').close();
   toast(t('inv.saved'));
   inv.valuesAt = 0;  // new values may have appeared for the autocomplete
   await Promise.all([loadBins(), loadFilterLists()]);
   search();
+}
+
+// ---- Photos ------------------------------------------------------------
+//
+// The board can't decode images (no RAM to spare), so the page does all of
+// it: a picture from the camera or the gallery is turned upright, scaled to
+// the board's size (640 px on the long side in flash, 800 px on a microSD
+// card) and a 128 px thumbnail, both as JPEG. Only those two small files are
+// uploaded. In the part form a new or removed photo waits for Save, like the
+// other fields.
+
+const photoInfo = { loaded: false, maxSide: 640, thumbSide: 128, maxBytes: 400 * 1024, maxThumbBytes: 48 * 1024 };
+// The form's photo change: a prepared photo and thumbnail (Blobs), or a
+// removal; `busy` while a picture is being prepared or uploaded.
+let photoEdit = { photo: null, thumb: null, remove: false, busy: false, preview: '' };
+
+const photoUrl = (name, thumb = false) => `/photos/${name}${thumb ? '-t' : ''}.jpg`;
+
+async function loadPhotoInfo() {
+  if (photoInfo.loaded) return;
+  const res = await attempt(() => api('/api/photos'));
+  if (res) Object.assign(photoInfo, res, { loaded: true });
+}
+
+function resetPhotoEdit() {
+  if (photoEdit.preview) URL.revokeObjectURL(photoEdit.preview);
+  photoEdit = { photo: null, thumb: null, remove: false, busy: false, preview: '' };
+  $('#part-photo-file').value = '';
+  $('#part-photo-status').textContent = '';
+  renderDialogPhoto();
+}
+
+// The photo area of the form: the pending photo, else the part's own, else
+// "No photo"; buttons to match.
+function renderDialogPhoto() {
+  const img = $('#part-photo-img');
+  const current = editing && editing.photo && !photoEdit.remove ? photoUrl(editing.photo) : '';
+  const src = photoEdit.preview || current;
+  img.hidden = !src;
+  if (src) img.src = src;
+  else img.removeAttribute('src');
+  $('#part-photo-empty').hidden = !!src;
+  $('#part-photo-remove').hidden = !src;
+  $('#part-photo-pick-label').textContent = t(src ? 'photo.replace' : 'photo.add');
+  $('#part-photo-pick').classList.toggle('disabled', photoEdit.busy);
+  $('#part-photo-file').disabled = photoEdit.busy;
+  $('#part-save').disabled = photoEdit.busy;
+}
+
+// Decodes a picture into something a canvas can draw, turned upright: phone
+// cameras store portrait photos sideways with an orientation tag.
+async function decodePicture(file) {
+  if (window.createImageBitmap) {
+    try {
+      return await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch (e) { /* older browser or format: try an <img> */ }
+  }
+  const url = URL.createObjectURL(file);
+  const img = new Image();
+  img.src = url;
+  try {
+    await img.decode();  // <img> applies the orientation tag itself
+  } catch (e) {
+    URL.revokeObjectURL(url);
+    throw new Error(t('photo.unreadable'));
+  }
+  img.cleanup = () => URL.revokeObjectURL(url);
+  return img;
+}
+
+// Scales a decoded picture so its long side is at most `side` and encodes it
+// as JPEG no larger than `maxBytes`, lowering the quality if needed.
+async function encodeJpeg(source, side, maxBytes, qualities) {
+  let w = source.width || source.naturalWidth;
+  let h = source.height || source.naturalHeight;
+  const scale = Math.min(1, side / Math.max(w, h));
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+  // Halve in steps first: one big jump from a 12-megapixel photo to 640 px
+  // skips most pixels and looks grainy.
+  let from = source;
+  while (w / 2 >= tw * 1.5) {
+    w = Math.round(w / 2);
+    h = Math.round(h / 2);
+    const step = document.createElement('canvas');
+    step.width = w;
+    step.height = h;
+    step.getContext('2d').drawImage(from, 0, 0, w, h);
+    from = step;
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = tw;
+  canvas.height = th;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#fff';  // a PNG's transparent areas would turn black in JPEG
+  ctx.fillRect(0, 0, tw, th);
+  ctx.drawImage(from, 0, 0, tw, th);
+  for (const q of qualities) {
+    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', q));
+    if (blob && blob.size <= maxBytes) return blob;
+  }
+  throw new Error(t('photo.tooLarge'));
+}
+
+async function pickPhoto(file) {
+  if (!file) return;
+  photoEdit.busy = true;
+  $('#part-photo-status').textContent = t('photo.preparing');
+  renderDialogPhoto();
+  try {
+    await loadPhotoInfo();
+    const picture = await decodePicture(file);
+    try {
+      const photo = await encodeJpeg(picture, photoInfo.maxSide, photoInfo.maxBytes, [0.85, 0.75, 0.6, 0.45]);
+      const thumb = await encodeJpeg(picture, photoInfo.thumbSide, photoInfo.maxThumbBytes, [0.75, 0.6, 0.45]);
+      if (photoEdit.preview) URL.revokeObjectURL(photoEdit.preview);
+      Object.assign(photoEdit, { photo, thumb, remove: false, preview: URL.createObjectURL(photo) });
+      $('#part-photo-status').textContent = t('photo.ready', { size: formatBytes(photo.size) });
+    } finally {
+      if (picture.close) picture.close();  // ImageBitmap: free its memory now
+      if (picture.cleanup) picture.cleanup();
+    }
+  } catch (e) {
+    $('#part-photo-status').textContent = '';
+    toast(e.message, true);
+  } finally {
+    photoEdit.busy = false;
+    $('#part-photo-file').value = '';  // picking the same file again still fires "change"
+    renderDialogPhoto();
+  }
+}
+
+function removeDialogPhoto() {
+  if (photoEdit.preview) URL.revokeObjectURL(photoEdit.preview);
+  Object.assign(photoEdit, { photo: null, thumb: null, preview: '', remove: !!(editing && editing.photo) });
+  $('#part-photo-status').textContent = photoEdit.remove ? t('photo.removing') : '';
+  renderDialogPhoto();
+}
+
+// Applies the form's photo change to a saved part. True when done (or
+// nothing to do); false after a failure, which has been shown.
+async function savePhoto(part) {
+  if (!photoEdit.photo && !photoEdit.remove) return true;
+  photoEdit.busy = true;
+  renderDialogPhoto();
+  const status = $('#part-photo-status');
+  try {
+    if (photoEdit.photo) {
+      status.textContent = t('photo.uploading');
+      const saved = await api(`/api/part/photo?id=${part.id}`, { body: photoEdit.photo, type: 'image/jpeg' });
+      editing = saved;
+      // The thumbnail is a nicety: without it the list shows the photo itself.
+      try {
+        await api(`/api/part/thumb?id=${part.id}&name=${encodeURIComponent(saved.photo)}`,
+          { body: photoEdit.thumb, type: 'image/jpeg' });
+      } catch (e) { /* keep going */ }
+    } else if (photoEdit.remove && part.photo) {
+      editing = await api('/api/part/photo/delete', { form: { id: part.id } });
+    }
+    photoEdit.photo = photoEdit.thumb = null;
+    photoEdit.remove = false;
+    return true;
+  } catch (e) {
+    status.textContent = '';
+    toast(t('photo.failed', { msg: e.message }), true);
+    return false;
+  } finally {
+    photoEdit.busy = false;
+    renderDialogPhoto();
+  }
+}
+
+function openPhoto(src) {
+  $('#photo-viewer-img').src = src;
+  $('#photo-viewer').showModal();
 }
 
 async function deletePart() {
@@ -976,6 +1184,15 @@ function bindInventory() {
   $('#part-add').addEventListener('click', () => openPart(null));
   $('#part-form').addEventListener('submit', e => { e.preventDefault(); savePart(); });
   $('#part-cancel').addEventListener('click', () => $('#part-dialog').close());
+  $('#part-photo-file').addEventListener('change', e => pickPhoto(e.target.files[0]));
+  $('#part-photo-remove').addEventListener('click', removeDialogPhoto);
+  $('#part-photo-view').addEventListener('click', () => {
+    const img = $('#part-photo-img');
+    if (!img.hidden) openPhoto(img.src);
+  });
+  // The viewer closes on any tap; a closed form forgets an unsaved photo.
+  $('#photo-viewer').addEventListener('click', () => $('#photo-viewer').close());
+  $('#part-dialog').addEventListener('close', resetPhotoEdit);
   $('#part-delete').addEventListener('click', deletePart);
 }
 
@@ -1236,7 +1453,9 @@ function renderSystem() {
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
       ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],
-      ['system.photos', String(s.inventory.photos)],
+      ['system.photos', !s.photos ? String(s.inventory.photos)
+        : t(s.photos.storage === 'card' ? 'system.photosCard' : 'system.photosFlash',
+          { n: s.inventory.photos, used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) })],
       ['system.bins', t('system.binsValue', { used: s.inventory.binsUsed, total: s.inventory.binsTotal })],
       ['system.categories', String(s.inventory.categories)],
       ['system.manufacturers', String(s.inventory.manufacturers)],

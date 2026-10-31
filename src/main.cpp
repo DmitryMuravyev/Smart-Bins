@@ -19,6 +19,8 @@
 #include "led/RmtStrip.h"
 #include "led/WorkLights.h"
 #include "web/InventoryApi.h"
+#include "web/PhotoApi.h"
+#include "PhotoStore.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
 #include "web/LiveUpdates.h"
@@ -46,6 +48,7 @@ sb::led::WorkLights workLights;
 sb::Security security;
 sb::LiveUpdates live;
 sb::inventory::InventoryDb inventoryDb;
+sb::PhotoStore photos;
 AsyncWebServer server(80);
 
 // Restarts requested from the web API happen here, a second later, so the
@@ -210,6 +213,10 @@ void setup() {
   logHeapStep("storage and config");
   openInventory(configStore.get());
   logHeapStep("database");
+  // Photos go on a microSD card when one is in the slot, else in flash.
+  photos.begin(sb::board::defaultPin("sd_sck"), sb::board::defaultPin("sd_miso"), sb::board::defaultPin("sd_mosi"),
+               sb::board::defaultPin("sd_cs"));
+  logHeapStep("photo storage");
 
   // W1-W5 in channel order; the config decides what each one drives.
   const int8_t lightPins[sb::config::kLightChannels] = {
@@ -244,8 +251,10 @@ void setup() {
   network.begin(configStore.get().deviceName, configStore.get().network, server);
   logHeapStep("Wi-Fi");
   sb::registerWebUi(server, network);
-  sb::registerSystemApi(server, configStore, network, security, inventoryDb, scheduleRestart);
-  sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows);
+  sb::registerSystemApi(server, configStore, network, security, inventoryDb, photos, scheduleRestart);
+  sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows,
+                           [](const std::string &photo) { photos.remove(photo); });
+  sb::registerPhotoApi(server, photos, inventoryDb, security);
   sb::registerLedApi(server, leds, configStore);
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);

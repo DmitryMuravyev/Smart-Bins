@@ -53,10 +53,13 @@ The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi netwo
 
 Open **http://smartbins.local/** (or the board's IP). The pages so far:
 
+- **Inventory:** search as you type (every word must match, any case, also Cyrillic and accented letters), category and manufacturer filters, sorting, and three views: cards with **+ / −** quantity buttons, a table, and the bin grid, which shows where the search results are. Tap a bin button to light it; tap a part to edit it. **Photos:** in the part form, **Add photo** takes one with the camera or picks one from the phone; the page turns it upright and shrinks it (640 px on the long side in flash, 800 px on a microSD card, plus a small thumbnail for the list) before uploading, and it is saved with the part. Tap a thumbnail to see the photo full size.
 - **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), 12 colour presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
 - **Grid:** tap a bin to light it, tap it again to turn it off; **Clear all** turns every bin off. Lit bins are shown on every open page. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, its colour and the grid brightness; saved at once, no restart) and the test patterns.
 - **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi, with an automatic (DHCP) or fixed IP address; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
-- **System:** firmware, chip, memory, storage and network details, inventory figures (parts and pieces, photos, bins in use, categories, manufacturers, database size), and a restart button.
+- **System:** firmware, chip, memory, storage and network details, inventory figures (parts and pieces, photos and where they are stored, bins in use, categories, manufacturers, database size), and a restart button.
+
+**Photo storage.** With a microSD card in the slot at boot (SPI: SCK 18, MISO 19, MOSI 23, CS 5), photos go on the card; without one they go to the flash partition, which keeps 512 KB free for the database. Photos stored in flash stay visible after a card is added.
 
 The UI is built into the firmware (`web/` is gzipped into it at build time by `tools/embed_web.py`), so a firmware update, also over Wi-Fi, always brings the matching UI and there is no separate filesystem upload.
 
@@ -123,7 +126,12 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `GET /api/part?id=N` | one part: `partNumber`, `manufacturer`, `category`, `description`, `package`, `value`, `unit`, `datasheetUrl`, `notes`, `quantity`, `bin` (`{x, y}` or `null`), `photo`, `created`, `updated` (Unix seconds, 0 before network time) |
 | `/api/part/add?partNumber=NE555&quantity=10&x=2&y=1` | adds a part from any of the fields above (a part number or a description is required) |
 | `/api/part/update?id=N&...` | changes only the fields given; `x=-1` takes a part out of its bin |
-| `/api/part/delete?id=N` | deletes a part |
+| `/api/part/delete?id=N` | deletes a part and its photo |
+| `GET /api/photos` | where photos are stored (`storage: card\|flash`, `used`, `total`, `available` bytes) and the sizes the page resizes to (`maxSide`, `thumbSide`, `maxBytes`, `maxThumbBytes`) |
+| `POST /api/part/photo?id=N` | body: the photo as `image/jpeg` (already resized; at most 400 KB); gives the part a new photo and answers the part with its new `photo` name. `curl --data-binary @photo.jpg -H 'Content-Type: image/jpeg' ...` |
+| `POST /api/part/thumb?id=N&name=NAME` | body: the photo's thumbnail (`image/jpeg`, at most 48 KB); `NAME` is the part's current `photo` |
+| `/api/part/photo/delete?id=N` | removes a part's photo |
+| `GET /photos/NAME.jpg`, `GET /photos/NAME-t.jpg` | a photo and its thumbnail (a missing thumbnail gives the photo); cached by browsers, since a new photo gets a new name |
 | `/api/part/adjust?id=N&delta=-1` | quantity up or down, never below 0 |
 | `GET /api/bins` | every bin with its `label` and number of `parts` (`outside: true` for a bin left outside after the grid shrank) |
 | `/api/bin/label?x=0&y=0&label=Resistors` | names a bin; an empty label goes back to the A1-style name |
