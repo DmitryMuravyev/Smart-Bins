@@ -21,6 +21,15 @@ const TextFieldInfo kTextFields[kTextFieldCount] = {
 
 constexpr size_t kMaxBinLabel = 32;
 constexpr int32_t kMaxQuantity = 1000000000;
+// Database page size. 2 KB rather than the flash sector's 4 KB: SQLite holds
+// several pages at once while it splits or merges B-tree pages during a
+// write, and with 4 KB pages that peak (40 KB and more on top of the page
+// cache) didn't fit in the heap a board without PSRAM has left. The cost is
+// that writing one page makes the FAT layer rewrite a whole 4 KB sector, so
+// a commit can erase twice as many sectors; at an inventory's rate of
+// changes that is far from mattering for flash wear.
+constexpr int kPageSize = 2048;
+
 // Category of the parts benchmark() creates, so they can be told apart (and
 // removed) even if the board restarts half way through.
 const char *const kBenchCategory = "~benchmark~";
@@ -237,14 +246,14 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
     return false;
   }
   // Lookaside: small per-connection slots for short-lived allocations. The
-  // ESP32 build's default (512 slots x 64 bytes = 32 KB) is more RAM than
-  // it's worth here; 64 x 128 bytes = 8 KB keeps most of the speed-up.
-  // Must be set before the connection runs any statement.
+  // ESP32 library is built without lookaside (SQLITE_OMIT_LOOKASIDE), so this
+  // only matters for the PC build of the tests, where it keeps memory use
+  // closer to the board's. Must be set before the connection runs any
+  // statement.
   sqlite3_db_config(db_, SQLITE_DBCONFIG_LOOKASIDE, nullptr, 128, 64);
 
-  // page_size 4096 matches the flash sector: one page written is one sector
-  // written, never a read-modify-write of a sector shared with other pages. It
-  // only takes effect on a new, empty file.
+  // page_size: see kPageSize. It only takes effect on a new, empty file; an
+  // older file with other pages is converted below.
   // cache_size < 0 is in KiB: the RAM the page cache may use.
   // journal_mode PERSIST keeps the rollback journal file and only clears its
   // header after a commit: fewer directory updates on flash than deleting and
@@ -253,15 +262,36 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   // synchronous FULL (the default): a commit is on flash when it returns.
   char pragmas[256];
   snprintf(pragmas, sizeof(pragmas),
-           "PRAGMA page_size = 4096; PRAGMA cache_size = -%d; PRAGMA journal_mode = PERSIST;"
+           "PRAGMA page_size = %d; PRAGMA cache_size = -%d; PRAGMA journal_mode = PERSIST;"
            "PRAGMA journal_size_limit = 131072; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY;"
            "PRAGMA synchronous = FULL;",
-           cacheKiB);
-  if (!exec(pragmas, err) || !pragmasApplied(err) || !migrate(err)) {
+           kPageSize, cacheKiB);
+  if (!exec(pragmas, err) || !pragmasApplied(err) || !migrate(err) || !convertPageSize(err)) {
     close();
     return false;
   }
   return true;
+}
+
+// Files made by firmware 0.5.0 before this change use 4 KB pages. VACUUM
+// rewrites the file with the page_size set above, but it builds the new copy
+// in RAM (temp_store = MEMORY), so it only runs while the file is still
+// small: an empty or nearly empty inventory, which is what any board has at
+// this stage of the project. A bigger file keeps its pages and works as
+// before, only with the higher RAM peaks of 4 KB pages.
+bool InventoryDb::convertPageSize(std::string &err) {
+  int64_t pageSize = 0, pages = 0;
+  {
+    Stmt size(db_, "PRAGMA page_size");
+    Stmt count(db_, "PRAGMA page_count");
+    if (size.step() != SQLITE_ROW || count.step() != SQLITE_ROW) return err = lastError(), false;
+    pageSize = size.integer(0);
+    pages = count.integer(0);
+  }
+  if (pageSize == kPageSize) return true;
+  constexpr int64_t kMaxConvertBytes = 64 * 1024;
+  if (pageSize * pages > kMaxConvertBytes) return true;
+  return exec("VACUUM", err);
 }
 
 // Reads one of the settings back. A file layer that swallows pragmas (see
