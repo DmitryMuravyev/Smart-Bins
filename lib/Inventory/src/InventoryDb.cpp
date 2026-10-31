@@ -5,6 +5,8 @@
 #include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <memory>
+#include <vector>
 
 namespace sb {
 namespace inventory {
@@ -81,6 +83,155 @@ const char *const kMigrations[kSchemaVersion] = {
 
 // Leading and trailing spaces (and tabs/newlines) are dropped from every text
 // field, so " 10k" and "10k" don't end up as two values in a filter list.
+// ---- Search helpers ----------------------------------------------------
+//
+// SQLite's own LIKE and NOCASE ignore case only for A-Z, so "резистор" would
+// not find "Резистор" and "ñ" would not find "Ñ". The two SQL functions below
+// fold case themselves for the alphabets the UI is used in (English, Spanish,
+// Russian): sb_fold(text) for sorting and exact filters, sb_match(words,
+// field, ...) for the search.
+
+// Lower-cases ASCII, Latin-1 (U+00C0-U+00DE: À..Þ, including Ñ) and Cyrillic
+// (U+0400-U+042F: Ѐ..Џ, А..Я) letters in UTF-8 text. Every letter it touches
+// keeps its byte length, so the result is the same size as the input. Other
+// characters are copied as they are.
+void foldCase(const unsigned char *in, size_t n, std::string &out) {
+  out.clear();
+  out.reserve(n);
+  for (size_t i = 0; i < n; i++) {
+    const unsigned char c = in[i];
+    if (c >= 'A' && c <= 'Z') {
+      out += static_cast<char>(c + 32);
+      continue;
+    }
+    // Two-byte letters start with 0xC3 (Latin-1) or 0xD0 (Cyrillic capitals).
+    // A continuation byte (0x80-0xBF) is never one of those lead bytes, so
+    // the loop can't misread the middle of another character as a letter.
+    if (i + 1 < n) {
+      const unsigned char d = in[i + 1];
+      if (c == 0xC3 && d >= 0x80 && d <= 0x9E && d != 0x97) {  // À..Þ, not × (U+00D7)
+        out += static_cast<char>(c);
+        out += static_cast<char>(d + 0x20);  // à..þ
+        i++;
+        continue;
+      }
+      if (c == 0xD0 && d >= 0x80 && d <= 0xAF) {
+        if (d >= 0x90 && d <= 0x9F) {  // А..П -> а..п (U+0430-043F, still 0xD0 0xB0-0xBF)
+          out += static_cast<char>(0xD0);
+          out += static_cast<char>(d + 0x20);
+        } else if (d >= 0xA0) {  // Р..Я -> р..я (U+0440-044F: 0xD1 0x80-0x8F)
+          out += static_cast<char>(0xD1);
+          out += static_cast<char>(d - 0x20);
+        } else {  // Ѐ..Џ, including Ё -> ѐ..џ (U+0450-045F: 0xD1 0x90-0x9F)
+          out += static_cast<char>(0xD1);
+          out += static_cast<char>(d + 0x10);
+        }
+        i++;
+        continue;
+      }
+    }
+    out += static_cast<char>(c);
+  }
+}
+
+std::string folded(const std::string &s) {
+  std::string out;
+  foldCase(reinterpret_cast<const unsigned char *>(s.data()), s.size(), out);
+  return out;
+}
+
+// sb_fold(text): the text with case folded as above.
+void sqlFold(sqlite3_context *ctx, int, sqlite3_value **argv) {
+  const unsigned char *t = sqlite3_value_text(argv[0]);
+  if (!t) return sqlite3_result_null(ctx);
+  std::string out;
+  foldCase(t, static_cast<size_t>(sqlite3_value_bytes(argv[0])), out);
+  sqlite3_result_text(ctx, out.data(), static_cast<int>(out.size()), SQLITE_TRANSIENT);
+}
+
+// At most this many search words count; more would only slow every row down.
+constexpr size_t kMaxSearchWords = 8;
+
+// The search words: folded, split at spaces, empty ones dropped.
+std::vector<std::string> *searchWords(const unsigned char *text, size_t n) {
+  auto *words = new std::vector<std::string>();
+  std::string all;
+  foldCase(text, n, all);
+  size_t pos = 0;
+  while (pos < all.size() && words->size() < kMaxSearchWords) {
+    const size_t start = all.find_first_not_of(" \t", pos);
+    if (start == std::string::npos) break;
+    size_t end = all.find_first_of(" \t", start);
+    if (end == std::string::npos) end = all.size();
+    words->push_back(all.substr(start, end - start));
+    pos = end;
+  }
+  return words;
+}
+
+// sb_match(words, field1, field2, ...): 1 when every search word is found in
+// at least one of the fields, else 0.
+void sqlMatch(sqlite3_context *ctx, int argc, sqlite3_value **argv) {
+  // The words are the same for every row of a query, so they are split once
+  // and kept with the statement as SQLite's "auxiliary data" for argument 0.
+  // SQLite may drop it at any time (it then calls the deleter), so it is
+  // fetched again after being set rather than trusting the pointer.
+  auto *words = static_cast<std::vector<std::string> *>(sqlite3_get_auxdata(ctx, 0));
+  std::unique_ptr<std::vector<std::string>> local;
+  if (!words) {
+    const unsigned char *t = sqlite3_value_text(argv[0]);
+    local.reset(searchWords(t ? t : reinterpret_cast<const unsigned char *>(""),
+                            static_cast<size_t>(sqlite3_value_bytes(argv[0]))));
+    sqlite3_set_auxdata(ctx, 0, new std::vector<std::string>(*local),
+                        [](void *p) { delete static_cast<std::vector<std::string> *>(p); });
+    words = local.get();
+  }
+  // All fields folded into one string, each followed by a separator (0x01,
+  // which no search word contains), so a word can't match across the end of
+  // one field and the start of the next. The buffers are static so a search
+  // over thousands of rows doesn't allocate and free memory for every row;
+  // that is safe because SQLite here is single-threaded and every query runs
+  // under the database mutex.
+  static std::string haystack, field;
+  haystack.clear();
+  for (int i = 1; i < argc; i++) {
+    const unsigned char *t = sqlite3_value_text(argv[i]);
+    if (t) {
+      foldCase(t, static_cast<size_t>(sqlite3_value_bytes(argv[i])), field);
+      haystack += field;
+    }
+    haystack += '\x01';
+  }
+  for (const std::string &w : *words) {
+    if (haystack.find(w) == std::string::npos) return sqlite3_result_int(ctx, 0);
+  }
+  sqlite3_result_int(ctx, 1);
+}
+
+// sb_tally(condition): the condition itself, counting in InventoryDb::tally_
+// how many rows it was true for (see findParts()). Not DETERMINISTIC: it must
+// run once for every row, never be folded or skipped.
+void sqlTally(sqlite3_context *ctx, int, sqlite3_value **argv) {
+  const int yes = sqlite3_value_int(argv[0]) != 0;
+  if (yes) ++*static_cast<int64_t *>(sqlite3_user_data(ctx));
+  sqlite3_result_int(ctx, yes);
+}
+
+// Database columns findParts() sorts by, in SortKey order. Text columns sort
+// with case folded and empty values last, whichever the direction.
+struct SortColumn {
+  const char *expr;
+  bool text;
+};
+const SortColumn kSortColumns[] = {
+    {"p.id", false},          {"p.part_number", true}, {"p.manufacturer", true}, {"p.category", true},
+    {"p.description", true},  {"p.package", true},     {"p.value", true},        {"p.quantity", false},
+    {nullptr, false},  // Bin: see findParts()
+    {"p.updated_at", false},
+};
+static_assert(sizeof(kSortColumns) / sizeof(kSortColumns[0]) == static_cast<int>(SortKey::Updated) + 1,
+              "one entry per SortKey");
+
 std::string trimmed(const std::string &s) {
   const char *ws = " \t\r\n";
   const size_t a = s.find_first_not_of(ws);
@@ -241,6 +392,16 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   const char *vfs = nullptr;  // SQLite's default
 #endif
   if (sqlite3_open_v2(path, &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, vfs) != SQLITE_OK) {
+    err = lastError();
+    close();
+    return false;
+  }
+  // The search functions (see "Search helpers"). DETERMINISTIC: same input,
+  // same result, so SQLite may evaluate them once where it can.
+  const int flags = SQLITE_UTF8 | SQLITE_DETERMINISTIC;
+  if (sqlite3_create_function(db_, "sb_fold", 1, flags, nullptr, sqlFold, nullptr, nullptr) != SQLITE_OK ||
+      sqlite3_create_function(db_, "sb_match", -1, flags, nullptr, sqlMatch, nullptr, nullptr) != SQLITE_OK ||
+      sqlite3_create_function(db_, "sb_tally", 1, SQLITE_UTF8, &tally_, sqlTally, nullptr, nullptr) != SQLITE_OK) {
     err = lastError();
     close();
     return false;
@@ -577,6 +738,136 @@ Result InventoryDb::listParts(int offset, int limit, const std::function<void(co
   return Result::Ok;
 }
 
+Result InventoryDb::findParts(const PartQuery &query, const std::function<void(const Part &)> &each,
+                              int64_t &total, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+
+  // The WHERE clause and its parameters, built from the filters that are set.
+  // Parameters are numbered (?1, ?2, ...) in the order they are added to
+  // `params`, so the same clause serves the count and the page query.
+  std::string where;  // the conditions joined with AND, empty when none
+  std::vector<std::string> params;
+  auto add = [&](const std::string &clause) { where += (where.empty() ? "" : " AND ") + clause; };
+  auto param = [&](const std::string &value) {
+    params.push_back(value);
+    return "?" + std::to_string(params.size());
+  };
+  if (query.search.find_first_not_of(" \t") != std::string::npos) {
+    std::string fields;
+    for (const TextFieldInfo &f : kTextFields) fields += std::string(", p.") + f.column;
+    add("sb_match(" + param(query.search) + fields + ")");
+  }
+  if (!query.category.empty()) add("sb_fold(p.category) = " + param(folded(trimmed(query.category))));
+  if (!query.manufacturer.empty()) {
+    add("sb_fold(p.manufacturer) = " + param(folded(trimmed(query.manufacturer))));
+  }
+  if (query.bin) {
+    if (query.bin->valid()) {
+      add("p.bin_id = (SELECT id FROM bins WHERE x = " + param(std::to_string(query.bin->x)) +
+          " AND y = " + param(std::to_string(query.bin->y)) + ")");
+    } else {
+      add("p.bin_id IS NULL");
+    }
+  }
+  auto bindAll = [&](Stmt &q) {
+    for (size_t i = 0; i < params.size(); i++) q.bind(static_cast<int>(i + 1), params[i]);
+  };
+
+  // ORDER BY, always ending in the id so equal keys come in a stable order
+  // and pages don't overlap or skip parts.
+  const char *dir = query.descending ? " DESC" : " ASC";
+  std::string order;
+  const int key = static_cast<int>(query.sort);
+  if (key < 0 || key > static_cast<int>(SortKey::Updated)) return err = "unknown sort order", Result::Invalid;
+  if (query.sort == SortKey::Bin) {
+    // Row by row, then column, like the grid; parts in no bin last.
+    order = std::string("(b.id IS NULL), b.y") + dir + ", b.x" + dir;
+  } else if (kSortColumns[key].text) {
+    const std::string col = kSortColumns[key].expr;
+    order = "(" + col + " = ''), sb_fold(" + col + ")" + dir;
+  } else if (query.sort != SortKey::Id) {
+    order = std::string(kSortColumns[key].expr) + dir;
+  }
+  // The unary + in "+p.id" stops SQLite from reading the table in id order
+  // and stopping after one page: with filters, every row has to pass through
+  // sb_tally() below so the total comes out of the same scan.
+  order += (order.empty() ? "+p.id" : ", p.id") + std::string(dir);
+
+  // Step 1: the ids of the requested page, and the number of matches.
+  //
+  // Only the sort key and the id go through SQLite's sorter (it keeps at most
+  // offset + limit of them), so a search over thousands of parts doesn't hold
+  // whole records in RAM.
+  //
+  // The total comes from the same pass: the conditions are wrapped in
+  // sb_tally(), which counts the rows they accept. The search reads every
+  // row and runs the case-folding match on it, which takes a noticeable part
+  // of a second on the board with a few thousand parts; a separate
+  // count(*) query would do all of that a second time.
+  std::vector<int64_t> ids;
+  {
+    tally_ = 0;
+    const std::string sql = "SELECT p.id FROM parts p LEFT JOIN bins b ON b.id = p.bin_id" +
+                            (where.empty() ? std::string() : " WHERE sb_tally(" + where + ")") + " ORDER BY " +
+                            order + " LIMIT " + std::to_string(query.limit) + " OFFSET " +
+                            std::to_string(query.offset);
+    Stmt q(db_, sql.c_str());
+    if (!q.ok()) return err = lastError(), Result::Error;
+    bindAll(q);
+    int rc;
+    while ((rc = q.step()) == SQLITE_ROW) ids.push_back(q.integer(0));
+    if (rc != SQLITE_DONE) return err = lastError(), Result::Error;
+  }
+  if (!where.empty()) {
+    total = tally_;
+  } else {
+    // No filters: every part matches, and SQLite counts the table quickly.
+    Stmt q(db_, "SELECT count(*) FROM parts");
+    if (q.step() != SQLITE_ROW) return err = lastError(), Result::Error;
+    total = q.integer(0);
+  }
+
+  // Step 2: the parts themselves, one at a time.
+  const std::string sql = std::string(kPartSelect) + " WHERE p.id = ?";
+  Stmt q(db_, sql.c_str());
+  Part part;
+  for (int64_t id : ids) {
+    q.bind(1, id);
+    if (q.step() == SQLITE_ROW) {
+      rowToPart(q, part);
+      each(part);
+    }
+    q.reset();
+  }
+  return Result::Ok;
+}
+
+Result InventoryDb::listValues(TextField field, const std::string &contains, int limit,
+                               const std::function<void(const FieldValue &)> &each, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  if (field < 0 || field >= kTextFieldCount) return err = "unknown field", Result::Invalid;
+  const std::string col = kTextFields[field].column;
+  const bool narrow = contains.find_first_not_of(" \t") != std::string::npos;
+  // Grouped by the exact value: "Resistor" and "resistor" are listed apart,
+  // so the list shows what is really stored.
+  const std::string sql = "SELECT " + col + ", count(*) FROM parts WHERE " + col + " <> ''" +
+                          (narrow ? " AND sb_match(?1, " + col + ")" : std::string()) + " GROUP BY " + col +
+                          " ORDER BY count(*) DESC, sb_fold(" + col + ") LIMIT " + std::to_string(limit);
+  Stmt q(db_, sql.c_str());
+  if (narrow) q.bind(1, contains);
+  FieldValue v;
+  int rc;
+  while ((rc = q.step()) == SQLITE_ROW) {
+    v.value = q.text(0);
+    v.parts = q.integer(1);
+    each(v);
+  }
+  if (rc != SQLITE_DONE) return err = lastError(), Result::Error;
+  return Result::Ok;
+}
+
 Result InventoryDb::listBins(const std::function<void(const BinInfo &)> &each, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
@@ -733,17 +1024,17 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   }
   out.countMs = elapsedMs(start);
 
-  // The kind of query Task 8's global search will run: a substring in any
-  // text field, which no index helps with, so every row is read.
+  // The global search as the web UI runs it (findParts: every word in any
+  // text field, any case, first page of 50, sorted by part number). No index
+  // helps a substring search, so every row is read.
   phase = "search";
   start = std::chrono::steady_clock::now();
   {
-    std::string sql = "SELECT count(*) FROM parts WHERE 0";
-    for (const TextFieldInfo &f : kTextFields) sql += std::string(" OR ") + f.column + " LIKE ?1";
-    Stmt search(db_, sql.c_str());
-    search.bind(1, std::string("%murata%"));
-    if (search.step() != SQLITE_ROW) return fail();
-    out.found = search.integer(0);
+    PartQuery q;
+    q.search = "murata";
+    q.sort = SortKey::PartNumber;
+    std::string e;
+    if (findParts(q, [](const Part &) {}, out.found, e) != Result::Ok) return err = e, fail();
   }
   out.searchMs = elapsedMs(start);
 
