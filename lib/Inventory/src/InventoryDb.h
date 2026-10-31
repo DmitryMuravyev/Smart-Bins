@@ -108,6 +108,34 @@ struct BenchResult {
   int64_t found = 0;     // rows the search matched (a sanity check)
 };
 
+// What findParts() returns and in which order. Every filter that is set must
+// match; an empty query lists every part.
+enum class SortKey { Id, PartNumber, Manufacturer, Category, Description, Package, Value, Quantity, Bin, Updated };
+
+struct PartQuery {
+  // Words to look for, separated by spaces. Each word must appear somewhere
+  // in the part's text fields (part number, description, notes, ...), as a
+  // substring and regardless of case: "stm32 lqfp" finds an STM32F103 whose
+  // package is LQFP-48. Case is ignored for Latin, Latin-1 (Spanish) and
+  // Cyrillic letters.
+  std::string search;
+  // Exact value of the field, regardless of case; empty means any.
+  std::string category;
+  std::string manufacturer;
+  // Only the parts in this bin; a BinRef with x = -1 means parts in no bin.
+  std::optional<BinRef> bin;
+  SortKey sort = SortKey::Id;
+  bool descending = false;
+  int offset = 0;
+  int limit = 50;
+};
+
+// One distinct value of a text field and how many parts have it.
+struct FieldValue {
+  std::string value;
+  int64_t parts = 0;
+};
+
 enum class Result { Ok, NotFound, Invalid, Error };
 
 struct WriteHooks {
@@ -153,6 +181,16 @@ class InventoryDb {
   // held in memory. `total` receives the number of parts overall.
   Result listParts(int offset, int limit, const std::function<void(const Part &)> &each, int64_t &total,
                    std::string &err);
+  // Search, filter, sort and page through the parts. `each` gets the parts of
+  // the requested page one at a time; `total` is the number of parts that
+  // match, across all pages.
+  Result findParts(const PartQuery &query, const std::function<void(const Part &)> &each, int64_t &total,
+                   std::string &err);
+  // The distinct non-empty values of one text field, most used first, for
+  // filter lists and autocomplete. `contains` narrows them like a search word
+  // (substring, any case); `limit` caps how many come back.
+  Result listValues(TextField field, const std::string &contains, int limit,
+                    const std::function<void(const FieldValue &)> &each, std::string &err);
   Result listBins(const std::function<void(const BinInfo &)> &each, std::string &err);
   Result setBinLabel(BinRef bin, const std::string &label, std::string &err);
 
@@ -182,6 +220,7 @@ class InventoryDb {
 
   sqlite3 *db_ = nullptr;
   std::recursive_mutex mutex_;
+  int64_t tally_ = 0;  // rows sb_tally() accepted in the current findParts() scan
   WriteHooks hooks_;
   std::function<int64_t()> clock_;
 };

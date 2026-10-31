@@ -140,6 +140,162 @@ static void test_list_pages() {
   TEST_ASSERT_EQUAL_STRING("P5", seen[0].c_str());
 }
 
+// A small catalogue for the search tests: mixed case, Spanish and Russian
+// text, parts in bins and one without.
+static void addCatalogue() {
+  struct Row {
+    const char *pn, *maker, *cat, *desc, *pkg;
+    int qty;
+    BinRef bin;
+  };
+  const Row rows[] = {
+      {"STM32F103C8T6", "STMicro", "MCU", "ARM Cortex-M3 microcontroller", "LQFP-48", 5, {0, 0}},
+      {"ATmega328P", "Microchip", "MCU", "8-bit AVR", "TQFP-32", 12, {1, 0}},
+      {"NE555", "TI", "Timer", "Precision timer", "SOIC-8", 40, {1, 0}},
+      {"RC0603-10K", "Yageo", "Resistor", "Резистор 10 кОм", "0603", 500, {2, 1}},
+      {"GRM188", "Murata", "Capacitor", "Condensador cerámico 100 nF", "0603", 300, BinRef()},
+  };
+  Part p;
+  for (const Row &r : rows) {
+    PartChanges c = named(r.pn, r.qty, r.bin);
+    c.text[kManufacturer] = std::string(r.maker);
+    c.text[kCategory] = std::string(r.cat);
+    c.text[kDescription] = std::string(r.desc);
+    c.text[kPackage] = std::string(r.pkg);
+    TEST_ASSERT_TRUE_MESSAGE(db.addPart(c, p, err) == Result::Ok, err.c_str());
+  }
+}
+
+// Part numbers findParts() returns for a query, in order; total in *total.
+static std::vector<std::string> find(const PartQuery &q, int64_t *total = nullptr) {
+  std::vector<std::string> out;
+  int64_t t = -1;
+  TEST_ASSERT_TRUE_MESSAGE(
+      db.findParts(q, [&](const Part &x) { out.push_back(x.text[kPartNumber]); }, t, err) == Result::Ok,
+      err.c_str());
+  if (total) *total = t;
+  return out;
+}
+
+static PartQuery search(const char *words) {
+  PartQuery q;
+  q.search = words;
+  return q;
+}
+
+static void test_search_any_field_any_case() {
+  addCatalogue();
+  // Part number, description and package, whatever the case.
+  TEST_ASSERT_EQUAL(1, find(search("stm32")).size());
+  TEST_ASSERT_EQUAL(1, find(search("CORTEX")).size());
+  TEST_ASSERT_EQUAL(2, find(search("0603")).size());
+  // Every word must match, each in any field.
+  auto both = find(search("mcu lqfp"));
+  TEST_ASSERT_EQUAL(1, both.size());
+  TEST_ASSERT_EQUAL_STRING("STM32F103C8T6", both[0].c_str());
+  TEST_ASSERT_EQUAL(0, find(search("mcu soic")).size());
+  // Russian and Spanish capitals fold too.
+  TEST_ASSERT_EQUAL(1, find(search("РЕЗИСТОР")).size());
+  TEST_ASSERT_EQUAL(1, find(search("кОМ")).size());
+  TEST_ASSERT_EQUAL(1, find(search("CERÁMICO")).size());
+  // Characters LIKE treats specially are plain text here.
+  TEST_ASSERT_EQUAL(0, find(search("%")).size());
+  TEST_ASSERT_EQUAL(1, find(search("m3")).size());
+  // Spaces alone are no search at all.
+  TEST_ASSERT_EQUAL(5, find(search("  ")).size());
+}
+
+static void test_filters_and_bins() {
+  addCatalogue();
+  PartQuery q;
+  q.category = "mcu";  // any case
+  TEST_ASSERT_EQUAL(2, find(q).size());
+  q.manufacturer = "microchip";
+  TEST_ASSERT_EQUAL(1, find(q).size());
+
+  PartQuery inBin;
+  inBin.bin = BinRef{1, 0};
+  TEST_ASSERT_EQUAL(2, find(inBin).size());
+  inBin.bin = BinRef();  // no bin
+  auto loose = find(inBin);
+  TEST_ASSERT_EQUAL(1, loose.size());
+  TEST_ASSERT_EQUAL_STRING("GRM188", loose[0].c_str());
+}
+
+static void test_sorting_and_pages() {
+  addCatalogue();
+  PartQuery q;
+  q.sort = SortKey::PartNumber;
+  auto asc = find(q);
+  TEST_ASSERT_EQUAL_STRING("ATmega328P", asc[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("STM32F103C8T6", asc[4].c_str());
+  q.descending = true;
+  TEST_ASSERT_EQUAL_STRING("STM32F103C8T6", find(q)[0].c_str());
+
+  q = PartQuery();
+  q.sort = SortKey::Quantity;
+  q.descending = true;
+  TEST_ASSERT_EQUAL_STRING("RC0603-10K", find(q)[0].c_str());
+
+  // By bin: row by row, then column; the part in no bin comes last.
+  q = PartQuery();
+  q.sort = SortKey::Bin;
+  auto byBin = find(q);
+  TEST_ASSERT_EQUAL_STRING("STM32F103C8T6", byBin[0].c_str());
+  TEST_ASSERT_EQUAL_STRING("RC0603-10K", byBin[3].c_str());
+  TEST_ASSERT_EQUAL_STRING("GRM188", byBin[4].c_str());
+
+  // Pages: the total counts every match, not just the page.
+  q = PartQuery();
+  q.sort = SortKey::PartNumber;
+  q.limit = 2;
+  int64_t total = 0;
+  auto first = find(q, &total);
+  TEST_ASSERT_EQUAL(2, first.size());
+  TEST_ASSERT_EQUAL(5, total);
+  q.offset = 4;
+  auto last = find(q, &total);
+  TEST_ASSERT_EQUAL(1, last.size());
+  TEST_ASSERT_EQUAL(5, total);
+  TEST_ASSERT_EQUAL_STRING("STM32F103C8T6", last[0].c_str());
+  // With filters the total is counted in the same scan as the page, also in
+  // id order, where SQLite could otherwise stop reading after one page.
+  q = search("0603");
+  q.limit = 1;
+  TEST_ASSERT_EQUAL(1, find(q, &total).size());
+  TEST_ASSERT_EQUAL(2, total);
+  q.offset = 1;
+  TEST_ASSERT_EQUAL(1, find(q, &total).size());
+  TEST_ASSERT_EQUAL(2, total);
+}
+
+static void test_empty_values_sort_last() {
+  addCatalogue();
+  Part p;
+  TEST_ASSERT_TRUE(db.addPart(named("NO-MAKER"), p, err) == Result::Ok);
+  PartQuery q;
+  q.sort = SortKey::Manufacturer;
+  TEST_ASSERT_EQUAL_STRING("NO-MAKER", find(q).back().c_str());
+  q.descending = true;
+  TEST_ASSERT_EQUAL_STRING("NO-MAKER", find(q).back().c_str());
+}
+
+static void test_list_values() {
+  addCatalogue();
+  std::vector<FieldValue> seen;
+  auto collect = [&](const FieldValue &v) { seen.push_back(v); };
+  TEST_ASSERT_TRUE(db.listValues(kCategory, "", 50, collect, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(4, seen.size());
+  TEST_ASSERT_EQUAL_STRING("MCU", seen[0].value.c_str());  // most used first
+  TEST_ASSERT_EQUAL(2, seen[0].parts);
+  seen.clear();
+  TEST_ASSERT_TRUE(db.listValues(kManufacturer, "MICRO", 50, collect, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(2, seen.size());  // STMicro, Microchip
+  seen.clear();
+  TEST_ASSERT_TRUE(db.listValues(kCategory, "", 1, collect, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, seen.size());
+}
+
 static void test_bins_follow_grid() {
   Part p;
   TEST_ASSERT_TRUE(db.addPart(named("kept", 1, {3, 2}), p, err) == Result::Ok);
@@ -279,6 +435,11 @@ int main() {
   RUN_TEST(test_adjust_quantity_clamps);
   RUN_TEST(test_delete);
   RUN_TEST(test_list_pages);
+  RUN_TEST(test_search_any_field_any_case);
+  RUN_TEST(test_filters_and_bins);
+  RUN_TEST(test_sorting_and_pages);
+  RUN_TEST(test_empty_values_sort_last);
+  RUN_TEST(test_list_values);
   RUN_TEST(test_bins_follow_grid);
   RUN_TEST(test_stats);
   RUN_TEST(test_survives_reopen_and_timestamps);

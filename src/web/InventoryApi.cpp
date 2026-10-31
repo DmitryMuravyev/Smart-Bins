@@ -14,6 +14,8 @@ using inventory::BinRef;
 using inventory::InventoryDb;
 using inventory::Part;
 using inventory::PartChanges;
+using inventory::PartQuery;
+using inventory::SortKey;
 using inventory::Result;
 
 namespace {
@@ -92,6 +94,76 @@ bool readChanges(AsyncWebServerRequest *req, PartChanges &c, std::string &err) {
       return false;
     }
   }
+  return true;
+}
+
+// The sort orders /api/parts accepts, by their API names (the JSON keys of
+// the fields, plus bin and updated).
+struct SortName {
+  const char *name;
+  SortKey key;
+};
+const SortName kSortNames[] = {
+    {"id", SortKey::Id},
+    {"partNumber", SortKey::PartNumber},
+    {"manufacturer", SortKey::Manufacturer},
+    {"category", SortKey::Category},
+    {"description", SortKey::Description},
+    {"package", SortKey::Package},
+    {"value", SortKey::Value},
+    {"quantity", SortKey::Quantity},
+    {"bin", SortKey::Bin},
+    {"updated", SortKey::Updated},
+};
+
+// Reads the search, filters, sort and page of /api/parts. False with `err`
+// set when a parameter is malformed; missing ones keep their defaults.
+bool readQuery(AsyncWebServerRequest *req, PartQuery &q, std::string &err) {
+  if (const AsyncWebParameter *p = param(req, "q")) q.search = p->value().c_str();
+  if (const AsyncWebParameter *p = param(req, "category")) q.category = p->value().c_str();
+  if (const AsyncWebParameter *p = param(req, "manufacturer")) q.manufacturer = p->value().c_str();
+  if (hasParam(req, "x")) {
+    long x, y;
+    if (intParam(req, "x", -1, -1, x)) {
+      q.bin = BinRef();  // x=-1: parts in no bin
+    } else if (intParam(req, "x", 0, 254, x) && intParam(req, "y", 0, 254, y)) {
+      q.bin = BinRef{static_cast<int>(x), static_cast<int>(y)};
+    } else {
+      err = "x and y must give a bin (x=-1 for parts in no bin)";
+      return false;
+    }
+  }
+  if (const AsyncWebParameter *p = param(req, "sort")) {
+    bool known = false;
+    for (const SortName &s : kSortNames) {
+      if (p->value() == s.name) {
+        q.sort = s.key;
+        known = true;
+      }
+    }
+    if (!known) {
+      err = "sort must be id, partNumber, manufacturer, category, description, package, value, quantity, bin or updated";
+      return false;
+    }
+  }
+  if (const AsyncWebParameter *p = param(req, "order")) {
+    if (p->value() != "asc" && p->value() != "desc") {
+      err = "order must be asc or desc";
+      return false;
+    }
+    q.descending = p->value() == "desc";
+  }
+  long offset = 0, limit = kDefaultLimit;
+  if (hasParam(req, "offset") && !intParam(req, "offset", 0, 0x7FFFFFFF, offset)) {
+    err = "offset must be a whole number from 0";
+    return false;
+  }
+  if (hasParam(req, "limit") && !intParam(req, "limit", 1, kMaxLimit, limit)) {
+    err = "limit must be 1 to 100";
+    return false;
+  }
+  q.offset = static_cast<int>(offset);
+  q.limit = static_cast<int>(limit);
   return true;
 }
 
@@ -180,24 +252,21 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     return false;
   };
 
+  // Search, filters, sort and pages (see README). Without parameters: every
+  // part in id order, 50 at a time.
   server.on(AsyncURIMatcher::exact("/api/parts"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
     if (!ready(req)) return;
-    long offset = 0, limit = kDefaultLimit;
-    if (hasParam(req, "offset") && !intParam(req, "offset", 0, 0x7FFFFFFF, offset)) {
-      return sendError(req, 400, "offset must be a whole number from 0");
-    }
-    if (hasParam(req, "limit") && !intParam(req, "limit", 1, kMaxLimit, limit)) {
-      return sendError(req, 400, "limit must be 1 to 100");
-    }
+    PartQuery query;
+    std::string err;
+    if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
     // Written part by part into the response, so only one part's JSON
     // document exists at a time (the database hands them over one by one).
     AsyncResponseStream *res = req->beginResponseStream("application/json");
     res->print("{\"parts\":[");
     bool first = true;
     int64_t total = 0;
-    std::string err;
-    const Result r = db.listParts(
-        offset, limit,
+    const Result r = db.findParts(
+        query,
         [&](const Part &p) {
           JsonDocument doc;
           writePart(doc.to<JsonObject>(), p);
@@ -210,7 +279,47 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       delete res;  // not sent yet: answer with the error instead
       return sendResult(req, r, err);
     }
-    res->printf("],\"total\":%lld,\"offset\":%ld}", (long long)total, offset);
+    res->printf("],\"total\":%lld,\"offset\":%d}", (long long)total, query.offset);
+    req->send(res);
+  });
+
+  // Distinct values of one text field with their part counts, most used
+  // first: the choices for the category and manufacturer filters, and
+  // autocomplete in the part form (Task 9).
+  server.on(AsyncURIMatcher::exact("/api/parts/values"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
+    if (!ready(req)) return;
+    const AsyncWebParameter *fieldName = param(req, "field");
+    int field = -1;
+    for (int f = 0; fieldName && f < inventory::kTextFieldCount; f++) {
+      if (fieldName->value() == inventory::textField(f).key) field = f;
+    }
+    if (field < 0) return sendError(req, 400, "field must be a part field such as category or manufacturer");
+    long limit = 50;
+    if (hasParam(req, "limit") && !intParam(req, "limit", 1, 500, limit)) {
+      return sendError(req, 400, "limit must be 1 to 500");
+    }
+    const AsyncWebParameter *contains = param(req, "q");
+    AsyncResponseStream *res = req->beginResponseStream("application/json");
+    res->print("{\"values\":[");
+    bool first = true;
+    std::string err;
+    const Result r = db.listValues(
+        static_cast<inventory::TextField>(field), contains ? std::string(contains->value().c_str()) : std::string(),
+        static_cast<int>(limit),
+        [&](const inventory::FieldValue &v) {
+          JsonDocument doc;
+          doc["value"] = v.value.c_str();
+          doc["parts"] = v.parts;
+          if (!first) res->print(',');
+          first = false;
+          serializeJson(doc, *res);
+        },
+        err);
+    if (r != Result::Ok) {
+      delete res;
+      return sendResult(req, r, err);
+    }
+    res->print("]}");
     req->send(res);
   });
 

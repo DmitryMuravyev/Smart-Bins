@@ -117,7 +117,8 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
 | `/api/lights/off` | every light off |
 | `POST /api/security` | `password=...` sets the password (4–64 characters), empty removes it |
-| `GET /api/parts?offset=0&limit=50` | parts in id order (`limit` up to 100) with the `total` count |
+| `GET /api/parts` | parts, 50 at a time, with the `total` number of matches. All parameters are optional: `q=stm32 lqfp` (every word must appear in some text field, any case, also Cyrillic and accented letters), `category=MCU` and `manufacturer=TI` (exact, any case), `x=3&y=2` (parts in that bin; `x=-1` for parts in no bin), `sort=id\|partNumber\|manufacturer\|category\|description\|package\|value\|quantity\|bin\|updated` with `order=asc\|desc` (empty text values always last), `offset=0&limit=50` (`limit` up to 100) |
+| `GET /api/parts/values?field=category` | the distinct values of one text field with their number of `parts`, most used first; `q=res` narrows them like a search word, `limit` up to 500 (default 50). For filter lists and autocomplete |
 | `GET /api/part?id=N` | one part: `partNumber`, `manufacturer`, `category`, `description`, `package`, `value`, `unit`, `datasheetUrl`, `notes`, `quantity`, `bin` (`{x, y}` or `null`), `photo`, `created`, `updated` (Unix seconds, 0 before network time) |
 | `/api/part/add?partNumber=NE555&quantity=10&x=2&y=1` | adds a part from any of the fields above (a part number or a description is required) |
 | `/api/part/update?id=N&...` | changes only the fields given; `x=-1` takes a part out of its bin |
@@ -160,7 +161,7 @@ pio test -e native                          # host-side unit tests, no hardware 
 | `test/` | Unit tests (`pio test -e native`) |
 | `partitions/` | Flash partition tables for 4, 8 and 16 MB boards |
 | `docs/` | Plan, hardware and user documentation |
-| `tools/` | Helper scripts (web UI bundler, power budget calculator) |
+| `tools/` | Helper scripts (web UI bundler, power budget calculator, `seed_parts.py` to fill a board with test parts) |
 
 ## License
 
