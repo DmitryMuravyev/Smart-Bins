@@ -84,6 +84,68 @@ int64_t elapsedMs(std::chrono::steady_clock::time_point since) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - since).count();
 }
 
+// ---------------------------------------------------------------------------
+// File layer fix for the ESP32 SQLite library (Sqlite3Esp32).
+//
+// SQLite hands every PRAGMA to the file layer first (SQLITE_FCNTL_PRAGMA), so
+// a file layer can implement pragmas of its own. Answering SQLITE_OK means
+// "handled"; SQLITE_NOTFOUND means "not mine, SQLite does it". The library's
+// xFileControl answers SQLITE_OK to every request, so SQLite treats every
+// PRAGMA as already handled and skips it: "PRAGMA user_version" returns no
+// row, and page_size, journal_mode, synchronous etc. silently do nothing.
+//
+// Instead of patching the library, the database is opened through a thin
+// wrapper of its file layer ("sb-fixed"): the same layer in every respect,
+// except that opened files get a copy of its method table whose xFileControl
+// answers SQLITE_NOTFOUND, which is what SQLite expects for requests a file
+// layer doesn't implement.
+//
+// Only built for the board (or with SB_SQLITE_VFS_FIX, to test it on a PC
+// against the library's file layer); the host's own SQLite file layer handles
+// file controls correctly and must not be wrapped.
+#if defined(ARDUINO) || defined(SB_SQLITE_VFS_FIX)
+#define SB_HAS_VFS_FIX 1
+const char *const kFixedVfsName = "sb-fixed";
+sqlite3_vfs *gBaseVfs = nullptr;                    // the library's file layer
+sqlite3_vfs gFixedVfs;                              // the wrapper
+const sqlite3_io_methods *gBaseMethods = nullptr;   // the library's file methods
+sqlite3_io_methods gFixedMethods;                   // the same with xFileControl fixed
+
+int fixedFileControl(sqlite3_file *, int, void *) { return SQLITE_NOTFOUND; }
+
+int fixedOpen(sqlite3_vfs *, const char *name, sqlite3_file *file, int flags, int *outFlags) {
+  const int rc = gBaseVfs->xOpen(gBaseVfs, name, file, flags, outFlags);
+  // The library uses one method table for every file. Copy it the first time
+  // and point each opened file at the copy. A file with some other table
+  // (none today) is left alone rather than given methods that aren't its own.
+  // Even after a failed open SQLite calls pMethods->xClose if it is set, and
+  // the copy keeps the library's xClose, so swapping is safe in both cases.
+  if (file->pMethods) {
+    if (!gBaseMethods) {
+      gBaseMethods = file->pMethods;
+      gFixedMethods = *gBaseMethods;
+      gFixedMethods.xFileControl = fixedFileControl;
+    }
+    if (file->pMethods == gBaseMethods) file->pMethods = &gFixedMethods;
+  }
+  return rc;
+}
+
+// Registers the wrapper once; later calls just return its name.
+const char *fixedVfs() {
+  if (!gBaseVfs) {
+    gBaseVfs = sqlite3_vfs_find(nullptr);  // the default: the library's layer
+    if (!gBaseVfs) return nullptr;
+    gFixedVfs = *gBaseVfs;  // same sizes, paths, time and randomness functions
+    gFixedVfs.pNext = nullptr;
+    gFixedVfs.zName = kFixedVfsName;
+    gFixedVfs.xOpen = fixedOpen;
+    sqlite3_vfs_register(&gFixedVfs, 0);  // 0: not the default, used by name
+  }
+  return kFixedVfsName;
+}
+#endif
+
 }  // namespace
 
 const TextFieldInfo &textField(int field) { return kTextFields[field]; }
@@ -164,7 +226,12 @@ bool InventoryDb::exec(const char *sql, std::string &err) {
 bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   close();
-  if (sqlite3_open(path, &db_) != SQLITE_OK) {
+#ifdef SB_HAS_VFS_FIX
+  const char *vfs = fixedVfs();  // see "File layer fix" at the top
+#else
+  const char *vfs = nullptr;  // SQLite's default
+#endif
+  if (sqlite3_open_v2(path, &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, vfs) != SQLITE_OK) {
     err = lastError();
     close();
     return false;
@@ -190,11 +257,22 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
            "PRAGMA journal_size_limit = 131072; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY;"
            "PRAGMA synchronous = FULL;",
            cacheKiB);
-  if (!exec(pragmas, err) || !migrate(err)) {
+  if (!exec(pragmas, err) || !pragmasApplied(err) || !migrate(err)) {
     close();
     return false;
   }
   return true;
+}
+
+// Reads one of the settings back. A file layer that swallows pragmas (see
+// "File layer fix" at the top) would otherwise go unnoticed: SQLite ignores
+// an unhandled PRAGMA without an error, and the database would run with the
+// wrong page size and journal mode.
+bool InventoryDb::pragmasApplied(std::string &err) {
+  Stmt q(db_, "PRAGMA journal_mode");
+  if (q.step() == SQLITE_ROW && q.text(0) == "persist") return true;
+  err = "SQLite ignored the PRAGMA settings (file layer problem)";
+  return false;
 }
 
 void InventoryDb::close() {

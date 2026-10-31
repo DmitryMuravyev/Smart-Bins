@@ -164,6 +164,7 @@ class InventoryDb {
 
   bool exec(const char *sql, std::string &err);
   bool migrate(std::string &err);
+  bool pragmasApplied(std::string &err);
   Result readPart(int64_t id, Part &out, std::string &err);
   static void rowToPart(Stmt &q, Part &out);
   Result binId(BinRef bin, int64_t &id, std::string &err);
