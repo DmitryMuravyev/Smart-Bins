@@ -52,7 +52,7 @@
   "inv.saved": "Сохранено",
   "inv.searchPh": "Поиск, например stm32 lqfp",
   "inv.sortBy": "Сортировка",
-  "inv.sortUpdated": "Последнее изменение",
+  "inv.sortUpdated": "Изменено",
   "inv.unavailable": "База компонентов недоступна. Причина указана в журнале последовательного порта.",
   "inv.view.cards": "Карточки",
   "inv.view.table": "Таблица",

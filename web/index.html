@@ -46,10 +46,12 @@
         <select id="inv-maker" aria-label="Manufacturer"></select>
       </div>
       <div class="inv-bar">
+        <!-- On a narrow screen, when the words would squeeze the sort out
+             (see fitInventoryBar), the buttons show only their icons. -->
         <div class="seg" id="inv-view" role="group">
-          <button data-view="cards" data-i18n="inv.view.cards">Cards</button>
-          <button data-view="table" data-i18n="inv.view.table">Table</button>
-          <button data-view="bins" data-i18n="inv.view.bins">Bins</button>
+          <button data-view="cards" data-i18n-title="inv.view.cards" data-i18n-aria="inv.view.cards"><svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5"/><rect x="3" y="14" width="18" height="6" rx="1.5"/></svg><span class="view-label" data-i18n="inv.view.cards">Cards</span></button>
+          <button data-view="table" data-i18n-title="inv.view.table" data-i18n-aria="inv.view.table"><svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5"/><path d="M3 9.5h18M3 14.5h18M9 4v16"/></svg><span class="view-label" data-i18n="inv.view.table">Table</span></button>
+          <button data-view="bins" data-i18n-title="inv.view.bins" data-i18n-aria="inv.view.bins"><svg class="view-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1"/></svg><span class="view-label" data-i18n="inv.view.bins">Bins</span></button>
         </div>
         <!-- Sort: a compact button showing the current order. The native select
              lies invisibly over it, so a tap opens the phone's own picker. -->

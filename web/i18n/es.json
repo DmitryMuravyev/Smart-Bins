@@ -52,7 +52,7 @@
   "inv.saved": "Guardado",
   "inv.searchPh": "Buscar piezas, p. ej. stm32 lqfp",
   "inv.sortBy": "Ordenar por",
-  "inv.sortUpdated": "Último cambio",
+  "inv.sortUpdated": "Modificado",
   "inv.unavailable": "La base de datos de piezas no está disponible. El registro serie indica por qué.",
   "inv.view.cards": "Tarjetas",
   "inv.view.table": "Tabla",

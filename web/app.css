@@ -152,19 +152,29 @@ input[type=search], input[type=url], input[type=number] { width: 100%; padding: 
 #inv-q { font-size: 17px; padding: 12px; background: var(--card); }
 .inv-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .inv-tools select { width: auto; flex: 1 1 140px; margin: 0; min-width: 0; }
-/* Under the filters: the view switch on the left, the sort on the right. */
-.inv-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 8px; }
-.sort { display: flex; gap: 4px; min-width: 0; margin-left: auto; }
+/* Under the filters: the view switch on the left, the sort on the right,
+   always on one line. Text and padding shrink with the screen width
+   (clamp: never below a readable minimum, never above the desktop size),
+   the view buttons keep their words whole, and the sort field's name is
+   what gives way, ending in "…" when even that is not enough. */
+.inv-bar { display: flex; flex-wrap: nowrap; align-items: stretch; gap: clamp(4px, 1.5vw, 8px); margin: 0 0 8px;
+  --bar-font: clamp(12px, 3.6vw, 14px); --bar-pad: clamp(6px, 2.4vw, 12px); }
+.inv-bar .seg { flex: none; }
+.inv-bar .seg button { font-size: var(--bar-font); padding: 8px var(--bar-pad); white-space: nowrap; }
+.view-icon { display: none; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; vertical-align: middle; }
+.inv-bar.compact .view-icon { display: inline-block; }
+.inv-bar.compact .view-label { display: none; }
+.sort { display: flex; gap: clamp(2px, 1vw, 4px); flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
 .sort[hidden] { display: none; }
 /* Looks like a button; the select inside covers it invisibly and takes the tap. */
-.sort-pick { position: relative; display: flex; align-items: center; gap: 6px; min-width: 0; max-width: 220px;
-  padding: 8px 12px; font-size: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--card);
-  color: var(--text); cursor: pointer; }
-.sort-icon { color: var(--muted); }
-#inv-sort-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort-pick { position: relative; display: flex; align-items: center; gap: clamp(3px, 1vw, 6px); min-width: 0; max-width: 220px;
+  padding: 8px var(--bar-pad); font-size: var(--bar-font); border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); color: var(--text); cursor: pointer; }
+.sort-icon { color: var(--muted); flex: none; }
+#inv-sort-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .sort-pick select { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
 .sort-pick:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; }
-.order { padding: 8px 12px; font-size: 16px; line-height: 1; }
+.order { flex: none; padding: 8px var(--bar-pad); font-size: 16px; line-height: 1; }
 /* Segmented control: three buttons joined into one. */
 .seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: none; }
 .seg button { border-radius: 0; background: var(--card); color: var(--text); padding: 8px 12px; font-size: 14px; }

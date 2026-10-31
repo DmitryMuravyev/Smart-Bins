@@ -512,6 +512,26 @@ async function searchBins(seq) {
   renderInventory();
 }
 
+// Keeps the view switch and the sort on one line. CSS already scales them
+// with the screen width; when a sort field's name still wouldn't fit (a
+// narrow phone, or the longer Russian and Spanish words), the view buttons
+// drop their words and show icons only, which frees most of the line. The
+// words stay as the buttons' tooltips and accessible names.
+//
+// The test uses the longest field name, not the one shown, so the buttons
+// don't switch between words and icons each time the sort changes.
+function fitInventoryBar() {
+  const bar = $('.inv-bar');
+  const label = $('#inv-sort-label');
+  bar.classList.remove('compact');
+  if (!label.offsetParent) return;  // page or sort hidden: nothing to measure
+  const shown = label.textContent;
+  const names = [...$('#inv-sort').options].map(o => o.textContent);
+  label.textContent = names.reduce((a, b) => (b.length > a.length ? b : a), shown);
+  if (label.scrollWidth > label.clientWidth) bar.classList.add('compact');
+  label.textContent = shown;
+}
+
 function filtered() {
   return !!(inv.q.trim() || inv.category || inv.manufacturer || inv.bin);
 }
@@ -527,6 +547,7 @@ function renderInventory() {
   $('#inv-order').title = t(inv.order === 'asc' ? 'inv.ascending' : 'inv.descending');
   // The grid has a fixed layout, so sorting means nothing there.
   $('#inv-sort-box').hidden = bins;
+  fitInventoryBar();
 
   // The bin chip filters the lists; the grid always shows every bin.
   const filter = $('#inv-bin-filter');
@@ -851,6 +872,7 @@ async function renameBin() {
 
 function bindInventory() {
   inv.view = pref('view', 'cards');
+  window.addEventListener('resize', fitInventoryBar);
   inv.sort = pref('sort', 'partNumber');
   inv.order = pref('order', 'asc');
   $('#inv-autolocate').checked = pref('autoLocate', '0') === '1';
