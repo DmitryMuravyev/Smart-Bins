@@ -179,6 +179,10 @@ class InventoryDb {
   Result getPart(int64_t id, Part &out, std::string &err);
   Result updatePart(int64_t id, const PartChanges &changes, Part &out, std::string &err);
   Result deletePart(int64_t id, std::string &err);
+  // Sets the part's photo (the photo store's name for it; empty: none) and
+  // its updated time. `previous` receives the name it had, so the caller can
+  // delete the old files once the new name is saved.
+  Result setPhoto(int64_t id, const std::string &photo, std::string &previous, Part &out, std::string &err);
   // Adds `delta` to the quantity (negative to take parts out); never goes
   // below 0. One statement, so two quick taps on "-" can't lose an update.
   Result adjustQuantity(int64_t id, int32_t delta, Part &out, std::string &err);

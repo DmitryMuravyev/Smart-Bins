@@ -30,6 +30,11 @@ class Security {
   bool passwordSet() const { return digestHash_.length() > 0; }
   // MD5 of the password for ArduinoOTA, empty when no password is set.
   const String &otaHash() const { return otaHash_; }
+  // True when the request may go ahead: no password, an exempt path, or a
+  // valid digest response. The middleware runs this only after a request's
+  // body has arrived, so handlers that store a body as it streams in (photo
+  // uploads) call it themselves first.
+  bool allows(AsyncWebServerRequest *req) const;
   // True when a WebSocket handshake carries the current session token (or no password is set).
   bool tokenValid(AsyncWebServerRequest *req) const;
 

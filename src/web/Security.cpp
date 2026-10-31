@@ -37,7 +37,7 @@ void Security::begin(AsyncWebServer &server) {
   // paths -> allow; otherwise a valid digest response is required, and a
   // missing or wrong one gets a 401 that makes the browser ask.
   server.addMiddleware([this](AsyncWebServerRequest *req, ArMiddlewareNext next) {
-    if (!passwordSet() || exempt(req) || req->authenticate(kUser, digestHash_.c_str(), kRealm, true)) {
+    if (allows(req)) {
       next();
       return;
     }
@@ -63,6 +63,10 @@ void Security::begin(AsyncWebServer &server) {
     doc["passwordSet"] = passwordSet();
     sendJson(req, 200, doc);
   });
+}
+
+bool Security::allows(AsyncWebServerRequest *req) const {
+  return !passwordSet() || exempt(req) || req->authenticate(kUser, digestHash_.c_str(), kRealm, true);
 }
 
 // Requests that skip the password check.

@@ -84,6 +84,7 @@
       <div class="table-wrap" id="inv-table-wrap" hidden>
         <table class="parts-table" id="inv-table">
           <thead><tr>
+            <th class="thumb-col"></th>
             <th data-sort="partNumber" data-i18n="field.partNumber">Part number</th>
             <th data-sort="description" data-i18n="field.description">Description</th>
             <th data-sort="manufacturer" data-i18n="field.manufacturer">Manufacturer</th>
@@ -237,7 +238,25 @@
      the form is filled from a part and read back without a mapping table. -->
 <dialog id="part-dialog" class="dialog">
   <form id="part-form" method="dialog" autocomplete="off">
-    <h2 id="part-title"></h2>
+    <!-- Takes the focus when the form opens, so a phone doesn't pop up its keyboard
+         (an input would) and no focus ring lands on the photo. -->
+    <h2 id="part-title" tabindex="-1" autofocus></h2>
+    <!-- The part's photo. A new or removed photo is kept here until Save,
+         like the other fields; Cancel drops it. -->
+    <div class="part-photo">
+      <button type="button" class="photo-frame" id="part-photo-view" aria-label="Photo">
+        <img id="part-photo-img" alt="" hidden>
+        <span class="photo-empty muted small" id="part-photo-empty" data-i18n="photo.none">No photo</span>
+      </button>
+      <div class="photo-actions">
+        <label class="button secondary small" id="part-photo-pick">
+          <span id="part-photo-pick-label" data-i18n="photo.add">Add photo</span>
+          <input type="file" id="part-photo-file" accept="image/*" hidden>
+        </label>
+        <button type="button" class="link" id="part-photo-remove" data-i18n="photo.remove">Remove photo</button>
+        <span class="muted small" id="part-photo-status" aria-live="polite"></span>
+      </div>
+    </div>
     <div class="form-grid">
       <label><span data-i18n="field.partNumber">Part number</span><input type="text" name="partNumber" maxlength="64" spellcheck="false"></label>
       <label><span data-i18n="field.manufacturer">Manufacturer</span><input type="text" name="manufacturer" maxlength="64" list="dl-manufacturer"></label>
@@ -260,6 +279,10 @@
     </div>
   </form>
 </dialog>
+<!-- A photo at full size; any tap closes it. -->
+<dialog id="photo-viewer" class="photo-viewer">
+  <img id="photo-viewer-img" alt="">
+</dialog>
 <datalist id="dl-manufacturer"></datalist>
 <datalist id="dl-category"></datalist>
 <datalist id="dl-package"></datalist>
@@ -268,6 +291,8 @@
 <!-- One part in the card view. -->
 <template id="part-card">
   <article class="card part">
+    <!-- Shown only when the part has a photo; a tap opens it full size. -->
+    <img class="part-thumb" alt="" loading="lazy" decoding="async" hidden>
     <div class="part-main">
       <div class="part-title"><strong class="part-pn"></strong> <span class="muted part-maker"></span></div>
       <div class="part-desc"></div>

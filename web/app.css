@@ -246,3 +246,26 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .dialog-buttons { align-items: center; }
 .dialog-buttons .spacer { flex: 1; }
 button.danger { background: var(--err); color: #fff; }
+
+/* Photos. Thumbnails are 128 px files shown at 56 px (sharp on 2x screens). */
+.part-thumb { flex: none; width: 56px; height: 56px; object-fit: cover; border-radius: 8px; background: var(--bg);
+  border: 1px solid var(--border); cursor: zoom-in; }
+.part-thumb[hidden] { display: none; }
+.parts-table .thumb-col { width: 40px; padding-right: 0; }
+.parts-table .part-thumb { width: 36px; height: 36px; border-radius: 6px; }
+/* The form's photo: a framed preview beside its buttons. */
+.part-photo { display: flex; gap: 12px; align-items: center; margin: 0 0 12px; }
+.photo-frame { flex: none; width: 96px; height: 96px; padding: 0; display: flex; align-items: center; justify-content: center;
+  background: var(--bg); border: 1px dashed var(--border); border-radius: 10px; overflow: hidden; cursor: zoom-in; }
+.photo-frame img { width: 100%; height: 100%; object-fit: cover; }
+.photo-frame img[hidden], .photo-empty[hidden] { display: none; }
+.photo-empty { padding: 4px; text-align: center; }
+.photo-actions { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; min-width: 0; }
+.photo-actions .button.small { padding: 6px 12px; font-size: 14px; cursor: pointer; }
+.photo-actions .button.disabled { opacity: .5; pointer-events: none; }
+.photo-actions .link[hidden] { display: none; }
+/* Full-size view: the photo on a dark backdrop; any tap closes it. */
+.photo-viewer { padding: 0; border: 0; background: transparent; max-width: 100vw; max-height: 100vh; }
+.photo-viewer::backdrop { background: rgba(0, 0, 0, .85); }
+.photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
+#part-title:focus { outline: none; }

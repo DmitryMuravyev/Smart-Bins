@@ -726,6 +726,31 @@ Result InventoryDb::deletePart(int64_t id, std::string &err) {
   return txn.commit(err) ? Result::Ok : Result::Error;
 }
 
+Result InventoryDb::setPhoto(int64_t id, const std::string &photo, std::string &previous, Part &out,
+                             std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  Part cur;
+  Result r = readPart(id, cur, err);
+  if (r != Result::Ok) return r;
+  previous = cur.photo;
+  {
+    WriteTxn txn(*this);
+    if (!txn.began()) return err = lastError(), Result::Error;
+    Stmt upd(db_, "UPDATE parts SET photo = ?1, updated_at = ?2 WHERE id = ?3");
+    if (photo.empty()) {
+      upd.bindNull(1);  // like a part that never had one
+    } else {
+      upd.bind(1, photo);
+    }
+    upd.bindTime(2, now());
+    upd.bind(3, id);
+    if (upd.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+    if (!txn.commit(err)) return Result::Error;
+  }
+  return readPart(id, out, err);
+}
+
 Result InventoryDb::adjustQuantity(int64_t id, int32_t delta, Part &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;

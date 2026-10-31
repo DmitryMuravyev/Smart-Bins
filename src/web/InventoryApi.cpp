@@ -37,7 +37,7 @@ int httpStatus(Result r) {
   }
 }
 
-void writePart(JsonObject out, const Part &p) {
+void writePartJson(JsonObject out, const Part &p) {
   out["id"] = p.id;
   for (int f = 0; f < inventory::kTextFieldCount; f++) {
     // c_str() is copied by ArduinoJson (it only keeps pointers to literals and
@@ -59,7 +59,7 @@ void writePart(JsonObject out, const Part &p) {
 
 void sendPart(AsyncWebServerRequest *req, const Part &p) {
   JsonDocument doc;
-  writePart(doc.to<JsonObject>(), p);
+  writePartJson(doc.to<JsonObject>(), p);
   sendJson(req, 200, doc);
 }
 
@@ -229,6 +229,8 @@ void sendBenchmark(AsyncWebServerRequest *req) {
 
 }  // namespace
 
+void writePart(JsonObject out, const Part &p) { writePartJson(out, p); }
+
 void writeInventoryStats(JsonObject out, InventoryDb &db) {
   inventory::Stats s;
   std::string err;
@@ -243,7 +245,8 @@ void writeInventoryStats(JsonObject out, InventoryDb &db) {
   out["dbBytes"] = s.dbBytes;
 }
 
-void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols, int gridRows) {
+void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols, int gridRows,
+                          std::function<void(const std::string &photo)> photoRemoved) {
   // Every handler starts with this: with no database (the partition failed to
   // mount, or the file is from a newer firmware) the API says so plainly.
   auto ready = [&db](AsyncWebServerRequest *req) {
@@ -272,7 +275,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
         query,
         [&](const Part &p) {
           JsonDocument doc;
-          writePart(doc.to<JsonObject>(), p);
+          writePartJson(doc.to<JsonObject>(), p);
           if (!first) res.print(',');
           first = false;
           serializeJson(doc, res);
@@ -389,13 +392,18 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     r == Result::Ok ? sendPart(req, p) : sendResult(req, r, err);
   });
 
-  server.on("/api/part/delete", HTTP_GET | HTTP_POST, [&db, ready](AsyncWebServerRequest *req) {
+  server.on("/api/part/delete", HTTP_GET | HTTP_POST, [&db, ready, photoRemoved](AsyncWebServerRequest *req) {
     if (!ready(req)) return;
     int64_t id;
     if (!readId(req, id)) return sendError(req, 400, "id must be a part id");
     std::string err;
-    const Result r = db.deletePart(id, err);
+    // Read first for the photo name; the files go once the record is gone,
+    // so a failed delete never leaves a part pointing at a missing photo.
+    Part p;
+    Result r = db.getPart(id, p, err);
+    if (r == Result::Ok) r = db.deletePart(id, err);
     if (r != Result::Ok) return sendResult(req, r, err);
+    if (!p.photo.empty() && photoRemoved) photoRemoved(p.photo);
     JsonDocument doc;
     doc["ok"] = true;
     sendJson(req, 200, doc);

@@ -8,6 +8,7 @@
 #include "BootReport.h"
 #include "ConfigStore.h"
 #include "InventoryApi.h"
+#include "PhotoApi.h"
 #include "Security.h"
 #include "WifiLink.h"
 
@@ -43,9 +44,9 @@ void writeSystemStatus(JsonObject out, WifiLink &network) {
 }
 
 void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &network, Security &security,
-                       inventory::InventoryDb &inventory, void (*scheduleRestart)()) {
+                       inventory::InventoryDb &inventory, PhotoStore &photos, void (*scheduleRestart)()) {
   // exact(): /api/system/restart must not land here (see LightsApi.cpp).
-  server.on(AsyncURIMatcher::exact("/api/system"), HTTP_GET, [&config, &network, &security, &inventory](AsyncWebServerRequest *req) {
+  server.on(AsyncURIMatcher::exact("/api/system"), HTTP_GET, [&config, &network, &security, &inventory, &photos](AsyncWebServerRequest *req) {
     JsonDocument doc;
     doc["firmware"] = SB_FW_VERSION;
     // String copies: ArduinoJson keeps a char array by pointer (it takes it for
@@ -58,6 +59,7 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     doc["fsUsed"] = FFat.usedBytes();
     doc["fsTotal"] = FFat.totalBytes();
     writeInventoryStats(doc["inventory"].to<JsonObject>(), inventory);
+    writePhotoStats(doc["photos"].to<JsonObject>(), photos);
     doc["passwordSet"] = security.passwordSet();
     writeSystemStatus(doc.as<JsonObject>(), network);
     sendJson(req, 200, doc);
