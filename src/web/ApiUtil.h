@@ -11,7 +11,9 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <new>
 #include <utility>
+#include <vector>
 
 namespace sb {
 
@@ -21,53 +23,96 @@ inline void sendJson(AsyncWebServerRequest *req, int code, const JsonDocument &d
   req->send(code, "application/json", out);
 }
 
-// A Print that appends to a std::string, for building a JSON answer piece by
-// piece (the parts list writes one part at a time).
+// A Print that collects text in 1 KB blocks, for building a JSON answer
+// piece by piece (the parts list writes one part at a time).
 //
 // Why not AsyncResponseStream: it keeps its text in a ring buffer that grows
 // by exactly the bytes that don't fit, and ArduinoJson writes a character at
 // a time, so past the first 1460 bytes every character made a new ring
 // buffer and copied everything written so far into it. A 50-part answer
-// took about 20 s that way. std::string grows by doubling, so building the
-// same answer costs a handful of copies.
-class StringPrint : public Print {
+// took about 20 s that way.
+//
+// Why not one std::string: it grows by doubling, and each step briefly
+// holds the old and the new buffer (a 30 KB answer passes through a 16 KB +
+// 32 KB moment) and needs one contiguous block, which a fragmented heap may
+// not have. Fixed 1 KB blocks need neither: the answer costs its own size
+// plus a few bytes per block.
+class TextChunks : public Print {
 public:
-  explicit StringPrint(std::string &out) : out_(out) {}
-  size_t write(uint8_t c) override {
-    out_.push_back(static_cast<char>(c));
-    return 1;
-  }
+  static constexpr size_t kChunk = 1024;
+
+  size_t write(uint8_t c) override { return write(&c, 1); }
   size_t write(const uint8_t *data, size_t len) override {
-    out_.append(reinterpret_cast<const char *>(data), len);
-    return len;
+    size_t done = 0;
+    while (done < len) {
+      if (chunks_.empty() || used_ == kChunk) {
+        // Out of memory: remember it and drop the rest; the caller answers
+        // with an error instead of a cut-off document (see failed()).
+        std::unique_ptr<char[]> block(new (std::nothrow) char[kChunk]);
+        if (!block) {
+          failed_ = true;
+          return done;
+        }
+        chunks_.push_back(std::move(block));
+        used_ = 0;
+      }
+      const size_t n = std::min(len - done, kChunk - used_);
+      memcpy(chunks_.back().get() + used_, data + done, n);
+      used_ += n;
+      done += n;
+    }
+    return done;
+  }
+
+  size_t size() const { return chunks_.empty() ? 0 : (chunks_.size() - 1) * kChunk + used_; }
+  bool failed() const { return failed_; }
+
+  // Copies up to maxLen bytes starting at `offset` into buf; returns how many.
+  size_t read(size_t offset, uint8_t *buf, size_t maxLen) const {
+    const size_t total = size();
+    size_t copied = 0;
+    while (copied < maxLen && offset < total) {
+      const size_t block = offset / kChunk, at = offset % kChunk;
+      const size_t inBlock = (block + 1 == chunks_.size() ? used_ : kChunk) - at;
+      const size_t n = std::min(maxLen - copied, inBlock);
+      memcpy(buf + copied, chunks_[block].get() + at, n);
+      copied += n;
+      offset += n;
+    }
+    return copied;
   }
 
 private:
-  std::string &out_;
+  std::vector<std::unique_ptr<char[]>> chunks_;
+  size_t used_ = 0;  // bytes used in the last block
+  bool failed_ = false;
 };
 
-// Sends text built in a std::string. The string is moved into the response
-// and the server copies from it as the connection takes the data, so the
-// answer exists in RAM only once (req->send(code, type, String) would copy
-// it first).
-inline void sendText(AsyncWebServerRequest *req, int code, const char *contentType, std::string &&body) {
-  auto text = std::make_shared<std::string>(std::move(body));
-  AsyncWebServerResponse *res =
-      req->beginResponse(contentType, text->size(), [text](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
-        // index is how much has been sent already; never past the end.
-        const size_t n = index < text->size() ? std::min(maxLen, text->size() - index) : 0;
-        memcpy(buf, text->data() + index, n);
-        return n;
-      });
-  res->setCode(code);
-  req->send(res);
-}
+// Sends text collected in TextChunks. The response keeps the blocks and the
+// server copies from them as the connection takes the data, so the answer
+// exists in RAM only once (req->send(code, type, String) would copy it into
+// one big block first). If building the text ran out of memory, answers 503
+// instead.
+inline void sendChunks(AsyncWebServerRequest *req, int code, const char *contentType,
+                       std::shared_ptr<TextChunks> text);
 
 // Errors are always {"error": "..."} so the UI can show the message as it is.
 inline void sendError(AsyncWebServerRequest *req, int code, const char *message) {
   JsonDocument doc;
   doc["error"] = message;
   sendJson(req, code, doc);
+}
+
+inline void sendChunks(AsyncWebServerRequest *req, int code, const char *contentType,
+                       std::shared_ptr<TextChunks> text) {
+  if (text->failed()) return sendError(req, 503, "out of memory, try again");
+  AsyncWebServerResponse *res =
+      req->beginResponse(contentType, text->size(), [text](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
+        // index is how much has been sent already.
+        return text->read(index, buf, maxLen);
+      });
+  res->setCode(code);
+  req->send(res);
 }
 
 // A request parameter from the query string or, for a POST, from a form-encoded

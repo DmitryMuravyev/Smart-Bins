@@ -259,12 +259,12 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     PartQuery query;
     std::string err;
     if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
-    // Written part by part into one string, so only one part's JSON
+    const uint32_t startMs = millis();
+    // Written part by part into 1 KB blocks, so only one part's JSON
     // document exists at a time (the database hands them over one by one).
-    // See StringPrint for why this isn't an AsyncResponseStream.
-    std::string body;
-    body.reserve(4096);
-    StringPrint res(body);
+    // See TextChunks for why this isn't an AsyncResponseStream.
+    auto body = std::make_shared<TextChunks>();
+    TextChunks &res = *body;
     res.print("{\"parts\":[");
     bool first = true;
     int64_t total = 0;
@@ -282,7 +282,13 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       return sendResult(req, r, err);
     }
     res.printf("],\"total\":%lld,\"offset\":%d}", (long long)total, query.offset);
-    sendText(req, 200, "application/json", std::move(body));
+    // One line per search in the serial log: how long the database and the
+    // JSON took and how much memory was left, to tell a slow query from a
+    // slow connection.
+    ESP_LOGI(TAG, "parts q=\"%s\": %lld found, %u ms, %u bytes, heap %u free (lowest %u)", query.search.c_str(),
+             (long long)total, (unsigned)(millis() - startMs), (unsigned)body->size(), (unsigned)heapFree(),
+             (unsigned)heapMin());
+    sendChunks(req, 200, "application/json", body);
   });
 
   // Where the parts matching a search are: the same filters as /api/parts
@@ -294,8 +300,8 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     PartQuery query;
     std::string err;
     if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
-    std::string body;
-    StringPrint res(body);
+    auto body = std::make_shared<TextChunks>();
+    TextChunks &res = *body;
     res.print("{\"bins\":[");
     bool first = true;
     const Result r = db.countByBin(
@@ -308,7 +314,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
         err);
     if (r != Result::Ok) return sendResult(req, r, err);
     res.print("]}");
-    sendText(req, 200, "application/json", std::move(body));
+    sendChunks(req, 200, "application/json", body);
   });
 
   // Distinct values of one text field with their part counts, most used
@@ -327,8 +333,8 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       return sendError(req, 400, "limit must be 1 to 500");
     }
     const AsyncWebParameter *contains = param(req, "q");
-    std::string body;
-    StringPrint res(body);
+    auto body = std::make_shared<TextChunks>();
+    TextChunks &res = *body;
     res.print("{\"values\":[");
     bool first = true;
     std::string err;
@@ -348,7 +354,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       return sendResult(req, r, err);
     }
     res.print("]}");
-    sendText(req, 200, "application/json", std::move(body));
+    sendChunks(req, 200, "application/json", body);
   });
 
   server.on(AsyncURIMatcher::exact("/api/part"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
@@ -411,8 +417,8 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     if (!ready(req)) return;
     // At most 255 x 255 bins in theory, a few hundred in practice: streamed
     // like the parts list so a large grid doesn't need one big document.
-    std::string body;
-    StringPrint res(body);
+    auto body = std::make_shared<TextChunks>();
+    TextChunks &res = *body;
     res.print("{\"bins\":[");
     bool first = true;
     std::string err;
@@ -433,7 +439,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       return sendResult(req, r, err);
     }
     res.print("]}");
-    sendText(req, 200, "application/json", std::move(body));
+    sendChunks(req, 200, "application/json", body);
   });
 
   server.on("/api/bin/label", HTTP_GET | HTTP_POST, [&db, ready](AsyncWebServerRequest *req) {

@@ -376,6 +376,8 @@ const inv = {
   parts: [],          // parts shown, in order
   total: 0,           // matches on the board, across all pages
   seq: 0,             // searches started; only the newest one's answer is shown
+  searching: false,   // a search is on its way to the board (see search())
+  searchAgain: false, // and another was asked for meanwhile
   bins: [],           // /api/bins: {x, y, label, parts, outside}
   binHits: null,      // bin grid while searching: "x,y" -> matching parts (see searchBins)
   located: '',        // the result set auto-locate last lit, so it lights once
@@ -442,8 +444,38 @@ function scheduleSearch() {
 
 // Fetches the first page (or, with `more`, the next one) for the current
 // search, filters and sort.
+//
+// At most one search is on its way to the board at a time. The board works
+// through requests one after another, and every search reads the whole
+// parts table, so typing "stm32" letter by letter used to queue a search
+// for "s", "st", "stm"... and the last one waited behind all of them, each
+// also holding its answer in the board's RAM until sent. Now a search asked
+// for while one is running only marks that another is needed; when the
+// running one returns, its answer is dropped and one search for whatever
+// the field says by then follows.
 async function search(more = false) {
   clearTimeout(inv.searchTimer);
+  if (inv.searching) {
+    inv.searchAgain = true;
+    return;
+  }
+  inv.searching = true;
+  try {
+    await runSearch(more);
+  } finally {
+    inv.searching = false;
+    if (inv.searchAgain) {
+      inv.searchAgain = false;
+      search();
+    }
+  }
+}
+
+function stale(seq) {
+  return seq !== inv.seq || inv.searchAgain;
+}
+
+async function runSearch(more) {
   const seq = ++inv.seq;
   if (inv.view === 'bins') return searchBins(seq);
   const params = searchParams();
@@ -456,10 +488,10 @@ async function search(more = false) {
   try {
     res = await api(`/api/parts?${params}`);
   } catch (e) {
-    if (seq === inv.seq) searchFailed(e);
+    if (!stale(seq)) searchFailed(e);
     return;
   }
-  if (seq !== inv.seq) return;  // a newer search is on its way
+  if (stale(seq)) return;  // a newer search is on its way
   searchWorked();
   inv.parts = more ? inv.parts.concat(res.parts) : res.parts;
   inv.total = res.total;
@@ -503,10 +535,10 @@ async function searchBins(seq) {
   try {
     [, hits] = await Promise.all([loadBins(), searching ? api(`/api/parts/bins?${params}`) : null]);
   } catch (e) {
-    if (seq === inv.seq) searchFailed(e);
+    if (!stale(seq)) searchFailed(e);
     return;
   }
-  if (seq !== inv.seq) return;  // a newer search is on its way
+  if (stale(seq)) return;  // a newer search is on its way
   searchWorked();
   inv.binHits = hits ? new Map(hits.bins.map(b => [`${b.x},${b.y}`, b.parts])) : null;
   renderInventory();
