@@ -338,7 +338,14 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     // from the LED render tasks on core 1.
     if (xTaskCreatePinnedToCore(benchTask, "benchmark", 10240, nullptr, 1, nullptr, 0) != pdPASS) {
       bench.running = false;
-      return sendError(req, 500, "cannot start the benchmark task");
+      // Almost always a lack of RAM for the task's stack, so say how much
+      // there is: the free total and the largest block (the stack must fit in
+      // one piece).
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot start the benchmark task (free RAM %u bytes, largest block %u)",
+               (unsigned)ESP.getFreeHeap(), (unsigned)ESP.getMaxAllocHeap());
+      ESP_LOGE(TAG, "%s", msg);
+      return sendError(req, 500, msg);
     }
     sendBenchmark(req);
   });

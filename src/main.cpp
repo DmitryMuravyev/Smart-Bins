@@ -227,7 +227,8 @@ void setup() {
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);
   server.begin();
-  ESP_LOGI(TAG, "Boot complete, free heap %s", sb::formatBytes(ESP.getFreeHeap()));
+  ESP_LOGI(TAG, "Boot complete, free heap %s, largest block %s", sb::formatBytes(ESP.getFreeHeap()),
+           sb::formatBytes(ESP.getMaxAllocHeap()));
 }
 
 void loop() {
