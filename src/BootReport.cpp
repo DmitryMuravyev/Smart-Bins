@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <esp_chip_info.h>
+#include <esp_heap_caps.h>
 #include <esp_flash.h>
 #include <esp_partition.h>
 
@@ -61,8 +62,8 @@ static void printFlashInfo() {
 }
 
 static void printMemoryInfo() {
-  ESP_LOGI(TAG, "Heap: %s free of %s, largest block %s, min ever %s", fmt(ESP.getFreeHeap()),
-           fmt(ESP.getHeapSize()), fmt(ESP.getMaxAllocHeap()), fmt(ESP.getMinFreeHeap()));
+  ESP_LOGI(TAG, "Heap: %s free of %s, largest block %s, min ever %s", fmt(heapFree()),
+           fmt(heap_caps_get_total_size(MALLOC_CAP_8BIT)), fmt(heapLargest()), fmt(heapMin()));
   if (ESP.getPsramSize() > 0) {
     ESP_LOGI(TAG, "PSRAM: %s free of %s", fmt(ESP.getFreePsram()), fmt(ESP.getPsramSize()));
   } else {
@@ -113,5 +114,11 @@ void printBootReport() {
 }
 
 const char *formatBytes(uint64_t bytes) { return fmt(bytes); }
+
+// MALLOC_CAP_8BIT selects the byte-addressable regions malloc() uses (see the
+// header for why not ESP.getFreeHeap()).
+uint32_t heapFree() { return heap_caps_get_free_size(MALLOC_CAP_8BIT); }
+uint32_t heapMin() { return heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT); }
+uint32_t heapLargest() { return heap_caps_get_largest_free_block(MALLOC_CAP_8BIT); }
 
 }  // namespace sb

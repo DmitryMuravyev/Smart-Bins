@@ -21,6 +21,15 @@ const TextFieldInfo kTextFields[kTextFieldCount] = {
 
 constexpr size_t kMaxBinLabel = 32;
 constexpr int32_t kMaxQuantity = 1000000000;
+// Database page size. 2 KB rather than the flash sector's 4 KB: SQLite holds
+// several pages at once while it splits or merges B-tree pages during a
+// write, and with 4 KB pages that peak (40 KB and more on top of the page
+// cache) didn't fit in the heap a board without PSRAM has left. The cost is
+// that writing one page makes the FAT layer rewrite a whole 4 KB sector, so
+// a commit can erase twice as many sectors; at an inventory's rate of
+// changes that is far from mattering for flash wear.
+constexpr int kPageSize = 2048;
+
 // Category of the parts benchmark() creates, so they can be told apart (and
 // removed) even if the board restarts half way through.
 const char *const kBenchCategory = "~benchmark~";
@@ -83,6 +92,68 @@ std::string trimmed(const std::string &s) {
 int64_t elapsedMs(std::chrono::steady_clock::time_point since) {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - since).count();
 }
+
+// ---------------------------------------------------------------------------
+// File layer fix for the ESP32 SQLite library (Sqlite3Esp32).
+//
+// SQLite hands every PRAGMA to the file layer first (SQLITE_FCNTL_PRAGMA), so
+// a file layer can implement pragmas of its own. Answering SQLITE_OK means
+// "handled"; SQLITE_NOTFOUND means "not mine, SQLite does it". The library's
+// xFileControl answers SQLITE_OK to every request, so SQLite treats every
+// PRAGMA as already handled and skips it: "PRAGMA user_version" returns no
+// row, and page_size, journal_mode, synchronous etc. silently do nothing.
+//
+// Instead of patching the library, the database is opened through a thin
+// wrapper of its file layer ("sb-fixed"): the same layer in every respect,
+// except that opened files get a copy of its method table whose xFileControl
+// answers SQLITE_NOTFOUND, which is what SQLite expects for requests a file
+// layer doesn't implement.
+//
+// Only built for the board (or with SB_SQLITE_VFS_FIX, to test it on a PC
+// against the library's file layer); the host's own SQLite file layer handles
+// file controls correctly and must not be wrapped.
+#if defined(ARDUINO) || defined(SB_SQLITE_VFS_FIX)
+#define SB_HAS_VFS_FIX 1
+const char *const kFixedVfsName = "sb-fixed";
+sqlite3_vfs *gBaseVfs = nullptr;                    // the library's file layer
+sqlite3_vfs gFixedVfs;                              // the wrapper
+const sqlite3_io_methods *gBaseMethods = nullptr;   // the library's file methods
+sqlite3_io_methods gFixedMethods;                   // the same with xFileControl fixed
+
+int fixedFileControl(sqlite3_file *, int, void *) { return SQLITE_NOTFOUND; }
+
+int fixedOpen(sqlite3_vfs *, const char *name, sqlite3_file *file, int flags, int *outFlags) {
+  const int rc = gBaseVfs->xOpen(gBaseVfs, name, file, flags, outFlags);
+  // The library uses one method table for every file. Copy it the first time
+  // and point each opened file at the copy. A file with some other table
+  // (none today) is left alone rather than given methods that aren't its own.
+  // Even after a failed open SQLite calls pMethods->xClose if it is set, and
+  // the copy keeps the library's xClose, so swapping is safe in both cases.
+  if (file->pMethods) {
+    if (!gBaseMethods) {
+      gBaseMethods = file->pMethods;
+      gFixedMethods = *gBaseMethods;
+      gFixedMethods.xFileControl = fixedFileControl;
+    }
+    if (file->pMethods == gBaseMethods) file->pMethods = &gFixedMethods;
+  }
+  return rc;
+}
+
+// Registers the wrapper once; later calls just return its name.
+const char *fixedVfs() {
+  if (!gBaseVfs) {
+    gBaseVfs = sqlite3_vfs_find(nullptr);  // the default: the library's layer
+    if (!gBaseVfs) return nullptr;
+    gFixedVfs = *gBaseVfs;  // same sizes, paths, time and randomness functions
+    gFixedVfs.pNext = nullptr;
+    gFixedVfs.zName = kFixedVfsName;
+    gFixedVfs.xOpen = fixedOpen;
+    sqlite3_vfs_register(&gFixedVfs, 0);  // 0: not the default, used by name
+  }
+  return kFixedVfsName;
+}
+#endif
 
 }  // namespace
 
@@ -164,20 +235,25 @@ bool InventoryDb::exec(const char *sql, std::string &err) {
 bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   close();
-  if (sqlite3_open(path, &db_) != SQLITE_OK) {
+#ifdef SB_HAS_VFS_FIX
+  const char *vfs = fixedVfs();  // see "File layer fix" at the top
+#else
+  const char *vfs = nullptr;  // SQLite's default
+#endif
+  if (sqlite3_open_v2(path, &db_, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, vfs) != SQLITE_OK) {
     err = lastError();
     close();
     return false;
   }
   // Lookaside: small per-connection slots for short-lived allocations. The
-  // ESP32 build's default (512 slots x 64 bytes = 32 KB) is more RAM than
-  // it's worth here; 64 x 128 bytes = 8 KB keeps most of the speed-up.
-  // Must be set before the connection runs any statement.
+  // ESP32 library is built without lookaside (SQLITE_OMIT_LOOKASIDE), so this
+  // only matters for the PC build of the tests, where it keeps memory use
+  // closer to the board's. Must be set before the connection runs any
+  // statement.
   sqlite3_db_config(db_, SQLITE_DBCONFIG_LOOKASIDE, nullptr, 128, 64);
 
-  // page_size 4096 matches the flash sector: one page written is one sector
-  // written, never a read-modify-write of a sector shared with other pages. It
-  // only takes effect on a new, empty file.
+  // page_size: see kPageSize. It only takes effect on a new, empty file; an
+  // older file with other pages is converted below.
   // cache_size < 0 is in KiB: the RAM the page cache may use.
   // journal_mode PERSIST keeps the rollback journal file and only clears its
   // header after a commit: fewer directory updates on flash than deleting and
@@ -186,15 +262,47 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   // synchronous FULL (the default): a commit is on flash when it returns.
   char pragmas[256];
   snprintf(pragmas, sizeof(pragmas),
-           "PRAGMA page_size = 4096; PRAGMA cache_size = -%d; PRAGMA journal_mode = PERSIST;"
+           "PRAGMA page_size = %d; PRAGMA cache_size = -%d; PRAGMA journal_mode = PERSIST;"
            "PRAGMA journal_size_limit = 131072; PRAGMA foreign_keys = ON; PRAGMA temp_store = MEMORY;"
            "PRAGMA synchronous = FULL;",
-           cacheKiB);
-  if (!exec(pragmas, err) || !migrate(err)) {
+           kPageSize, cacheKiB);
+  if (!exec(pragmas, err) || !pragmasApplied(err) || !migrate(err) || !convertPageSize(err)) {
     close();
     return false;
   }
   return true;
+}
+
+// Files made by firmware 0.5.0 before this change use 4 KB pages. VACUUM
+// rewrites the file with the page_size set above, but it builds the new copy
+// in RAM (temp_store = MEMORY), so it only runs while the file is still
+// small: an empty or nearly empty inventory, which is what any board has at
+// this stage of the project. A bigger file keeps its pages and works as
+// before, only with the higher RAM peaks of 4 KB pages.
+bool InventoryDb::convertPageSize(std::string &err) {
+  int64_t pageSize = 0, pages = 0;
+  {
+    Stmt size(db_, "PRAGMA page_size");
+    Stmt count(db_, "PRAGMA page_count");
+    if (size.step() != SQLITE_ROW || count.step() != SQLITE_ROW) return err = lastError(), false;
+    pageSize = size.integer(0);
+    pages = count.integer(0);
+  }
+  if (pageSize == kPageSize) return true;
+  constexpr int64_t kMaxConvertBytes = 64 * 1024;
+  if (pageSize * pages > kMaxConvertBytes) return true;
+  return exec("VACUUM", err);
+}
+
+// Reads one of the settings back. A file layer that swallows pragmas (see
+// "File layer fix" at the top) would otherwise go unnoticed: SQLite ignores
+// an unhandled PRAGMA without an error, and the database would run with the
+// wrong page size and journal mode.
+bool InventoryDb::pragmasApplied(std::string &err) {
+  Stmt q(db_, "PRAGMA journal_mode");
+  if (q.step() == SQLITE_ROW && q.text(0) == "persist") return true;
+  err = "SQLite ignored the PRAGMA settings (file layer problem)";
+  return false;
 }
 
 void InventoryDb::close() {
@@ -540,28 +648,54 @@ Result InventoryDb::stats(Stats &out, std::string &err) {
   return Result::Ok;
 }
 
+// Removes the benchmark's parts, a batch at a time. One DELETE of every
+// matching row makes SQLite hold far more RAM while it runs (on a PC about
+// 60 KB above the page cache for 2,000 rows, against under 20 KB in batches),
+// which a board with little free heap can't spare. All batches share one
+// transaction, so the work on flash is the same.
+Result InventoryDb::deleteBenchParts(std::string &err) {
+  WriteTxn txn(*this);
+  if (!txn.began()) return err = lastError(), Result::Error;
+  Stmt del(db_, "DELETE FROM parts WHERE id IN (SELECT id FROM parts WHERE category = ? LIMIT 100)");
+  // Each pass removes up to 100 rows; a pass that removes none means they're
+  // all gone. The category is bound on every pass because reset() also
+  // clears the bindings.
+  int removed = 0;
+  do {
+    del.bind(1, std::string(kBenchCategory));
+    if (del.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+    removed = sqlite3_changes(db_);
+    del.reset();
+  } while (removed > 0);
+  return txn.commit(err) ? Result::Ok : Result::Error;
+}
+
 Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
   out = BenchResult();
   out.count = count;
+  // Every failure below names the step it happened in ("insert: out of
+  // memory"), so a report from the board says where to look.
+  const char *phase = "cleanup";
+  auto fail = [&]() {
+    if (err.empty()) err = lastError();
+    err = std::string(phase) + ": " + err;
+    return Result::Error;
+  };
   // Leftovers of an interrupted run would skew the numbers.
-  {
-    WriteTxn txn(*this);
-    Stmt del(db_, "DELETE FROM parts WHERE category = ?");
-    del.bind(1, kBenchCategory);
-    if (!txn.began() || del.step() != SQLITE_DONE || !txn.commit(err)) return err = lastError(), Result::Error;
-  }
+  if (deleteBenchParts(err) != Result::Ok) return fail();
 
   // Realistic-looking rows: a mix of manufacturers, values and packages, and
   // text in most fields, so the file grows as a real inventory would.
   static const char *const kMakers[] = {"Yageo", "Murata", "TI", "STMicro", "Vishay", "Nexperia", "Microchip", "Bourns"};
   static const char *const kKinds[] = {"Resistor", "Capacitor", "MCU", "Op-amp", "Diode", "Transistor", "Regulator"};
   static const char *const kPackages[] = {"0603", "0805", "SOT-23", "SOIC-8", "TO-220", "LQFP-48"};
+  phase = "insert";
   auto start = std::chrono::steady_clock::now();
   {
     WriteTxn txn(*this);
-    if (!txn.began()) return err = lastError(), Result::Error;
+    if (!txn.began()) return fail();
     Stmt ins(db_,
              "INSERT INTO parts (part_number, manufacturer, category, description, package, value, unit, notes,"
              " quantity, bin_id) VALUES (?, ?, ?, ?, ?, ?, 'pcs', ?, ?,"
@@ -581,51 +715,66 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
       ins.bind(8, i % 500);
       ins.bind(9, cols > 0 ? i % cols : 0);
       ins.bind(10, rows > 0 ? (i / (cols > 0 ? cols : 1)) % rows : 0);
-      if (ins.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+      if (ins.step() != SQLITE_DONE) return fail();
       ins.reset();
     }
-    if (!txn.commit(err)) return Result::Error;
+    if (!txn.commit(err)) return fail();
   }
   out.insertMs = elapsedMs(start);
 
+  // Each query below sits in its own block so its prepared statement (several
+  // KB each) is freed before the next step, instead of all of them staying
+  // allocated until the end and adding up.
+  phase = "count";
   start = std::chrono::steady_clock::now();
-  Stmt cnt(db_, "SELECT count(*) FROM parts");
-  if (cnt.step() != SQLITE_ROW) return err = lastError(), Result::Error;
+  {
+    Stmt cnt(db_, "SELECT count(*) FROM parts");
+    if (cnt.step() != SQLITE_ROW) return fail();
+  }
   out.countMs = elapsedMs(start);
 
   // The kind of query Task 8's global search will run: a substring in any
   // text field, which no index helps with, so every row is read.
+  phase = "search";
   start = std::chrono::steady_clock::now();
-  std::string sql = "SELECT count(*) FROM parts WHERE 0";
-  for (const TextFieldInfo &f : kTextFields) sql += std::string(" OR ") + f.column + " LIKE ?1";
-  Stmt search(db_, sql.c_str());
-  search.bind(1, std::string("%murata%"));
-  if (search.step() != SQLITE_ROW) return err = lastError(), Result::Error;
-  out.found = search.integer(0);
+  {
+    std::string sql = "SELECT count(*) FROM parts WHERE 0";
+    for (const TextFieldInfo &f : kTextFields) sql += std::string(" OR ") + f.column + " LIKE ?1";
+    Stmt search(db_, sql.c_str());
+    search.bind(1, std::string("%murata%"));
+    if (search.step() != SQLITE_ROW) return fail();
+    out.found = search.integer(0);
+  }
   out.searchMs = elapsedMs(start);
 
+  phase = "bin";
   start = std::chrono::steady_clock::now();
-  std::string binSql = std::string(kPartSelect) + " WHERE p.bin_id = (SELECT id FROM bins WHERE x = 0 AND y = 0)";
-  Stmt inBin(db_, binSql.c_str());
-  while (inBin.step() == SQLITE_ROW) {
+  {
+    std::string binSql = std::string(kPartSelect) + " WHERE p.bin_id = (SELECT id FROM bins WHERE x = 0 AND y = 0)";
+    Stmt inBin(db_, binSql.c_str());
+    while (inBin.step() == SQLITE_ROW) {
+    }
   }
   out.binMs = elapsedMs(start);
 
-  start = std::chrono::steady_clock::now();
-  Part p;
-  Stmt mid(db_, "SELECT id FROM parts WHERE category = ? LIMIT 1 OFFSET ?");
-  mid.bind(1, std::string(kBenchCategory));
-  mid.bind(2, count / 2);
-  if (mid.step() == SQLITE_ROW && readPart(mid.integer(0), p, err) != Result::Ok) return Result::Error;
-  out.getMs = elapsedMs(start);
-
+  phase = "get";
   start = std::chrono::steady_clock::now();
   {
-    WriteTxn txn(*this);
-    Stmt del(db_, "DELETE FROM parts WHERE category = ?");
-    del.bind(1, std::string(kBenchCategory));
-    if (!txn.began() || del.step() != SQLITE_DONE || !txn.commit(err)) return err = lastError(), Result::Error;
+    Part p;
+    int64_t id = 0;
+    {
+      Stmt mid(db_, "SELECT id FROM parts WHERE category = ? LIMIT 1 OFFSET ?");
+      mid.bind(1, std::string(kBenchCategory));
+      mid.bind(2, count / 2);
+      if (mid.step() == SQLITE_ROW) id = mid.integer(0);
+    }
+    if (id && readPart(id, p, err) != Result::Ok) return fail();
   }
+  out.getMs = elapsedMs(start);
+
+  phase = "delete";
+  start = std::chrono::steady_clock::now();
+  if (deleteBenchParts(err) != Result::Ok) return fail();
   out.deleteMs = elapsedMs(start);
   return Result::Ok;
 }

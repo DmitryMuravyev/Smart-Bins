@@ -5,6 +5,7 @@
 #include <string>
 
 #include "ApiUtil.h"
+#include "BootReport.h"
 #include "InventoryDb.h"
 
 namespace sb {
@@ -109,18 +110,19 @@ struct Benchmark {
   bool done = false;
   inventory::BenchResult result;
   std::string error;
-  uint32_t heapBefore = 0, heapAfter = 0, heapMin = 0;
+  uint32_t heapBefore = 0, largestBefore = 0, heapAfter = 0, heapMin = 0;
   InventoryDb *db = nullptr;
   int count = 0, cols = 0, rows = 0;
 } bench;
 
 void benchTask(void *) {
-  bench.heapBefore = ESP.getFreeHeap();
+  bench.heapBefore = heapFree();
+  bench.largestBefore = heapLargest();
   std::string err;
   const Result r = bench.db->benchmark(bench.count, bench.cols, bench.rows, bench.result, err);
   bench.error = r == Result::Ok ? std::string() : err;
-  bench.heapAfter = ESP.getFreeHeap();
-  bench.heapMin = ESP.getMinFreeHeap();
+  bench.heapAfter = heapFree();
+  bench.heapMin = heapMin();
   const auto &b = bench.result;
   ESP_LOGI(TAG, "Benchmark %d parts: insert %lld ms, count %lld ms, search %lld ms, bin %lld ms, get %lld ms, delete %lld ms",
            b.count, (long long)b.insertMs, (long long)b.countMs, (long long)b.searchMs, (long long)b.binMs,
@@ -146,6 +148,7 @@ void sendBenchmark(AsyncWebServerRequest *req) {
     doc["getMs"] = b.getMs;
     doc["deleteMs"] = b.deleteMs;
     doc["heapBefore"] = bench.heapBefore;
+    doc["largestBlockBefore"] = bench.largestBefore;
     doc["heapAfter"] = bench.heapAfter;
     doc["heapMinEver"] = bench.heapMin;  // lowest since boot: includes the benchmark
   }
@@ -338,7 +341,14 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     // from the LED render tasks on core 1.
     if (xTaskCreatePinnedToCore(benchTask, "benchmark", 10240, nullptr, 1, nullptr, 0) != pdPASS) {
       bench.running = false;
-      return sendError(req, 500, "cannot start the benchmark task");
+      // Almost always a lack of RAM for the task's stack, so say how much
+      // there is: the free total and the largest block (the stack must fit in
+      // one piece).
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot start the benchmark task (free RAM %u bytes, largest block %u)",
+               (unsigned)heapFree(), (unsigned)heapLargest());
+      ESP_LOGE(TAG, "%s", msg);
+      return sendError(req, 500, msg);
     }
     sendBenchmark(req);
   });

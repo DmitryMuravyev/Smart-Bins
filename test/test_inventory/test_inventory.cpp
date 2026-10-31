@@ -240,6 +240,37 @@ static void test_refuses_newer_schema() {
   TEST_ASSERT_TRUE(err.find("newer") != std::string::npos);
 }
 
+static int rawPageSize() {
+  sqlite3 *raw = nullptr;
+  sqlite3_open(kPath, &raw);
+  sqlite3_stmt *q = nullptr;
+  sqlite3_prepare_v2(raw, "PRAGMA page_size", -1, &q, nullptr);
+  const int size = sqlite3_step(q) == SQLITE_ROW ? sqlite3_column_int(q, 0) : 0;
+  sqlite3_finalize(q);
+  sqlite3_close(raw);
+  return size;
+}
+
+// A file from the earlier 0.5.0 builds (4 KB pages) is rewritten with 2 KB
+// pages on open, keeping its contents.
+static void test_converts_old_page_size() {
+  Part p;
+  TEST_ASSERT_TRUE(db.addPart(named("KEEP-ME"), p, err) == Result::Ok);
+  db.close();
+  sqlite3 *raw = nullptr;
+  TEST_ASSERT_EQUAL(SQLITE_OK, sqlite3_open(kPath, &raw));
+  TEST_ASSERT_EQUAL(SQLITE_OK, sqlite3_exec(raw, "PRAGMA page_size = 4096; VACUUM", nullptr, nullptr, nullptr));
+  sqlite3_close(raw);
+  TEST_ASSERT_EQUAL(4096, rawPageSize());
+
+  TEST_ASSERT_TRUE_MESSAGE(db.open(kPath, err), err.c_str());
+  Stats s;
+  TEST_ASSERT_TRUE(db.stats(s, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, s.parts);
+  db.close();
+  TEST_ASSERT_EQUAL(2048, rawPageSize());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_add_and_get);
@@ -254,5 +285,6 @@ int main() {
   RUN_TEST(test_write_hooks_wrap_writes);
   RUN_TEST(test_benchmark_2000);
   RUN_TEST(test_refuses_newer_schema);
+  RUN_TEST(test_converts_old_page_size);
   return UNITY_END();
 }

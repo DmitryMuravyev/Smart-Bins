@@ -124,7 +124,11 @@ class InventoryDb {
 
   // Opens (or creates) the database file and brings its schema up to date.
   // `cacheKiB` is SQLite's page cache size: the main RAM cost of the database.
-  bool open(const char *path, std::string &err, int cacheKiB = 40);
+  // 16 KiB (eight 2 KB pages) holds the top of both tables' B-trees, which
+  // is what lookups touch most. A board without PSRAM has only some 40 KB of
+  // heap left once Wi-Fi and the web server run, and a large write (the
+  // benchmark, a restore) briefly needs tens of KB more on top of the cache.
+  bool open(const char *path, std::string &err, int cacheKiB = 16);
   void close();
   bool isOpen() const { return db_ != nullptr; }
 
@@ -158,12 +162,17 @@ class InventoryDb {
   // the parts again. The parts are spread over a cols x rows grid.
   Result benchmark(int count, int cols, int rows, BenchResult &out, std::string &err);
 
+
  private:
   class Stmt;
   class WriteTxn;
 
   bool exec(const char *sql, std::string &err);
   bool migrate(std::string &err);
+  bool pragmasApplied(std::string &err);
+  bool convertPageSize(std::string &err);
+  // Removes the parts benchmark() added (all in kBenchCategory), in batches.
+  Result deleteBenchParts(std::string &err);
   Result readPart(int64_t id, Part &out, std::string &err);
   static void rowToPart(Stmt &q, Part &out);
   Result binId(BinRef bin, int64_t &id, std::string &err);
