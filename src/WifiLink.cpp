@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+#include "led/RmtStrip.h"
 #include "web/SetupPage.h"
 
 namespace sb {
@@ -140,11 +141,14 @@ void WifiLink::loop() {
     pendingConnect_ = false;
     ssid_ = pendingSsid_;
     pass_ = pendingPass_;
-    Preferences prefs;
-    prefs.begin(kPrefsNamespace, false);
-    prefs.putString("ssid", ssid_);
-    prefs.putString("pass", pass_);
-    prefs.end();
+    {
+      led::FlashGuard guard;  // LED strips pause during the flash write
+      Preferences prefs;
+      prefs.begin(kPrefsNamespace, false);
+      prefs.putString("ssid", ssid_);
+      prefs.putString("pass", pass_);
+      prefs.end();
+    }
     WiFi.disconnect(false, false);
     startConnecting();
   }

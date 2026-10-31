@@ -1,5 +1,6 @@
 #include "RmtStrip.h"
 
+#include <esp_attr.h>
 #include <esp_log.h>
 
 namespace sb {
@@ -13,7 +14,44 @@ constexpr uint32_t kResolutionHz = 40000000;
 
 // Nanoseconds to ticks, rounded to the nearest tick (+12 is half of 25 ns).
 constexpr uint16_t ticks(uint16_t ns) { return static_cast<uint16_t>((ns + 12) / 25); }
+
+// Flash-write gate (see FlashGuard in the header). write() holds it while
+// starting a frame; a FlashGuard holds it for its whole life, so no frame can
+// start during a flash write. The strip list lets the guard wait for frames
+// that were already on the wire when it took the gate.
+constexpr int kMaxStrips = 8;  // the ESP32 has 8 RMT channels
+RmtStrip *strips[kMaxStrips] = {};
+
+SemaphoreHandle_t gate() {
+  // Function-local static: created on first use, thread-safe in C++11.
+  static SemaphoreHandle_t g = xSemaphoreCreateMutex();
+  return g;
+}
+
+// Longest wait for a frame in flight: 1000 RGBW pixels take about 40 ms.
+constexpr uint32_t kFrameWaitMs = 60;
 }  // namespace
+
+// Done interrupt for one frame. Only clears the flag; returns false because
+// no higher-priority task was woken. In IRAM in case the build makes the RMT
+// interrupt flash-safe, where a handler in flash would crash during a write.
+IRAM_ATTR bool RmtStrip::onDone(rmt_channel_handle_t, const rmt_tx_done_event_data_t *, void *ctx) {
+  static_cast<RmtStrip *>(ctx)->inFlight_ = false;
+  return false;
+}
+
+FlashGuard::FlashGuard() {
+  xSemaphoreTake(gate(), portMAX_DELAY);
+  // Polling rather than rmt_tx_wait_all_done(): that call takes finished
+  // frames off the driver's internal queue, so running it here as well as in
+  // the strip's own task (waitDone) would let one of them miss the event.
+  const TickType_t start = xTaskGetTickCount();
+  for (RmtStrip *s : strips) {
+    while (s && s->inFlight_ && xTaskGetTickCount() - start < pdMS_TO_TICKS(kFrameWaitMs)) vTaskDelay(1);
+  }
+}
+
+FlashGuard::~FlashGuard() { xSemaphoreGive(gate()); }
 
 bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   end();
@@ -51,17 +89,33 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   enc.bit1.duration1 = ticks(timing.t1l);
   enc.flags.msb_first = 1;
   err = rmt_new_bytes_encoder(&enc, &encoder_);
+  rmt_tx_event_callbacks_t callbacks = {};
+  callbacks.on_trans_done = onDone;
+  if (err == ESP_OK) err = rmt_tx_register_event_callbacks(channel_, &callbacks, this);
   if (err == ESP_OK) err = rmt_enable(channel_);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "GPIO%d: RMT setup failed (%s)", gpio, esp_err_to_name(err));
     end();
     return false;
   }
+  xSemaphoreTake(gate(), portMAX_DELAY);
+  for (RmtStrip *&slot : strips) {
+    if (!slot) {
+      slot = this;
+      break;
+    }
+  }
+  xSemaphoreGive(gate());
   ESP_LOGI(TAG, "GPIO%d ready (%s)", gpio, invert ? "inverted" : "normal");
   return true;
 }
 
 void RmtStrip::end() {
+  xSemaphoreTake(gate(), portMAX_DELAY);
+  for (RmtStrip *&slot : strips) {
+    if (slot == this) slot = nullptr;
+  }
+  xSemaphoreGive(gate());
   if (channel_) {
     if (busy_) rmt_tx_wait_all_done(channel_, 100);
     rmt_disable(channel_);
@@ -88,9 +142,14 @@ bool RmtStrip::write(const uint8_t *data, size_t len) {
   rmt_transmit_config_t tx = {};
   tx.loop_count = 0;
   tx.flags.eot_level = 0;  // line rests low between frames: the strip latches after ~300 us
-  if (rmt_transmit(channel_, encoder_, data, len, &tx) != ESP_OK) return false;
-  busy_ = true;
-  return true;
+  // Waits here while a flash write is in progress (FlashGuard holds the gate).
+  xSemaphoreTake(gate(), portMAX_DELAY);
+  inFlight_ = true;
+  const bool ok = rmt_transmit(channel_, encoder_, data, len, &tx) == ESP_OK;
+  if (!ok) inFlight_ = false;
+  xSemaphoreGive(gate());
+  busy_ = ok;
+  return ok;
 }
 
 }  // namespace led

@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <LittleFS.h>
 
+#include "led/RmtStrip.h"
+
 namespace sb {
 
 namespace {
@@ -53,6 +55,8 @@ void ConfigStore::begin() {
 bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
   if (!config::validate(cfg, error)) return false;
   const std::string json = config::serialize(cfg);
+  // LED strips pause while the file is written (see led::FlashGuard).
+  led::FlashGuard guard;
   File f = LittleFS.open(kTempPath, "w");
   if (!f) {
     error = "cannot open config for writing";

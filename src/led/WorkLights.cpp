@@ -397,6 +397,8 @@ void WorkLights::save() {
                                 static_cast<uint8_t>(s.effect)};
     }
   }
+  // Strips pause around the write, or the frame on the wire gets cut off.
+  FlashGuard guard;
   Preferences prefs;
   if (!prefs.begin(kPrefsNamespace, false)) return;
   prefs.putBytes(kPrefsKey, &saved, sizeof(saved));

@@ -9,6 +9,8 @@
 #include <cstdint>
 
 #include <driver/rmt_tx.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 namespace sb {
 namespace led {
@@ -37,9 +39,39 @@ class RmtStrip {
   bool ready() const { return channel_ != nullptr; }
 
  private:
+  friend class FlashGuard;
+  static bool onDone(rmt_channel_handle_t, const rmt_tx_done_event_data_t *, void *ctx);
+
   rmt_channel_handle_t channel_ = nullptr;
   rmt_encoder_handle_t encoder_ = nullptr;
   bool busy_ = false;
+  // True from rmt_transmit() until the done interrupt; read by FlashGuard,
+  // which can't use rmt_tx_wait_all_done() from another task (see .cpp).
+  volatile bool inFlight_ = false;
+};
+
+// Pauses every strip around a write to flash (NVS / Preferences, LittleFS).
+//
+// Writing flash switches off the CPU's flash cache for a few milliseconds, and
+// with it every interrupt handler that lives in flash, including the RMT one
+// that keeps refilling the transmit buffer. A frame that is on the wire at
+// that moment stops half way: the strip latches what it got and the rest of
+// the pixels take the next bits as a new frame, which shows as a flash on the
+// far end of a long strip (seen about 3 s after every light change, when the
+// light state was saved).
+//
+// While a FlashGuard exists, write() waits instead of starting a frame, and
+// the constructor returns only once frames already on the wire have finished:
+//
+//   { led::FlashGuard guard; prefs.putBytes(...); }
+//
+// Strip tasks just pause for the length of the write (a missed frame or two).
+class FlashGuard {
+ public:
+  FlashGuard();
+  ~FlashGuard();
+  FlashGuard(const FlashGuard &) = delete;
+  FlashGuard &operator=(const FlashGuard &) = delete;
 };
 
 }  // namespace led
