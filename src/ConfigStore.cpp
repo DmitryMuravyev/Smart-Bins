@@ -1,7 +1,7 @@
 #include "ConfigStore.h"
 
 #include <Arduino.h>
-#include <LittleFS.h>
+#include <FFat.h>
 
 #include "led/RmtStrip.h"
 
@@ -10,32 +10,59 @@ namespace sb {
 namespace {
 const char *TAG = "config";
 const char *kPath = "/config.json";
+// Used while saving, see save().
 const char *kTempPath = "/config.json.tmp";
+const char *kBackupPath = "/config.json.bak";
 const char *kBadPath = "/config.bad.json";
+
+// Reads a whole file. Small chunks into a string sized up front: one
+// allocation, and no large stack buffer on the loop task.
+bool readFile(const char *path, std::string &out) {
+  File f = FFat.exists(path) ? FFat.open(path, "r") : File();
+  if (!f) return false;
+  out.clear();
+  out.reserve(f.size());
+  while (f.available()) {
+    char buf[256];
+    size_t n = f.readBytes(buf, sizeof(buf));
+    out.append(buf, n);
+  }
+  f.close();
+  return true;
+}
+
+// remove() of a file that isn't there logs an error in the FS layer; most of
+// the removals here are clean-ups of files that usually don't exist.
+void removeIfThere(const char *path) {
+  if (FFat.exists(path)) FFat.remove(path);
+}
 }  // namespace
 
 void ConfigStore::begin() {
   cfg_ = config::AppConfig();
-  File f = LittleFS.exists(kPath) ? LittleFS.open(kPath, "r") : File();
-  if (!f) {
+  std::string json, err;
+  config::AppConfig loaded;
+
+  // A power cut during save() can leave the new file only as config.json.tmp
+  // (complete, it was closed before any rename) and the old one as
+  // config.json.bak. Prefer the new one if it parses, then the old one.
+  if (!FFat.exists(kPath)) {
+    for (const char *spare : {kTempPath, kBackupPath}) {
+      if (readFile(spare, json) && config::parse(json.c_str(), loaded, err)) {
+        ESP_LOGW(TAG, "%s missing, recovered it from %s", kPath, spare);
+        FFat.rename(spare, kPath);
+        break;
+      }
+    }
+  }
+  removeIfThere(kTempPath);
+  removeIfThere(kBackupPath);
+
+  if (!readFile(kPath, json)) {
     ESP_LOGI(TAG, "No %s, writing defaults", kPath);
-    std::string err;
     save(cfg_, err);
     return;
   }
-  // Read in small chunks into a string sized up front: one allocation, and no
-  // large stack buffer on the loop task.
-  std::string json;
-  json.reserve(f.size());
-  while (f.available()) {
-    char buf[256];
-    size_t n = f.readBytes(buf, sizeof(buf));
-    json.append(buf, n);
-  }
-  f.close();
-
-  std::string err;
-  config::AppConfig loaded;
   if (config::parse(json.c_str(), loaded, err)) {
     cfg_ = loaded;
     ESP_LOGI(TAG, "Loaded %s", kPath);
@@ -44,20 +71,22 @@ void ConfigStore::begin() {
   // Keep the broken file for inspection (download it over the web UI later)
   // rather than deleting the user's settings, and boot with defaults.
   ESP_LOGE(TAG, "%s is invalid (%s); kept as %s, using defaults", kPath, err.c_str(), kBadPath);
-  if (LittleFS.exists(kBadPath)) LittleFS.remove(kBadPath);
-  LittleFS.rename(kPath, kBadPath);
+  removeIfThere(kBadPath);
+  FFat.rename(kPath, kBadPath);
   save(cfg_, err);
 }
 
-// Writes the new file next to the old one and then renames it over the old
-// one. A power cut at any point leaves either the complete old file or the
-// complete new one, never a half-written config.
+// FAT can't rename over an existing file, so the replacement takes three
+// steps: write config.json.tmp, move config.json aside to config.json.bak,
+// move the new file in, then drop the backup. Wherever a power cut lands,
+// either config.json is complete (old or new), or it is missing and begin()
+// restores it from the .tmp or .bak file. Never a half-written config.
 bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
   if (!config::validate(cfg, error)) return false;
   const std::string json = config::serialize(cfg);
   // LED strips pause while the file is written (see led::FlashGuard).
   led::FlashGuard guard;
-  File f = LittleFS.open(kTempPath, "w");
+  File f = FFat.open(kTempPath, "w");
   if (!f) {
     error = "cannot open config for writing";
     return false;
@@ -65,27 +94,30 @@ bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
   size_t written = f.write(reinterpret_cast<const uint8_t *>(json.data()), json.size());
   f.close();
   if (written != json.size()) {
-    LittleFS.remove(kTempPath);
-    error = "filesystem full";
+    removeIfThere(kTempPath);
+    error = "storage full";
     return false;
   }
-  // LittleFS replaces an existing target atomically on rename. The remove-and-
-  // retry fallback only runs if a filesystem layer refuses to overwrite; it has
-  // a short window with no config file, which then means defaults on next boot.
-  if (!LittleFS.rename(kTempPath, kPath)) {
-    if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
-    if (!LittleFS.rename(kTempPath, kPath)) {
-      error = "cannot replace config file";
-      return false;
-    }
+  removeIfThere(kBackupPath);
+  if (FFat.exists(kPath) && !FFat.rename(kPath, kBackupPath)) {
+    removeIfThere(kTempPath);
+    error = "cannot replace config file";
+    return false;
   }
+  if (!FFat.rename(kTempPath, kPath)) {
+    FFat.rename(kBackupPath, kPath);  // put the old one back
+    error = "cannot replace config file";
+    return false;
+  }
+  removeIfThere(kBackupPath);
   cfg_ = cfg;
   ESP_LOGI(TAG, "Saved %s (%u bytes)", kPath, (unsigned)json.size());
   return true;
 }
 
 void ConfigStore::erase() {
-  if (LittleFS.exists(kPath)) LittleFS.remove(kPath);
+  led::FlashGuard guard;
+  removeIfThere(kPath);
   ESP_LOGW(TAG, "Config erased; defaults apply after restart");
 }
 

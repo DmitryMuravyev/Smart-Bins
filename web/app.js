@@ -597,6 +597,15 @@ function renderSystem() {
     ['system.uptime', formatUptime(s.uptimeS)],
     ['system.heap', `${formatBytes(s.heapFree)} (${t('system.minimum')} ${formatBytes(s.heapMin)})`],
     ['system.storage', `${formatBytes(s.fsUsed)} / ${formatBytes(s.fsTotal)}`],
+    // Inventory figures; missing when the database couldn't be opened.
+    ...(s.inventory && s.inventory.parts !== undefined ? [
+      ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],
+      ['system.photos', String(s.inventory.photos)],
+      ['system.bins', t('system.binsValue', { used: s.inventory.binsUsed, total: s.inventory.binsTotal })],
+      ['system.categories', String(s.inventory.categories)],
+      ['system.manufacturers', String(s.inventory.manufacturers)],
+      ['system.database', formatBytes(s.inventory.dbBytes)],
+    ] : []),
     ['system.network', s.wifi.ssid ? `${s.wifi.ssid}, ${s.wifi.rssi} dBm` : '-'],
     ['system.address', `${s.wifi.ip} (${s.wifi.host})`],
   ];

@@ -1,9 +1,12 @@
 # Smart Bins partition table, 8 MB flash
-# Two OTA app slots of 1.875 MB, ~4.1 MB LittleFS
+# Two OTA app slots of 1.875 MB, ~4.1 MB FAT (config, database, photos)
+# The data partition is FAT behind ESP-IDF's wear levelling: SQLite rewrites
+# 4 KB pages in the middle of its file, which FAT does sector by sector (LittleFS
+# would copy the rest of the file each time). Label "ffat" is what FFat mounts.
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   0x5000
 otadata,    data, ota,      0xE000,   0x2000
 app0,       app,  ota_0,    0x10000,  0x1E0000
 app1,       app,  ota_1,    0x1F0000, 0x1E0000
-spiffs,     data, spiffs,   0x3D0000, 0x420000
+ffat,       data, fat,      0x3D0000, 0x420000
 coredump,   data, coredump, 0x7F0000, 0x10000

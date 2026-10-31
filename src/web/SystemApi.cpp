@@ -1,11 +1,12 @@
 #include "SystemApi.h"
 
 #include <ESPAsyncWebServer.h>
-#include <LittleFS.h>
+#include <FFat.h>
 #include <WiFi.h>
 
 #include "ApiUtil.h"
 #include "ConfigStore.h"
+#include "InventoryApi.h"
 #include "Security.h"
 #include "WifiLink.h"
 
@@ -41,9 +42,9 @@ void writeSystemStatus(JsonObject out, WifiLink &network) {
 }
 
 void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &network, Security &security,
-                       void (*scheduleRestart)()) {
+                       inventory::InventoryDb &inventory, void (*scheduleRestart)()) {
   // exact(): /api/system/restart must not land here (see LightsApi.cpp).
-  server.on(AsyncURIMatcher::exact("/api/system"), HTTP_GET, [&config, &network, &security](AsyncWebServerRequest *req) {
+  server.on(AsyncURIMatcher::exact("/api/system"), HTTP_GET, [&config, &network, &security, &inventory](AsyncWebServerRequest *req) {
     JsonDocument doc;
     doc["firmware"] = SB_FW_VERSION;
     // String copies: ArduinoJson keeps a char array by pointer (it takes it for
@@ -53,8 +54,9 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     doc["chip"] = ESP.getChipModel();
     doc["cpuMhz"] = ESP.getCpuFreqMHz();
     doc["flashBytes"] = ESP.getFlashChipSize();
-    doc["fsUsed"] = LittleFS.usedBytes();
-    doc["fsTotal"] = LittleFS.totalBytes();
+    doc["fsUsed"] = FFat.usedBytes();
+    doc["fsTotal"] = FFat.totalBytes();
+    writeInventoryStats(doc["inventory"].to<JsonObject>(), inventory);
     doc["passwordSet"] = security.passwordSet();
     writeSystemStatus(doc.as<JsonObject>(), network);
     sendJson(req, 200, doc);

@@ -122,6 +122,10 @@ void WifiLink::onConnected() {
     ArduinoOTA.onError([](ota_error_t e) { ESP_LOGE(TAG, "OTA error %u", (unsigned)e); });
     ArduinoOTA.begin();
     MDNS.addService("http", "tcp", 80);
+    // Network time (UTC), for the created/updated times of inventory records.
+    // Runs in the background and keeps the clock in step; until the first
+    // answer the clock reads 1970 and records get no time (see main.cpp).
+    configTime(0, 0, "pool.ntp.org", "time.google.com");
     servicesStarted_ = true;
   }
   ESP_LOGI(TAG, "Open http://%s.local/ or http://%s/", host_, WiFi.localIP().toString().c_str());

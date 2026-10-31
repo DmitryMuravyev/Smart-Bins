@@ -65,7 +65,11 @@ IRAM_ATTR bool RmtStrip::onDone(rmt_channel_handle_t, const rmt_tx_done_event_da
   return false;
 }
 
-FlashGuard::FlashGuard() {
+FlashGuard::FlashGuard() { lock(); }
+
+FlashGuard::~FlashGuard() { unlock(); }
+
+void FlashGuard::lock() {
   xSemaphoreTake(gate(), portMAX_DELAY);
   // Polling rather than rmt_tx_wait_all_done(): that call takes finished
   // frames off the driver's internal queue, so running it here as well as in
@@ -76,7 +80,7 @@ FlashGuard::FlashGuard() {
   }
 }
 
-FlashGuard::~FlashGuard() { xSemaphoreGive(gate()); }
+void FlashGuard::unlock() { xSemaphoreGive(gate()); }
 
 bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   end();

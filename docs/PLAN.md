@@ -74,12 +74,12 @@ Final map is confirmed with the schematic in Task 2.
 |---|---|---|
 | Build | **PlatformIO in VS Code**, Arduino framework on ESP32 | Best VS Code workflow. Uses the `pioarduino` platform to get Arduino-ESP32 core 3.x (the official PlatformIO platform is stuck on core 2.x). Alternative: ESP-IDF + Arduino as component. |
 | MCU | ESP32-DevKitC (WROOM-32), **no PSRAM**, 4/8/16 MB flash | All memory budgets assume ~300 KB usable heap. |
-| Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × ~1.9 MB OTA app slots + rest LittleFS (≈4 MB / ≈12 MB). 4 MB fallback: 2 × 1.5 MB OTA + ≈1 MB LittleFS (database only, photos on microSD). | OTA updates over Wi-Fi from day one. |
-| Filesystem | **LittleFS** | SPIFFS is deprecated; LittleFS is power-loss safe and supports directories. Optional microSD for large photo collections. |
-| Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on LittleFS | Small page cache (tuned for no PSRAM). Search with `LIKE` across all text fields; FTS5 only if needed. |
+| Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × ~1.9 MB OTA app slots + rest FAT (≈4 MB / ≈12 MB). 4 MB fallback: 2 × 1.5 MB OTA + ≈0.9 MB FAT (config and database only, photos on microSD). | OTA updates over Wi-Fi from day one. |
+| Filesystem | **FAT on ESP-IDF wear levelling** for everything (changed in Task 7, was: LittleFS) | LittleFS copies the rest of a file whenever its middle changes, which every SQLite commit does: seconds per edit and extra wear on a large database. FAT rewrites only the changed sectors. One partition for config, database and photos means no fixed split, and the same code serves the optional microSD (also FAT). Power-loss safety: SQLite's journal for the database, write-then-rename with recovery for `config.json`. |
+| Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on the FAT partition | 4 KB pages (one flash sector each), 40 KB page cache, 8 KB lookaside (tuned for no PSRAM). Schema version in `PRAGMA user_version`. Search with `LIKE` across all text fields; FTS5 only if needed. |
 | LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, colour order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's colour math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
-| Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and LittleFS stays free for the inventory and photos. |
+| Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and the data partition stays free for the inventory and photos. |
 | Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
 | Wi-Fi | Station mode + fallback access point with captive setup page, mDNS `http://smartbins.local` | No hard-coded credentials in source. |
 | Audio | **INMP441 I2S digital microphone** + `arduinoFFT` | Cleaner than analog mics on the noisy ESP32 ADC. Analog MAX9814 as fallback option. |
@@ -93,9 +93,9 @@ Final map is confirmed with the schematic in Task 2.
         │ HTTP REST + WebSocket
  ┌──────▼─────────────────────────────────────────────────┐
  │ ESP32                                                  │
- │  WebServer ── REST API ── PartsService ── SQLite (LittleFS)
+ │  WebServer ── REST API ── InventoryDb ─── SQLite (FAT)
  │      │                         │                       │
- │      │                    PhotoStore (LittleFS / SD)   │
+ │      │                    PhotoStore (FAT / SD)        │
  │      │                                                 │
  │  ConfigService (config.json) ── GridMapper (bin x,y → pixel idx)
  │                                    │                   │
@@ -112,10 +112,10 @@ LED rendering runs in its own FreeRTOS task on core 1; Wi-Fi and the web server 
 
 ## 3. Draft data model
 
-- `parts`: id, part_number, manufacturer, category, description, package, value, quantity, unit, location_bin_id, datasheet_url, notes, photo (filename), created_at, updated_at
-- `bins`: id, x, y, label
-- `categories` (optional lookup table, or free text with autocomplete)
-- `meta`: schema_version (for migrations)
+- `parts`: id, part_number, manufacturer, category, description, package, value, unit, datasheet_url, notes, quantity, bin_id, photo (filename), created_at, updated_at
+- `bins`: id, x, y, label, in_grid (0 for a bin left outside after the grid shrank, kept while parts are in it)
+- Categories and manufacturers are free text, offered for autocomplete from the values in use
+- Schema version in `PRAGMA user_version` (for migrations)
 
 One part lives in one bin; one bin can hold many parts.
 

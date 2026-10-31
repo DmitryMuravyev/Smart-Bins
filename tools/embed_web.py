@@ -3,9 +3,9 @@
 Runs as a PlatformIO pre-build script (extra_scripts = pre:tools/embed_web.py)
 and can also be run by hand: python tools/embed_web.py
 
-Why embedded instead of files on LittleFS: one firmware image (also over the
+Why embedded instead of files on the data partition: one firmware image (also over the
 air) always carries the matching UI, there is no separate "upload filesystem"
-step, and LittleFS stays free for the inventory and photos.
+step, and the data partition stays free for the inventory and photos.
 
 The script also checks that every translation file has exactly the keys of
 en.json, so a missing string fails the build instead of showing up as a raw

@@ -2,7 +2,7 @@
 
 // Smart Bins configuration model.
 //
-// The configuration lives in /config.json on LittleFS. Parsing is forgiving:
+// The configuration lives in /config.json on the FAT partition. Parsing is forgiving:
 // missing keys keep their defaults and unknown keys are ignored, so a config
 // written by an older or newer firmware still loads. Values out of range are
 // rejected with a message naming the field.
