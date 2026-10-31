@@ -57,11 +57,29 @@ void scheduleRestart() { restartAt = millis() + 1000; }
 // ArduinoOTA, so the OTA library is only ever touched from the main loop.
 volatile bool otaHashChanged = false;
 
+// Logs how much heap the last setup step took. A board without PSRAM has
+// little to spare, so the boot log shows where it goes (Wi-Fi, LED buffers,
+// the database...) instead of only the total at the end.
+void logHeapStep(const char *step) {
+  static uint32_t last = 0;
+  const uint32_t now = sb::heapFree();
+  if (last) {
+    ESP_LOGI(TAG, "Heap after %s: %s free (%s used by it)", step, sb::formatBytes(now),
+             sb::formatBytes(last > now ? last - now : 0));
+  } else {
+    ESP_LOGI(TAG, "Heap before %s: %s free", step, sb::formatBytes(now));
+  }
+  last = now;
+}
+
 bool mountFilesystem() {
   // formatOnFail = true: a blank partition (first boot, or after switching
   // from the old LittleFS layout) is formatted. "ffat" is the partition label
   // in partitions/*.csv; FAT runs on ESP-IDF's wear levelling layer there.
-  if (!FFat.begin(true, "/ffat", 10, "ffat")) {
+  // 4 files open at once: the database, its journal, config.json and one
+  // spare. Each slot can cost a sector-sized (4 KB) buffer of heap, so the
+  // default of 10 wasted around 24 KB.
+  if (!FFat.begin(true, "/ffat", 4, "ffat")) {
     ESP_LOGE(TAG, "FAT partition mount failed");
     return false;
   }
@@ -185,10 +203,13 @@ void setup() {
   ESP_LOGI(TAG, "Smart Bins firmware %s", SB_FW_VERSION);
   sb::printBootReport();
 
+  logHeapStep("storage");
   mountFilesystem();
   configStore.begin();
   logConfig(configStore.get());
+  logHeapStep("storage and config");
   openInventory(configStore.get());
+  logHeapStep("database");
 
   // W1-W5 in channel order; the config decides what each one drives.
   const int8_t lightPins[sb::config::kLightChannels] = {
@@ -213,6 +234,7 @@ void setup() {
   leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
              sb::board::defaultPin("grid_power"));
   workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
+  logHeapStep("LED strips and work lights");
 
   // Security first: its password check is middleware, and it must be in place
   // before the server starts answering.
@@ -220,6 +242,7 @@ void setup() {
   security.onChange([]() { otaHashChanged = true; });
   network.setOtaPasswordHash(security.otaHash());
   network.begin(configStore.get().deviceName, configStore.get().network, server);
+  logHeapStep("Wi-Fi");
   sb::registerWebUi(server, network);
   sb::registerSystemApi(server, configStore, network, security, inventoryDb, scheduleRestart);
   sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows);
@@ -227,6 +250,7 @@ void setup() {
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);
   server.begin();
+  logHeapStep("web server");
   ESP_LOGI(TAG, "Boot complete, free heap %s, largest block %s", sb::formatBytes(sb::heapFree()),
            sb::formatBytes(sb::heapLargest()));
 }
