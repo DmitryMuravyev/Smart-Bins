@@ -33,10 +33,60 @@
 
 <main>
   <section id="page-inventory" class="page">
-    <h1 data-i18n="nav.inventory">Inventory</h1>
-    <div class="card empty">
-      <p data-i18n="inventory.soon">The parts inventory arrives in a later update. For now you can light bins from the Grid page.</p>
-      <a class="button" href="#grid" data-i18n="inventory.toGrid">Open the grid</a>
+    <div class="page-head">
+      <h1 data-i18n="nav.inventory">Inventory</h1>
+      <button id="part-add" data-i18n="inv.add">Add part</button>
+    </div>
+    <p class="card empty" id="inv-unavailable" hidden data-i18n="inv.unavailable">The parts database is not available. The serial log says why.</p>
+    <div id="inv-main">
+      <input type="search" id="inv-q" data-i18n-ph="inv.searchPh" placeholder="Search parts, e.g. stm32 lqfp" autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <div class="inv-tools">
+        <select id="inv-category" aria-label="Category"></select>
+        <select id="inv-maker" aria-label="Manufacturer"></select>
+        <div class="sort">
+          <select id="inv-sort" aria-label="Sort">
+            <option value="partNumber" data-i18n="field.partNumber">Part number</option>
+            <option value="description" data-i18n="field.description">Description</option>
+            <option value="manufacturer" data-i18n="field.manufacturer">Manufacturer</option>
+            <option value="category" data-i18n="field.category">Category</option>
+            <option value="package" data-i18n="field.package">Package</option>
+            <option value="value" data-i18n="field.value">Value</option>
+            <option value="quantity" data-i18n="field.quantity">Quantity</option>
+            <option value="bin" data-i18n="field.bin">Bin</option>
+            <option value="updated" data-i18n="inv.sortUpdated">Last changed</option>
+          </select>
+          <button class="secondary order" id="inv-order" aria-label="Order"></button>
+        </div>
+        <div class="seg" id="inv-view" role="group">
+          <button data-view="cards" data-i18n="inv.view.cards">Cards</button>
+          <button data-view="table" data-i18n="inv.view.table">Table</button>
+          <button data-view="bins" data-i18n="inv.view.bins">Bins</button>
+        </div>
+      </div>
+      <div class="inv-filter" id="inv-bin-filter" hidden>
+        <span class="chip"><span id="inv-bin-name"></span><button class="chip-x" id="inv-bin-clear" aria-label="Clear">&times;</button></span>
+        <button class="link" id="inv-bin-rename" data-i18n="inv.binRename">Rename bin</button>
+        <button class="link" id="inv-bin-locate" data-i18n="inv.locate">Locate</button>
+      </div>
+      <p class="muted small inv-count" id="inv-count" aria-live="polite"></p>
+      <div id="inv-cards" class="parts"></div>
+      <div class="table-wrap" id="inv-table-wrap" hidden>
+        <table class="parts-table" id="inv-table">
+          <thead><tr>
+            <th data-sort="partNumber" data-i18n="field.partNumber">Part number</th>
+            <th data-sort="description" data-i18n="field.description">Description</th>
+            <th data-sort="manufacturer" data-i18n="field.manufacturer">Manufacturer</th>
+            <th data-sort="package" data-i18n="field.package">Package</th>
+            <th data-sort="quantity" class="num" data-i18n="field.quantity">Quantity</th>
+            <th data-sort="bin" data-i18n="field.bin">Bin</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="inv-bins" class="grid-view bins" hidden></div>
+      <p class="muted center" id="inv-empty" hidden></p>
+      <button class="secondary wide" id="inv-more" hidden data-i18n="inv.more">Show more</button>
+      <label class="check small muted"><input type="checkbox" id="inv-autolocate"> <span data-i18n="inv.autoLocate">Light the bin when all results are in one bin</span></label>
     </div>
   </section>
 
@@ -171,6 +221,57 @@
 </main>
 
 <div id="toast" class="toast" role="status" hidden></div>
+
+<!-- Add / edit a part. The text fields are named like the API's JSON keys, so
+     the form is filled from a part and read back without a mapping table. -->
+<dialog id="part-dialog" class="dialog">
+  <form id="part-form" method="dialog" autocomplete="off">
+    <h2 id="part-title"></h2>
+    <div class="form-grid">
+      <label><span data-i18n="field.partNumber">Part number</span><input type="text" name="partNumber" maxlength="64" spellcheck="false"></label>
+      <label><span data-i18n="field.manufacturer">Manufacturer</span><input type="text" name="manufacturer" maxlength="64" list="dl-manufacturer"></label>
+      <label class="full"><span data-i18n="field.description">Description</span><input type="text" name="description" maxlength="256"></label>
+      <label><span data-i18n="field.category">Category</span><input type="text" name="category" maxlength="64" list="dl-category"></label>
+      <label><span data-i18n="field.package">Package</span><input type="text" name="package" maxlength="32" list="dl-package" spellcheck="false"></label>
+      <label><span data-i18n="field.value">Value</span><input type="text" name="value" maxlength="32" spellcheck="false"></label>
+      <label><span data-i18n="field.unit">Unit</span><input type="text" name="unit" maxlength="16" list="dl-unit" spellcheck="false"></label>
+      <label><span data-i18n="field.quantity">Quantity</span><input type="number" name="quantity" min="0" max="1000000000" step="1" inputmode="numeric"></label>
+      <label><span data-i18n="field.bin">Bin</span><select name="bin"></select></label>
+      <label class="full"><span data-i18n="field.datasheetUrl">Datasheet link</span><input type="url" name="datasheetUrl" maxlength="256" spellcheck="false" placeholder="https://"></label>
+      <label class="full"><span data-i18n="field.notes">Notes</span><textarea name="notes" maxlength="1024" rows="3"></textarea></label>
+    </div>
+    <p class="muted small" id="part-times"></p>
+    <div class="buttons dialog-buttons">
+      <button type="button" class="danger" id="part-delete" data-i18n="inv.delete">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="secondary" id="part-cancel" data-i18n="inv.cancel">Cancel</button>
+      <button type="submit" id="part-save" data-i18n="settings.save">Save</button>
+    </div>
+  </form>
+</dialog>
+<datalist id="dl-manufacturer"></datalist>
+<datalist id="dl-category"></datalist>
+<datalist id="dl-package"></datalist>
+<datalist id="dl-unit"></datalist>
+
+<!-- One part in the card view. -->
+<template id="part-card">
+  <article class="card part">
+    <div class="part-main">
+      <div class="part-title"><strong class="part-pn"></strong> <span class="muted part-maker"></span></div>
+      <div class="part-desc"></div>
+      <div class="part-meta muted small"></div>
+    </div>
+    <div class="part-side">
+      <div class="qty">
+        <button class="qty-btn" data-delta="-1" aria-label="-1">&minus;</button>
+        <span class="qty-value"></span>
+        <button class="qty-btn" data-delta="1" aria-label="+1">+</button>
+      </div>
+      <button class="bin-btn secondary"></button>
+    </div>
+  </article>
+</template>
 
 <template id="light-card">
   <article class="card light">

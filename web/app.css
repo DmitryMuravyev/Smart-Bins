@@ -145,3 +145,80 @@ input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
   max-width: calc(100% - 32px); padding: 10px 16px; border-radius: 8px; background: var(--text); color: var(--bg); z-index: 10; }
 .toast.err { background: var(--err); color: #fff; }
 @media (min-width: 760px) { .toast { bottom: 24px; } }
+
+/* Inventory: search box, tools row, then cards / table / bin grid. */
+input[type=search], input[type=url], input[type=number] { width: 100%; padding: 10px; margin: 4px 0; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
+#inv-q { font-size: 17px; padding: 12px; background: var(--card); }
+.inv-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.inv-tools select { width: auto; flex: 1 1 140px; margin: 0; min-width: 0; }
+.sort { display: flex; gap: 4px; flex: 1 1 160px; }
+.sort select { flex: 1; width: auto; margin: 0; min-width: 0; }
+.order { padding: 8px 12px; font-size: 18px; line-height: 1; }
+/* Segmented control: three buttons joined into one. */
+.seg { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex: none; }
+.seg button { border-radius: 0; background: var(--card); color: var(--text); padding: 8px 12px; font-size: 14px; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button.on { background: var(--accent); color: var(--accent-text); }
+.inv-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 4px 0 8px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 12px; border-radius: 16px;
+  background: var(--accent); color: var(--accent-text); font-size: 14px; }
+.chip-x { padding: 0 8px; background: none; color: inherit; font-size: 18px; line-height: 1; }
+button.link { padding: 4px 0; background: none; color: var(--accent); font-size: 14px; }
+.inv-count { margin: 4px 0 8px; }
+.center { text-align: center; }
+button.wide { display: block; width: 100%; margin: 8px 0; }
+.check { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; }
+.check input { width: 18px; height: 18px; accent-color: var(--accent); }
+
+/* Part cards: text on the left, quantity and bin on the right. */
+.parts { display: grid; gap: 8px; }
+.card.part { display: flex; gap: 12px; margin: 0; padding: 12px; cursor: pointer; }
+.part-main { flex: 1; min-width: 0; }
+.part-title { overflow-wrap: anywhere; }
+.part-desc { font-size: 14px; overflow-wrap: anywhere; }
+.part-meta { margin-top: 2px; overflow-wrap: anywhere; }
+.part-side { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex: none; }
+.qty { display: flex; align-items: center; gap: 4px; }
+.qty-btn { width: 36px; height: 36px; padding: 0; border-radius: 50%; background: var(--bg); color: var(--text);
+  border: 1px solid var(--border); font-size: 20px; line-height: 1; }
+.qty-value { min-width: 3ch; text-align: center; font-weight: 600; font-variant-numeric: tabular-nums; }
+.out .qty-value { color: var(--err); }
+.bin-btn { padding: 4px 10px; font-size: 14px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bin-btn:disabled { opacity: 1; color: var(--muted); }
+
+/* Table view: scrolls sideways on a narrow screen rather than squeezing. */
+.table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); }
+.parts-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.parts-table th, .parts-table td { padding: 8px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.parts-table th { color: var(--muted); font-weight: 600; cursor: pointer; white-space: nowrap; user-select: none; }
+.parts-table th.sorted { color: var(--text); }
+.parts-table th[data-order=asc]::after { content: " \2191"; }
+.parts-table th[data-order=desc]::after { content: " \2193"; }
+.parts-table tbody tr { cursor: pointer; }
+.parts-table tbody tr:hover { background: var(--bg); }
+.parts-table tr:last-child td { border-bottom: 0; }
+.parts-table .num { text-align: right; }
+.qty.small { justify-content: flex-end; }
+.qty.small .qty-btn { width: 28px; height: 28px; font-size: 16px; }
+.bin-btn.small { padding: 2px 8px; }
+
+/* Bin grid: name and part count; empty bins fade back. */
+/* Square cells leave room for two lines: the bin's name and its part count. */
+.grid-view.bins button { aspect-ratio: 1; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text); }
+.grid-view.bins button.empty { color: var(--muted); background: var(--bg); }
+.bin-name { font-size: 0.85em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
+.bin-count { font-weight: 600; color: var(--accent); }
+#inv-bins-outside button { padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px dashed var(--border); flex-direction: row; }
+
+/* Part form in a modal dialog. */
+.dialog { width: min(640px, calc(100% - 24px)); max-height: calc(100% - 24px); padding: 16px; border: 1px solid var(--border);
+  border-radius: var(--radius); background: var(--card); color: var(--text); }
+.dialog::backdrop { background: rgba(0, 0, 0, .45); }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.form-grid label { font-size: 14px; color: var(--muted); min-width: 0; }
+.form-grid .full { grid-column: 1 / -1; }
+.form-grid textarea { font: inherit; margin-top: 4px; }
+.dialog-buttons { align-items: center; }
+.dialog-buttons .spacer { flex: 1; }
+button.danger { background: var(--err); color: #fff; }

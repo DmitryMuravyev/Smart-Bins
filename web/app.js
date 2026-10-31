@@ -96,13 +96,17 @@ async function setLanguage(lang) {
   renderSystem();
   renderPasswordState();
   renderDeviceName();
+  if ($('#page-inventory').classList.contains('active')) {
+    loadFilterLists();
+    renderInventory();
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Pages
 
 const pages = {
-  inventory: {},
+  inventory: { enter: enterInventory },
   lights: { enter: loadLights },
   grid: { enter: enterGrid },
   settings: { enter: enterSettings },
@@ -341,6 +345,489 @@ async function flushLight(id) {
   q.busy = false;
   if (res) updateLights(res);
   if (q.pending) flushLight(id);
+}
+
+// ---------------------------------------------------------------------------
+// Inventory
+//
+// The parts list is the board's /api/parts: search words, filters, sort and
+// pages are all handled there (see README), so the page only keeps what it
+// shows. Results come 50 at a time; "Show more" appends the next page.
+//
+// Three views of the same results: cards (phones), a table (wide screens) and
+// the bin grid, which shows what is stored where and filters by bin on a tap.
+
+const PAGE_SIZE = 50;
+const SEARCH_DELAY_MS = 250;  // typing pause before a search is sent
+
+// Sort keys whose natural first look is "biggest / newest first".
+const DESC_FIRST = new Set(['quantity', 'updated']);
+
+const inv = {
+  q: '',
+  category: '',
+  manufacturer: '',
+  bin: null,          // {x, y} when the list is filtered to one bin
+  sort: 'partNumber',
+  order: 'asc',
+  view: 'cards',      // cards | table | bins
+  parts: [],          // parts shown, in order
+  total: 0,           // matches on the board, across all pages
+  seq: 0,             // searches started; only the newest one's answer is shown
+  bins: [],           // /api/bins: {x, y, label, parts, outside}
+  located: '',        // the result set auto-locate last lit, so it lights once
+  searchTimer: 0,
+  valuesAt: 0,        // when the autocomplete lists were last loaded (ms)
+};
+
+// Small per-browser preferences (view, sort, auto-locate), like the language.
+function pref(key, fallback) {
+  try { return localStorage.getItem(`inv.${key}`) ?? fallback; } catch (e) { return fallback; }
+}
+function setPref(key, value) {
+  try { localStorage.setItem(`inv.${key}`, value); } catch (e) { /* not remembered */ }
+}
+
+async function enterInventory() {
+  if (!state.config) state.config = await attempt(() => api('/api/config'));
+  await Promise.all([loadBins(), loadFilterLists()]);
+  search();
+}
+
+// Bins with their labels and part counts: for bin names everywhere, the bin
+// picker in the form and the bin grid view.
+async function loadBins() {
+  const res = await attempt(() => api('/api/bins'));
+  if (res) inv.bins = res.bins;
+}
+
+function findBin(x, y) {
+  return inv.bins.find(b => b.x === x && b.y === y);
+}
+
+// A bin's name: its label when it has one, else the A1-style position.
+function binName(x, y) {
+  const b = findBin(x, y);
+  return b && b.label ? b.label : binLabel(x, y);
+}
+
+// The category and manufacturer filters list the values in use, most used first.
+async function loadFilterLists() {
+  const [cats, makers] = await Promise.all([
+    attempt(() => api('/api/parts/values?field=category&limit=200')),
+    attempt(() => api('/api/parts/values?field=manufacturer&limit=200')),
+  ]);
+  fillFilter($('#inv-category'), cats, 'inv.allCategories', inv.category);
+  fillFilter($('#inv-maker'), makers, 'inv.allMakers', inv.manufacturer);
+}
+
+function fillFilter(select, res, allKey, current) {
+  const values = res ? res.values : [];
+  const options = [new Option(t(allKey), '')];
+  for (const v of values) options.push(new Option(`${v.value} (${v.parts})`, v.value));
+  // A filter whose value no longer exists (its last part was changed) stays
+  // selectable, so the list doesn't silently switch to "all".
+  if (current && !values.some(v => v.value === current)) options.push(new Option(current, current));
+  select.replaceChildren(...options);
+  select.value = current;
+}
+
+function scheduleSearch() {
+  clearTimeout(inv.searchTimer);
+  inv.searchTimer = setTimeout(() => search(), SEARCH_DELAY_MS);
+}
+
+// Fetches the first page (or, with `more`, the next one) for the current
+// search, filters and sort.
+async function search(more = false) {
+  clearTimeout(inv.searchTimer);
+  const seq = ++inv.seq;
+  const params = new URLSearchParams({ sort: inv.sort, order: inv.order, limit: PAGE_SIZE,
+    offset: more ? inv.parts.length : 0 });
+  if (inv.q.trim()) params.set('q', inv.q.trim());
+  if (inv.category) params.set('category', inv.category);
+  if (inv.manufacturer) params.set('manufacturer', inv.manufacturer);
+  if (inv.bin) { params.set('x', inv.bin.x); params.set('y', inv.bin.y); }
+  let res;
+  try {
+    res = await api(`/api/parts?${params}`);
+  } catch (e) {
+    if (seq !== inv.seq) return;
+    // 503: no database (failed to open); everything else is a passing error.
+    const unavailable = /unavailable/.test(e.message);
+    $('#inv-unavailable').hidden = !unavailable;
+    $('#inv-main').hidden = unavailable;
+    if (!unavailable) toast(e.message, true);
+    return;
+  }
+  if (seq !== inv.seq) return;  // a newer search is on its way
+  $('#inv-unavailable').hidden = true;
+  $('#inv-main').hidden = false;
+  inv.parts = more ? inv.parts.concat(res.parts) : res.parts;
+  inv.total = res.total;
+  renderInventory();
+  if (!more) autoLocate();
+}
+
+function filtered() {
+  return !!(inv.q.trim() || inv.category || inv.manufacturer || inv.bin);
+}
+
+function renderInventory() {
+  const view = inv.view;
+  for (const b of $$('#inv-view button')) b.classList.toggle('on', b.dataset.view === view);
+  $('#inv-sort').value = inv.sort;
+  $('#inv-order').textContent = inv.order === 'asc' ? '↑' : '↓';
+  $('#inv-order').title = t(inv.order === 'asc' ? 'inv.ascending' : 'inv.descending');
+
+  const filter = $('#inv-bin-filter');
+  filter.hidden = !inv.bin;
+  if (inv.bin) $('#inv-bin-name').textContent = t('inv.inBin', { bin: binName(inv.bin.x, inv.bin.y) });
+
+  const bins = view === 'bins';
+  $('#inv-cards').hidden = view !== 'cards';
+  $('#inv-table-wrap').hidden = view !== 'table';
+  $('#inv-bins').hidden = !bins;
+  $('#inv-count').hidden = bins;
+  $('#inv-more').hidden = bins || inv.parts.length >= inv.total;
+  const empty = $('#inv-empty');
+  empty.hidden = bins || inv.total > 0;
+  empty.textContent = t(filtered() ? 'inv.noMatch' : 'inv.noParts');
+  $('#inv-count').textContent = inv.total ? t('inv.count', { n: inv.total }) : '';
+
+  if (bins) return renderBinGrid();
+  if (view === 'cards') $('#inv-cards').replaceChildren(...inv.parts.map(buildPartCard));
+  else $('#inv-table tbody').replaceChildren(...inv.parts.map(buildPartRow));
+  for (const th of $$('#inv-table th')) {
+    th.classList.toggle('sorted', th.dataset.sort === inv.sort);
+    th.dataset.order = th.dataset.sort === inv.sort ? inv.order : '';
+  }
+}
+
+// The line under a part's description: category, package, value.
+function partMeta(p) {
+  const value = p.value ? `${p.value}${p.unit ? ` ${p.unit}` : ''}` : '';
+  return [p.category, p.package, value].filter(Boolean).join(' · ');
+}
+
+function buildPartCard(p) {
+  const card = $('#part-card').content.firstElementChild.cloneNode(true);
+  card.dataset.id = p.id;
+  fillPart(card, p);
+  card.addEventListener('click', e => { if (!e.target.closest('button, a')) openPart(p.id); });
+  wirePartButtons(card, p.id);
+  return card;
+}
+
+// One table row. The same quantity and bin buttons as a card, smaller.
+function buildPartRow(p) {
+  const tr = document.createElement('tr');
+  tr.dataset.id = p.id;
+  tr.innerHTML = '<td><b class="part-pn"></b></td><td class="part-desc"></td><td class="part-maker"></td>'
+    + '<td class="part-pkg"></td><td class="num"><div class="qty small"><button class="qty-btn" data-delta="-1">&minus;</button>'
+    + '<span class="qty-value"></span><button class="qty-btn" data-delta="1">+</button></div></td>'
+    + '<td><button class="bin-btn secondary small"></button></td>';
+  fillPart(tr, p);
+  tr.addEventListener('click', e => { if (!e.target.closest('button, a')) openPart(p.id); });
+  wirePartButtons(tr, p.id);
+  return tr;
+}
+
+// Fills a card or a table row (they use the same class names) from a part.
+function fillPart(el, p) {
+  // A part may have only a description; the card then leads with that.
+  const set = (sel, text) => { const n = el.querySelector(sel); if (n) n.textContent = text; };
+  set('.part-pn', p.partNumber || p.description);
+  set('.part-maker', p.manufacturer);
+  set('.part-desc', p.partNumber ? p.description : '');
+  set('.part-meta', partMeta(p));
+  set('.part-pkg', p.package);
+  const meta = el.querySelector('.part-meta');
+  if (meta && p.datasheetUrl) {
+    const a = document.createElement('a');
+    a.href = p.datasheetUrl;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = t('inv.datasheet');
+    if (meta.textContent) meta.append(' · ');
+    meta.append(a);
+  }
+  set('.qty-value', String(p.quantity));
+  el.classList.toggle('out', p.quantity === 0);
+  const bin = el.querySelector('.bin-btn');
+  bin.textContent = p.bin ? binName(p.bin.x, p.bin.y) : t('inv.noBin');
+  bin.disabled = !p.bin;
+  bin.title = p.bin ? t('inv.locate') : '';
+}
+
+function wirePartButtons(el, id) {
+  for (const b of $$('.qty-btn', el)) b.addEventListener('click', () => adjustQuantity(id, Number(b.dataset.delta)));
+  el.querySelector('.bin-btn').addEventListener('click', () => {
+    const p = inv.parts.find(x => x.id === id);
+    if (p && p.bin) locateBin(p.bin.x, p.bin.y);
+  });
+}
+
+// Redraws every place a part is shown, after it changed.
+function refreshPart(p) {
+  const i = inv.parts.findIndex(x => x.id === p.id);
+  if (i >= 0) inv.parts[i] = p;
+  for (const el of $$(`[data-id="${p.id}"]`)) fillPart(el, p);
+}
+
+// Quantity +/-: the number changes at once; the board gets the taps in as
+// few requests as possible. While one request is on its way, further taps add
+// up and go as one when it returns (each change is a flash write on the
+// board, a fraction of a second). The answer is only shown once no more taps
+// are waiting, so the number never jumps back under the user's thumb.
+const adjustQueue = new Map();  // id -> {busy, pending}
+function adjustQuantity(id, delta) {
+  const p = inv.parts.find(x => x.id === id);
+  if (!p || p.quantity + delta < 0) return;
+  refreshPart({ ...p, quantity: p.quantity + delta });
+  const q = adjustQueue.get(id) || { busy: false, pending: 0 };
+  adjustQueue.set(id, q);
+  q.pending += delta;
+  if (!q.busy) flushAdjust(id);
+}
+
+async function flushAdjust(id) {
+  const q = adjustQueue.get(id);
+  const delta = q.pending;
+  q.pending = 0;
+  q.busy = true;
+  const res = await attempt(() => api('/api/part/adjust', { form: { id, delta } }));
+  q.busy = false;
+  if (q.pending) return flushAdjust(id);
+  if (res) refreshPart(res);
+  else search();  // the change failed: show what the board has
+}
+
+async function locateBin(x, y, quiet = false) {
+  const res = await attempt(() => api('/api/locate', { form: { x, y } }));
+  if (!res) return;
+  updateLitBins(res);
+  if (!quiet) toast(t('inv.located', { bin: binName(x, y) }));
+}
+
+// Optional: when a search narrows the parts down to one bin, light it. Only
+// once per result set, so typing more letters doesn't light it again and
+// again, and only for a search or filter (not the full, unfiltered list).
+function autoLocate() {
+  if (!$('#inv-autolocate').checked || !filtered() || !inv.total || inv.parts.length < inv.total) return;
+  const first = inv.parts[0].bin;
+  if (!first || !inv.parts.every(p => p.bin && p.bin.x === first.x && p.bin.y === first.y)) {
+    inv.located = '';
+    return;
+  }
+  const key = `${first.x},${first.y}`;
+  if (key === inv.located) return;
+  inv.located = key;
+  locateBin(first.x, first.y, true);
+}
+
+// The bin grid: every bin with its name and number of parts. A tap shows that
+// bin's parts in the list view used last. Bins left outside the grid after it
+// shrank, but still holding parts, are listed below it.
+function renderBinGrid() {
+  const g = state.config && state.config.grid;
+  const view = $('#inv-bins');
+  if (!g) return view.replaceChildren();
+  view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(0, 1fr))`;
+  const cells = [];
+  const extra = [];
+  for (const b of inv.bins) {
+    const cell = document.createElement('button');
+    cell.className = b.parts ? 'has-parts' : 'empty';
+    const name = document.createElement('span');
+    name.className = 'bin-name';
+    name.textContent = b.label || binLabel(b.x, b.y);
+    const count = document.createElement('span');
+    count.className = 'bin-count';
+    count.textContent = b.parts ? String(b.parts) : '';
+    cell.append(name, count);
+    cell.title = t('inv.binTitle', { bin: binLabel(b.x, b.y), n: b.parts });
+    cell.addEventListener('click', () => {
+      inv.bin = { x: b.x, y: b.y };
+      inv.view = pref('listView', 'cards');
+      search();
+    });
+    if (b.outside) {
+      cell.classList.add('outside');
+      extra.push(cell);
+    } else {
+      cells.push(cell);
+    }
+  }
+  view.replaceChildren(...cells);
+  // Outside bins go in their own row of plain buttons after the grid.
+  let outside = $('#inv-bins-outside');
+  if (!outside) {
+    outside = document.createElement('div');
+    outside.id = 'inv-bins-outside';
+    outside.className = 'chips';
+    view.after(outside);
+  }
+  outside.hidden = !extra.length;
+  outside.replaceChildren(...extra);
+}
+
+// ---- Add / edit form ---------------------------------------------------
+
+const TEXT_FIELDS = ['partNumber', 'manufacturer', 'category', 'description', 'package', 'value', 'unit',
+  'datasheetUrl', 'notes'];
+let editing = null;  // the part being edited, or null when adding
+
+// Autocomplete for the fields with recurring values. Loaded when the form
+// opens, at most once a minute (the lists change only as parts are saved).
+async function loadSuggestions() {
+  if (Date.now() - inv.valuesAt < 60000) return;
+  inv.valuesAt = Date.now();
+  await Promise.all(['manufacturer', 'category', 'package', 'unit'].map(async field => {
+    const res = await attempt(() => api(`/api/parts/values?field=${field}&limit=200`));
+    if (!res) return;
+    $(`#dl-${field}`).replaceChildren(...res.values.map(v => new Option(v.value)));
+  }));
+}
+
+function binOptions(current) {
+  const options = [new Option(t('inv.noBin'), '')];
+  for (const b of inv.bins) {
+    const pos = binLabel(b.x, b.y);
+    options.push(new Option(b.label ? `${pos} – ${b.label}` : pos, `${b.x},${b.y}`));
+  }
+  const select = $('#part-form [name=bin]');
+  select.replaceChildren(...options);
+  select.value = current ? `${current.x},${current.y}` : '';
+}
+
+async function openPart(id) {
+  let part = null;
+  if (id) {
+    part = await attempt(() => api(`/api/part?id=${id}`));
+    if (!part) return;
+  }
+  editing = part;
+  const form = $('#part-form');
+  form.reset();
+  $('#part-title').textContent = t(part ? 'inv.editTitle' : 'inv.addTitle');
+  $('#part-delete').hidden = !part;
+  if (part) {
+    for (const f of TEXT_FIELDS) form.elements[f].value = part[f] || '';
+    form.elements.quantity.value = part.quantity;
+  } else {
+    // A new part starts with what the list is filtered to: adding parts to a
+    // bin or a category in a row needs no retyping.
+    form.elements.quantity.value = 1;
+    form.elements.category.value = inv.category;
+    form.elements.manufacturer.value = inv.manufacturer;
+  }
+  binOptions(part ? part.bin : inv.bin);
+  $('#part-times').textContent = part ? partTimes(part) : '';
+  $('#part-dialog').showModal();
+  if (!part) form.elements.partNumber.focus();
+  loadSuggestions();
+}
+
+function partTimes(p) {
+  // 0: saved before the board knew the time (no network time yet).
+  const when = s => (s ? new Date(s * 1000).toLocaleString(state.lang) : '');
+  const parts = [];
+  if (p.created) parts.push(t('inv.created', { when: when(p.created) }));
+  if (p.updated && p.updated !== p.created) parts.push(t('inv.updated', { when: when(p.updated) }));
+  return parts.join(' · ');
+}
+
+async function savePart() {
+  const form = $('#part-form');
+  const data = {};
+  for (const f of TEXT_FIELDS) data[f] = form.elements[f].value.trim();
+  if (!data.partNumber && !data.description) return toast(t('inv.needName'), true);
+  const qty = form.elements.quantity.value.trim();
+  if (!/^\d+$/.test(qty)) return toast(t('inv.badQuantity'), true);
+  data.quantity = qty;
+  const bin = form.elements.bin.value;
+  if (bin) [data.x, data.y] = bin.split(',');
+  else data.x = -1;
+  if (editing) data.id = editing.id;
+  const res = await attempt(() => api(editing ? '/api/part/update' : '/api/part/add', { form: data }));
+  if (!res) return;
+  $('#part-dialog').close();
+  toast(t('inv.saved'));
+  inv.valuesAt = 0;  // new values may have appeared for the autocomplete
+  await Promise.all([loadBins(), loadFilterLists()]);
+  search();
+}
+
+async function deletePart() {
+  if (!editing) return;
+  const name = editing.partNumber || editing.description;
+  if (!confirm(t('inv.deleteConfirm', { name }))) return;
+  if (!await attempt(() => api('/api/part/delete', { form: { id: editing.id } }))) return;
+  $('#part-dialog').close();
+  toast(t('inv.deleted', { name }));
+  await Promise.all([loadBins(), loadFilterLists()]);
+  search();
+}
+
+async function renameBin() {
+  if (!inv.bin) return;
+  const b = findBin(inv.bin.x, inv.bin.y);
+  const label = prompt(t('inv.binRenamePrompt', { bin: binLabel(inv.bin.x, inv.bin.y) }), (b && b.label) || '');
+  if (label === null) return;
+  if (!await attempt(() => api('/api/bin/label', { form: { x: inv.bin.x, y: inv.bin.y, label: label.trim() } }))) return;
+  await loadBins();
+  renderInventory();
+}
+
+function bindInventory() {
+  inv.view = pref('view', 'cards');
+  inv.sort = pref('sort', 'partNumber');
+  inv.order = pref('order', 'asc');
+  $('#inv-autolocate').checked = pref('autoLocate', '0') === '1';
+
+  $('#inv-q').addEventListener('input', e => { inv.q = e.target.value; scheduleSearch(); });
+  $('#inv-q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+  $('#inv-category').addEventListener('change', e => { inv.category = e.target.value; search(); });
+  $('#inv-maker').addEventListener('change', e => { inv.manufacturer = e.target.value; search(); });
+  const setSort = (key, order) => {
+    inv.sort = key;
+    inv.order = order;
+    setPref('sort', key);
+    setPref('order', order);
+    search();
+  };
+  $('#inv-sort').addEventListener('change', e => setSort(e.target.value, DESC_FIRST.has(e.target.value) ? 'desc' : 'asc'));
+  $('#inv-order').addEventListener('click', () => setSort(inv.sort, inv.order === 'asc' ? 'desc' : 'asc'));
+  // Table headers sort too: a second click on the same one reverses it.
+  for (const th of $$('#inv-table th[data-sort]')) {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      setSort(key, key === inv.sort ? (inv.order === 'asc' ? 'desc' : 'asc') : (DESC_FIRST.has(key) ? 'desc' : 'asc'));
+    });
+  }
+  for (const b of $$('#inv-view button')) {
+    b.addEventListener('click', () => {
+      inv.view = b.dataset.view;
+      setPref('view', inv.view);
+      if (inv.view !== 'bins') setPref('listView', inv.view);
+      if (inv.view === 'bins') loadBins().then(renderInventory);
+      else renderInventory();
+    });
+  }
+  $('#inv-autolocate').addEventListener('change', e => {
+    setPref('autoLocate', e.target.checked ? '1' : '0');
+    inv.located = '';
+    autoLocate();
+  });
+  $('#inv-more').addEventListener('click', () => search(true));
+  $('#inv-bin-clear').addEventListener('click', () => { inv.bin = null; search(); });
+  $('#inv-bin-rename').addEventListener('click', renameBin);
+  $('#inv-bin-locate').addEventListener('click', () => inv.bin && locateBin(inv.bin.x, inv.bin.y));
+  $('#part-add').addEventListener('click', () => openPart(null));
+  $('#part-form').addEventListener('submit', e => { e.preventDefault(); savePart(); });
+  $('#part-cancel').addEventListener('click', () => $('#part-dialog').close());
+  $('#part-delete').addEventListener('click', deletePart);
 }
 
 // ---------------------------------------------------------------------------
@@ -713,6 +1200,7 @@ async function connectLive() {
 // Start-up
 
 function bindControls() {
+  bindInventory();
   $('#language').addEventListener('change', e => setLanguage(e.target.value));
   $('#theme').value = storedTheme();
   $('#theme').addEventListener('change', e => setTheme(e.target.value));
