@@ -9,8 +9,17 @@ They are harmless, can't be fixed without patching the library, and bury the
 warnings that matter in our own code, which keeps -Wall.
 
 How: a build middleware sees every source file before it is compiled, the
-library's files included. For files inside one of the listed libraries it
-compiles the object with -w (no warnings); every other file is left alone.
+library's files included, together with the build environment of the library
+it belongs to (each library is built in its own copy of the environment). For
+a file of one of the listed libraries it adds -w to that library's
+environment, so only that library's files are affected.
+
+The middleware deliberately doesn't compile the file itself (env.Object):
+on Windows the espressif32 platform registers a middleware of its own
+(include path shortening, against command-line length limits) that runs after
+this one and expects a source file, not an object file. Changing the
+environment and passing the source on lets every middleware run, and the last
+one compiles the file with -w in its flags.
 """
 
 Import("env")  # noqa: F821 - provided by PlatformIO (SCons)
@@ -22,8 +31,8 @@ QUIET_LIBS = ("Sqlite3Esp32",)
 
 def quiet_third_party(env, node):
     path = node.get_abspath().replace("\\", "/")
-    if any("/" + lib + "/" in path for lib in QUIET_LIBS):
-        return env.Object(node, CCFLAGS=env["CCFLAGS"] + ["-w"])
+    if any("/" + lib + "/" in path for lib in QUIET_LIBS) and "-w" not in env["CCFLAGS"]:
+        env.Append(CCFLAGS=["-w"])
     return node
 
 
