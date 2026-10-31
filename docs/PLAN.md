@@ -82,7 +82,7 @@ Final map is confirmed with the schematic in Task 2.
 | LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, colour order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's colour math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
 | Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and the data partition stays free for the inventory and photos. |
-| Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>.jpg` | Keeps ESP32 RAM and flash use predictable. |
+| Photos | JPG, **resized in the browser** to 640 px (flash) or 800 px (microSD) before upload, stored as `/photos/<part_id>-<6 hex>.jpg` plus a 128 px `-t.jpg` thumbnail (a new name per photo, so URLs can be cached forever) | Keeps ESP32 RAM and flash use predictable. |
 | Wi-Fi | Station mode + fallback access point with captive setup page, mDNS `http://smartbins.local` | No hard-coded credentials in source. |
 | Audio | **INMP441 I2S digital microphone** + `arduinoFFT` | Cleaner than analog mics on the noisy ESP32 ADC. Analog MAX9814 as fallback option. |
 | Tests / CI | PlatformIO `native` env for unit tests of pure logic (grid mapping, effects, query building); GitHub Actions builds firmware on every push | |
@@ -200,6 +200,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - Full backup option: database + photos + config as one archive file.
 - Restore with validation (format, schema version) and automatic pre-restore backup; migrations applied on older backups.
 - Optional CSV export/import for editing in a spreadsheet.
+- "Move photos to card" on the System page, shown when a microSD card is present and photos are still in flash: copy each, verify the copy, then delete it from flash. Manual, not at boot, so a failing card can't cost the flash copies.
 - **Verify:** backup, wipe, restore round-trip gives identical data.
 
 ### Task 12: Lighting effects
