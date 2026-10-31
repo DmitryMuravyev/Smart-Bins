@@ -87,12 +87,20 @@ button:disabled { opacity: .5; cursor: default; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 input[type=password], input[type=text], select, textarea { width: 100%; padding: 10px; margin: 4px 0; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
-textarea { font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
+/* display: block: as an inline box the textarea sits on a text line, and
+   browsers differ in the space they leave below it (Firefox none at all). */
+textarea { display: block; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; margin-top: 8px; }
+#config-save { margin-top: 12px; }
 .row { display: flex; gap: 12px; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 14px; color: var(--muted); }
 .row select { width: auto; min-width: 45%; margin: 0; }
 .inline-form { display: flex; gap: 8px; align-items: center; }
 .ip-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
 .ip-fields label { font-size: 14px; color: var(--muted); }
+.ip-fields.tight { margin-top: 0; }
+/* A line that needs attention: warning sign, then the text. */
+.notice { display: flex; align-items: center; gap: 8px; margin: 12px 0 0; }
+.notice .ico { font-size: 20px; line-height: 1; }
+.warn { color: var(--warn); }
 #ip-save { margin-top: 12px; }
 .inline-form input { flex: 1; }
 input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }

@@ -130,18 +130,23 @@
           <button type="button" class="secondary" id="password-remove" data-i18n="settings.passwordRemove">Remove password</button>
         </div>
       </form>
-      <p class="muted small" data-i18n="settings.passwordHint">User name: admin. Holding the BOOT button for 10 s resets the device, including the password.</p>
+      <p class="notice"><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span><span data-i18n="settings.userName">User name:</span> <b>admin</b></span></p>
+      <p class="muted small" data-i18n="settings.passwordHint">Holding the BOOT button for 10 s resets the device, including the password.</p>
     </div>
     <div class="card">
       <h2 data-i18n="settings.wifi">Wi-Fi</h2>
       <a class="button secondary" href="/wifi" data-i18n="settings.wifiOpen">Wi-Fi settings</a>
-      <label class="row"><span data-i18n="settings.ipMode">IP address</span>
-        <select id="ip-mode">
-          <option value="dhcp" data-i18n="settings.ipDhcp">Automatic (DHCP)</option>
-          <option value="static" data-i18n="settings.ipStatic">Fixed</option>
-        </select>
-      </label>
-      <form id="ip-form" class="ip-fields" autocomplete="off" hidden>
+      <!-- Same two-column grid as the address fields below, so the selector
+           lines up with (and is as wide as) the left-hand column. -->
+      <div class="ip-fields">
+        <label><span data-i18n="settings.ipMode">IP settings</span>
+          <select id="ip-mode">
+            <option value="dhcp" data-i18n="settings.ipDhcp">Automatic (DHCP)</option>
+            <option value="static" data-i18n="settings.ipStatic">Fixed</option>
+          </select>
+        </label>
+      </div>
+      <form id="ip-form" class="ip-fields tight" autocomplete="off" hidden>
         <label><span data-i18n="settings.ipAddress">Address</span><input type="text" id="ip-address" inputmode="decimal" placeholder="192.168.1.50"></label>
         <label><span data-i18n="settings.ipGateway">Gateway</span><input type="text" id="ip-gateway" inputmode="decimal" placeholder="192.168.1.1"></label>
         <label><span data-i18n="settings.ipSubnet">Subnet mask</span><input type="text" id="ip-subnet" inputmode="decimal" placeholder="255.255.255.0"></label>
