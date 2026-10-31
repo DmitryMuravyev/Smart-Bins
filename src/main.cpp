@@ -82,8 +82,8 @@ void logConfig(const sb::config::AppConfig &cfg) {
   }
 }
 
-// BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset (Wi-Fi,
-// config and web password).
+// BOOT button: hold 5 s to forget Wi-Fi (and a fixed IP address), 10 s for a
+// factory reset (Wi-Fi, config and web password).
 // Acts on release, so holding through 5 s on the way to 10 s doesn't trigger the first.
 void handleButton() {
   static uint32_t pressedAt = 0;
@@ -103,6 +103,17 @@ void handleButton() {
       ESP.restart();
     } else if (held >= kWifiResetHoldMs) {
       network.forgetCredentials();
+      // A fixed address that doesn't fit the next network would leave the
+      // board unreachable there, so a Wi-Fi reset goes back to DHCP too. The
+      // restart applies it; the setup portal opens again after it.
+      if (configStore.get().network.staticIp) {
+        sb::config::AppConfig cfg = configStore.get();
+        cfg.network.staticIp = false;
+        std::string err;
+        configStore.save(cfg, err);
+        delay(200);
+        ESP.restart();
+      }
     }
   }
 }
@@ -160,7 +171,7 @@ void setup() {
   security.begin(server);
   security.onChange([]() { otaHashChanged = true; });
   network.setOtaPasswordHash(security.otaHash());
-  network.begin(configStore.get().deviceName, server);
+  network.begin(configStore.get().deviceName, configStore.get().network, server);
   sb::registerWebUi(server, network);
   sb::registerSystemApi(server, configStore, network, security, scheduleRestart);
   sb::registerLedApi(server, leds, configStore);

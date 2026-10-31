@@ -23,7 +23,7 @@ const state = {
   config: null,   // last /api/config answer
   locate: null,   // locate defaults: {color, mode, s}
   lights: [],
-  litBins: new Set(),  // bins located from this browser, for the grid highlight
+  litBins: [],    // bins the board reports as lit, [[x, y], ...]
 };
 
 // ---------------------------------------------------------------------------
@@ -75,6 +75,7 @@ function t(key, vars) {
 function applyTranslations(root = document) {
   for (const el of $$('[data-i18n]', root)) el.textContent = t(el.dataset.i18n);
   for (const el of $$('[data-i18n-ph]', root)) el.placeholder = t(el.dataset.i18nPh);
+  for (const el of $$('#locate-presets button', root)) el.title = t(`lights.preset.${el.dataset.preset}`);
 }
 
 function storedLanguage() {
@@ -323,17 +324,21 @@ async function enterGrid() {
   const view = $('#grid-view');
   if (view.dataset.size !== `${g.cols}x${g.rows}`) {
     view.dataset.size = `${g.cols}x${g.rows}`;
-    view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(30px, 1fr))`;
+    // minmax(0, 1fr): columns share the width exactly and may shrink below
+    // their text width, so the grid never overflows a phone screen.
+    view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(0, 1fr))`;
     const buttons = [];
     for (let y = 0; y < g.rows; y++) {
       for (let x = 0; x < g.cols; x++) {
         const b = document.createElement('button');
         b.textContent = binLabel(x, y);
-        b.addEventListener('click', () => locate(x, y, b));
+        b.dataset.bin = `${x},${y}`;
+        b.addEventListener('click', () => toggleBin(x, y, b));
         buttons.push(b);
       }
     }
     view.replaceChildren(...buttons);
+    showLitBins();
   }
   setIfIdle($('#grid-brightness'), g.brightness);
   $('#grid-brightness-out').textContent = percent($('#grid-brightness').value);
@@ -352,15 +357,31 @@ function showLocateDefaults(d) {
     duration.add(new Option(`${d.s} s`, d.s));
   }
   duration.value = String(d.s);
-  setIfIdle($('#locate-color'), `#${d.color.toLowerCase()}`);
+  const color = `#${d.color.toLowerCase()}`;
+  $('#locate-swatch').style.background = color;
+  const hue = hexToHue(color);
+  if (hue !== null) locateHue.set(hue);
 }
 
-async function saveLocateDefaults(params) {
+// `quiet`: no "saved" message, for the colour slider, which saves as it moves.
+async function saveLocateDefaults(params, quiet = false) {
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
   if (d) {
     showLocateDefaults(d);
-    toast(t('grid.saved'));
+    if (!quiet) toast(t('grid.saved'));
   }
+}
+
+// The locate colour slider. Every save writes the board's flash, so a drag is
+// not sent move by move: the swatch follows at once, and the colour is saved
+// once the slider has rested for a moment.
+let locateHue;
+let locateHueTimer = 0;
+function onLocateHue(hue) {
+  const hex = hueToHex(hue);
+  $('#locate-swatch').style.background = `#${hex}`;
+  clearTimeout(locateHueTimer);
+  locateHueTimer = setTimeout(() => saveLocateDefaults({ color: hex }, true), 400);
 }
 
 // Bins are named like spreadsheet cells: column letters, row number (A1 = top left).
@@ -370,14 +391,19 @@ function binLabel(x, y) {
   return `${col}${y + 1}`;
 }
 
-async function locate(x, y, button) {
-  if (await attempt(() => api('/api/locate', { form: { x, y } }))) {
-    button.classList.add('lit');
-    // The board turns the highlight off by itself after the configured time;
-    // the button follows that time (or stays lit when it is 0 = until cleared).
-    const seconds = state.locate ? state.locate.s : 30;
-    if (seconds > 0) setTimeout(() => button.classList.remove('lit'), seconds * 1000);
-  }
+// Tapping a dark bin lights it, tapping a lit one turns it off. The button
+// changes at once; the board then confirms with the list of lit bins over the
+// WebSocket (also when a bin times out or another page changes it).
+async function toggleBin(x, y, button) {
+  const lit = button.classList.toggle('lit');
+  const ok = await attempt(() => api(lit ? '/api/locate' : '/api/locate/clear', { form: { x, y } }));
+  if (!ok) button.classList.toggle('lit', !lit);
+}
+
+// Marks the buttons of the bins the board reports as lit ([[x, y], ...]).
+function showLitBins() {
+  const lit = new Set(state.litBins.map(([x, y]) => `${x},${y}`));
+  for (const b of $$('#grid-view button')) b.classList.toggle('lit', lit.has(b.dataset.bin));
 }
 
 // ---------------------------------------------------------------------------
@@ -391,6 +417,54 @@ async function enterSettings() {
   }
   if (!state.system) await loadSystem();
   renderPasswordState();
+  renderNetwork();
+}
+
+// IP address settings. With DHCP the fields show the address the board has
+// now, so switching to "Fixed" starts from a working setup to adjust.
+function renderNetwork() {
+  const net = (state.config && state.config.network) || { mode: 'dhcp' };
+  const wifi = (state.system && state.system.wifi) || {};
+  const fixed = net.mode === 'static';
+  $('#ip-mode').value = fixed ? 'static' : 'dhcp';
+  $('#ip-form').hidden = !fixed;
+  const src = fixed ? net : wifi;
+  // 0.0.0.0 is how config.json writes "not set".
+  const addr = v => (v && v !== '0.0.0.0' ? v : '');
+  setIfIdle($('#ip-address'), addr(src.ip));
+  setIfIdle($('#ip-gateway'), addr(src.gateway));
+  setIfIdle($('#ip-subnet'), addr(src.subnet) || '255.255.255.0');
+  // An empty DNS field means "use the gateway", the usual home router setup.
+  setIfIdle($('#ip-dns'), fixed ? addr(net.dns) : '');
+}
+
+const IPV4 = /^(25[0-5]|2[0-4]\d|1?\d?\d)(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/;
+
+// Saves the IP settings into config.json (the board checks them again, e.g.
+// that the gateway is in the same subnet) and restarts. When the page was
+// opened by the old fixed address, it moves to the new one afterwards.
+async function saveNetwork() {
+  const fixed = $('#ip-mode').value === 'static';
+  const network = { mode: fixed ? 'static' : 'dhcp' };
+  if (fixed) {
+    for (const key of ['address', 'gateway', 'subnet', 'dns']) {
+      const v = $(`#ip-${key}`).value.trim();
+      if (key === 'dns' && !v) continue;
+      if (!IPV4.test(v)) return toast(t('settings.ipInvalid', { field: t(`settings.ip${key[0].toUpperCase()}${key.slice(1)}`) }), true);
+      network[key === 'address' ? 'ip' : key] = v;
+    }
+  }
+  if (!confirm(t('settings.ipConfirm'))) return;
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  cfg.network = network;
+  if (!await attempt(() => api('/api/config', { json: JSON.stringify(cfg) }))) return;
+  if (fixed && location.hostname === (state.system && state.system.wifi.ip) && network.ip !== location.hostname) {
+    toast(t('system.restarting'));
+    setTimeout(() => { location.href = `${location.protocol}//${network.ip}/#settings`; }, 8000);
+  } else {
+    waitForRestart();
+  }
 }
 
 function renderPasswordState() {
@@ -564,6 +638,8 @@ async function connectLive() {
       Object.assign(state.system, msg.system);
       renderSystem();
     } else if (msg.type === 'leds') {
+      state.litBins = msg.lit || [];
+      showLitBins();
       $('#grid-status').textContent = t('grid.status', { ma: msg.estimateMa, fps: msg.fps })
         + (msg.currentLimited ? ` ${t('grid.limited')}` : '');
     }
@@ -590,9 +666,22 @@ function bindControls() {
   });
   $('#locate-clear').addEventListener('click', async () => {
     if (await attempt(() => api('/api/locate/clear', { method: 'POST' }))) {
-      for (const b of $$('#grid-view button')) b.classList.remove('lit');
+      state.litBins = [];
+      showLitBins();
     }
   });
+  // Locate colour: the same hue slider and colour presets as the lights
+  // (presets that set a colour temperature don't apply to a bin and are left out).
+  locateHue = makeSlider($('#locate-hue'), 0, 359, 1, onLocateHue);
+  for (const p of PRESETS.filter(p => p.params.color)) {
+    const b = document.createElement('button');
+    b.style.background = p.css;
+    b.dataset.preset = p.name;
+    b.addEventListener('click', () => saveLocateDefaults({ color: p.params.color }));
+    $('#locate-presets').append(b);
+  }
+  $('#ip-mode').addEventListener('change', e => { $('#ip-form').hidden = e.target.value !== 'static'; });
+  $('#ip-save').addEventListener('click', saveNetwork);
   for (const b of $$('#grid-tests button')) {
     b.addEventListener('click', () => attempt(() => api('/api/led/test', { form: { pattern: b.dataset.pattern } })));
   }
@@ -600,10 +689,15 @@ function bindControls() {
     b.addEventListener('click', () => saveLocateDefaults({ mode: b.dataset.mode }));
   }
   $('#locate-duration').addEventListener('change', e => saveLocateDefaults({ s: e.target.value }));
-  $('#locate-color').addEventListener('change', e => saveLocateDefaults({ color: e.target.value }));
   const brightness = $('#grid-brightness');
   brightness.addEventListener('input', () => { $('#grid-brightness-out').textContent = percent(brightness.value); });
-  brightness.addEventListener('change', () => attempt(() => api('/api/led/brightness', { form: { value: brightness.value } })));
+  brightness.addEventListener('change', async () => {
+    // Saved on the board; the cached config follows so the slider doesn't
+    // jump back to the old value when the page is opened again.
+    if (await attempt(() => api('/api/led/brightness', { form: { value: brightness.value } })) && state.config) {
+      state.config.grid.brightness = Number(brightness.value);
+    }
+  });
   $('#password-form').addEventListener('submit', e => {
     e.preventDefault();
     const a = $('#password-new').value, b = $('#password-repeat').value;

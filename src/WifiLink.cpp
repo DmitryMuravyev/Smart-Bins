@@ -8,6 +8,7 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
+#include "led/RmtStrip.h"
 #include "web/SetupPage.h"
 
 namespace sb {
@@ -24,7 +25,8 @@ constexpr uint32_t kPortalLingerMs = 60000;      // keep the portal after connec
 DNSServer dns;
 }  // namespace
 
-void WifiLink::begin(const char *hostName, AsyncWebServer &server) {
+void WifiLink::begin(const char *hostName, const config::NetworkConfig &network, AsyncWebServer &server) {
+  network_ = network;
   strncpy(host_, hostName, sizeof(host_) - 1);
   uint8_t mac[6];
   WiFi.macAddress(mac);
@@ -57,6 +59,21 @@ String WifiLink::ipAddress() const {
 
 void WifiLink::startConnecting() {
   ESP_LOGI(TAG, "Connecting to \"%s\"", ssid_.c_str());
+  if (network_.staticIp) {
+    // A fixed address has to be set before WiFi.begin(), otherwise DHCP runs.
+    // With no DNS server given, the gateway is used (most home routers are one).
+    const auto &n = network_;
+    const bool dnsSet = n.dns[0] | n.dns[1] | n.dns[2] | n.dns[3];
+    const IPAddress ip(n.ip[0], n.ip[1], n.ip[2], n.ip[3]);
+    const IPAddress gateway(n.gateway[0], n.gateway[1], n.gateway[2], n.gateway[3]);
+    const IPAddress subnet(n.subnet[0], n.subnet[1], n.subnet[2], n.subnet[3]);
+    const IPAddress dns = dnsSet ? IPAddress(n.dns[0], n.dns[1], n.dns[2], n.dns[3]) : gateway;
+    if (WiFi.config(ip, gateway, subnet, dns)) {
+      ESP_LOGI(TAG, "Fixed address %s", ip.toString().c_str());
+    } else {
+      ESP_LOGE(TAG, "Fixed address %s rejected, using DHCP", ip.toString().c_str());
+    }
+  }
   WiFi.begin(ssid_.c_str(), pass_.c_str());
   state_ = State::Connecting;
   stateSince_ = lastRetry_ = millis();
@@ -140,11 +157,14 @@ void WifiLink::loop() {
     pendingConnect_ = false;
     ssid_ = pendingSsid_;
     pass_ = pendingPass_;
-    Preferences prefs;
-    prefs.begin(kPrefsNamespace, false);
-    prefs.putString("ssid", ssid_);
-    prefs.putString("pass", pass_);
-    prefs.end();
+    {
+      led::FlashGuard guard;  // LED strips pause during the flash write
+      Preferences prefs;
+      prefs.begin(kPrefsNamespace, false);
+      prefs.putString("ssid", ssid_);
+      prefs.putString("pass", pass_);
+      prefs.end();
+    }
     WiFi.disconnect(false, false);
     startConnecting();
   }

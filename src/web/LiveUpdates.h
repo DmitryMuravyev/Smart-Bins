@@ -5,7 +5,8 @@
 //
 // Messages are JSON objects with a "type":
 //   {"type":"lights", "lights":[...], "stripPower":bool}   on every light change
-//   {"type":"leds", "estimateMa":n, "fps":n, "currentLimited":bool}   every 2 s
+//   {"type":"leds", "estimateMa":n, "fps":n, "currentLimited":bool, "lit":[[x,y],...]}
+//       every 2 s, and at once when the lit bins change
 //   {"type":"system", "system":{uptimeS, heapFree, heapMin, wifi{...}}}   every 2 s
 // A new client gets all three at once. The socket only pushes; changes are
 // made through the HTTP API.
@@ -39,7 +40,8 @@ class LiveUpdates {
   led::WorkLights *lights_ = nullptr;
   led::LedEngine *leds_ = nullptr;
   WifiLink *network_ = nullptr;
-  uint32_t sentVersion_ = 0;  // WorkLights::version() at the last lights push
+  uint32_t sentVersion_ = 0;      // WorkLights::version() at the last lights push
+  uint32_t sentLedsVersion_ = 0;  // LedEngine::version() at the last grid push
   uint32_t lastStatus_ = 0;
   uint32_t lastCleanup_ = 0;
 };

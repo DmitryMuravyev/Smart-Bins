@@ -84,6 +84,11 @@ class Reader {
     out = rgb;
   }
 
+  void ipv4(JsonVariantConst v, const char *field, Ipv4 &out) {
+    if (!ok() || v.isNull()) return;
+    if (!parseIpv4(v.as<const char *>(), out)) fail(field, "must be an address like 192.168.1.50");
+  }
+
   void fail(const char *field, const char *what) {
     if (!ok()) return;
     error_ = std::string(field) + " " + what;
@@ -95,7 +100,28 @@ class Reader {
 
 bool isUniversal(int channel) { return channel < kUniversalChannels; }
 
+uint32_t toU32(const Ipv4 &ip) {
+  return (uint32_t(ip[0]) << 24) | (uint32_t(ip[1]) << 16) | (uint32_t(ip[2]) << 8) | ip[3];
+}
+
 }  // namespace
+
+bool parseIpv4(const char *text, Ipv4 &out) {
+  if (!text) return false;
+  unsigned a, b, c, d;
+  char tail;
+  // %c after the last number catches trailing junk ("1.2.3.4x"); exactly four
+  // conversions means the text was four numbers and nothing else.
+  if (sscanf(text, "%3u.%3u.%3u.%3u%c", &a, &b, &c, &d, &tail) != 4) return false;
+  if (a > 255 || b > 255 || c > 255 || d > 255) return false;
+  out[0] = a;
+  out[1] = b;
+  out[2] = c;
+  out[3] = d;
+  return true;
+}
+
+void formatIpv4(const Ipv4 &ip, char *out) { snprintf(out, 16, "%u.%u.%u.%u", ip[0], ip[1], ip[2], ip[3]); }
 
 const char *toString(Chipset v) { return kChipsets[static_cast<int>(v)]; }
 const char *toString(Layout v) { return kLayouts[static_cast<int>(v)]; }
@@ -129,6 +155,26 @@ bool validate(const AppConfig &cfg, std::string &error) {
   if (!isValidHostName(cfg.deviceName)) {
     error = "device.name must be 1-32 characters of a-z, 0-9 and '-'";
     return false;
+  }
+  const NetworkConfig &n = cfg.network;
+  if (n.staticIp) {
+    const uint32_t ip = toU32(n.ip), gw = toU32(n.gateway), mask = toU32(n.subnet);
+    // A valid mask is a run of ones followed by zeros: inverted, plus one, it
+    // is a power of two (0xFFFFFF00 -> 0xFF -> 0x100).
+    const uint32_t hosts = ~mask;
+    if (mask == 0 || (hosts & (hosts + 1)) != 0) {
+      error = "network.subnet must be a subnet mask such as 255.255.255.0";
+      return false;
+    }
+    // The address can't be the network or broadcast address of its subnet.
+    if ((ip & hosts) == 0 || (ip & hosts) == hosts) {
+      error = "network.ip is not a usable address in its subnet";
+      return false;
+    }
+    if ((ip & mask) != (gw & mask) || gw == ip) {
+      error = "network.gateway must be another address in the same subnet as network.ip";
+      return false;
+    }
   }
   const GridConfig &g = cfg.grid;
   if (gridPixels(g) > kMaxGridPixels) {
@@ -242,6 +288,16 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
     }
   }
 
+  JsonVariantConst network = doc["network"];
+  static const char *const kIpModes[] = {"dhcp", "static"};
+  uint8_t ipMode = cfg.network.staticIp ? 1 : 0;
+  r.choice(network["mode"], "network.mode", kIpModes, ipMode);
+  cfg.network.staticIp = ipMode == 1;
+  r.ipv4(network["ip"], "network.ip", cfg.network.ip);
+  r.ipv4(network["gateway"], "network.gateway", cfg.network.gateway);
+  r.ipv4(network["subnet"], "network.subnet", cfg.network.subnet);
+  r.ipv4(network["dns"], "network.dns", cfg.network.dns);
+
   r.integer(doc["fadeMs"], "fadeMs", 0, 5000, cfg.fadeMs);
 
   JsonVariantConst locate = doc["locate"];
@@ -261,6 +317,21 @@ std::string serialize(const AppConfig &cfg) {
   JsonObject device = doc["device"].to<JsonObject>();
   device["name"] = cfg.deviceName;
   device["language"] = cfg.language;
+
+  // Addresses as text; the buffers stay alive until serializeJsonPretty below,
+  // so storing them by pointer (ArduinoJson does that for char arrays) is fine.
+  const NetworkConfig &n = cfg.network;
+  char ip[16], gateway[16], subnet[16], dns[16];
+  formatIpv4(n.ip, ip);
+  formatIpv4(n.gateway, gateway);
+  formatIpv4(n.subnet, subnet);
+  formatIpv4(n.dns, dns);
+  JsonObject network = doc["network"].to<JsonObject>();
+  network["mode"] = n.staticIp ? "static" : "dhcp";
+  network["ip"] = ip;
+  network["gateway"] = gateway;
+  network["subnet"] = subnet;
+  network["dns"] = dns;
 
   const GridConfig &g = cfg.grid;
   JsonObject grid = doc["grid"].to<JsonObject>();

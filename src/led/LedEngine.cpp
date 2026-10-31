@@ -85,7 +85,12 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
     Segment &seg = segments_[s];
     seg.pixels.assign(mapper_.segmentLength(s), Rgb());
     seg.out.assign(static_cast<size_t>(mapper_.segmentLength(s)) * channels_, 0);
-    ok &= seg.strip.begin(pins[s], chip.timing, g.invertData);
+    const bool started = seg.strip.begin(pins[s], chip.timing, g.invertData);
+    ok &= started;
+    // One dark frame right away: a reset (EN button, crash, OTA) doesn't
+    // clear the pixels, and a strip powered straight from its supply (no
+    // switch on the power pin) would otherwise keep showing its last frame.
+    if (started && seg.strip.write(seg.out.data(), seg.out.size())) seg.strip.waitDone(50);
   }
 
   brightness_ = Fader(g.brightness);
@@ -118,16 +123,26 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   if (!mapper_.binSpan(x, y, span)) return false;
   Lock lock(lock_);
   const uint32_t now = millis();
-  // Re-locating a bin restarts it instead of stacking a second highlight.
+  // Re-locating a bin replaces its highlight instead of stacking a second one.
+  // If the old one is still on (not fading out), the new one takes over its
+  // start time, so the bin doesn't dip to dark and fade in again and a pulse
+  // keeps its rhythm; the duration is extended to count from now.
   // erase() returns the next element, so the iterator only advances when
   // nothing was removed.
+  uint32_t start = now;
   for (auto it = highlights_.begin(); it != highlights_.end();) {
-    if (it->x == x && it->y == y) it = highlights_.erase(it);
-    else ++it;
+    if (it->x == x && it->y == y) {
+      if (!it->released) start = it->start;
+      it = highlights_.erase(it);
+    } else {
+      ++it;
+    }
   }
+  if (durationMs) durationMs += now - start;
   // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
-  highlights_.push_back({x, y, color, mode, now, durationMs, false, 0});
+  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0});
+  version_ = version_ + 1;
   return true;
 }
 
@@ -139,6 +154,29 @@ void LedEngine::clearLocates() {
     h.released = true;
     h.releasedAt = now;
   }
+  version_ = version_ + 1;
+}
+
+bool LedEngine::clearLocate(uint8_t x, uint8_t y) {
+  Lock lock(lock_);
+  for (Highlight &h : highlights_) {
+    if (h.x != x || h.y != y || h.released) continue;
+    h.released = true;
+    h.releasedAt = millis();
+    version_ = version_ + 1;
+    return true;
+  }
+  return false;
+}
+
+uint8_t LedEngine::litBins(Bin *out, uint8_t max) {
+  Lock lock(lock_);
+  uint8_t n = 0;
+  for (const Highlight &h : highlights_) {
+    if (h.released || n >= max) continue;
+    out[n++] = {h.x, h.y};
+  }
+  return n;
 }
 
 void LedEngine::startTest(TestPattern pattern) {
@@ -271,6 +309,7 @@ void LedEngine::renderLayers(uint32_t now) {
     if (!h.released && h.durationMs && age >= h.durationMs) {
       h.released = true;
       h.releasedAt = now;
+      version_ = version_ + 1;
     }
     // Level = fade-in x pulse x fade-out, each 0..255, renormalised after every product.
     uint32_t level = rampUp(age, fade);

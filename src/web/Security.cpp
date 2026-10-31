@@ -8,6 +8,7 @@
 #include <esp_random.h>
 
 #include "ApiUtil.h"
+#include "led/RmtStrip.h"
 
 namespace sb {
 
@@ -121,6 +122,7 @@ void Security::newToken() {
 }
 
 void Security::save() {
+  led::FlashGuard guard;  // LED strips pause during the flash write
   Preferences prefs;
   if (!prefs.begin(kPrefsNamespace, false)) return;
   prefs.putString("digest", digestHash_);

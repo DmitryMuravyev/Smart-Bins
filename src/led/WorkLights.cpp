@@ -86,7 +86,11 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
       l.pixels = lc.pixels;
       l.currentLimitMa = lc.currentLimitMa;
       l.out.assign(static_cast<size_t>(l.pixels) * l.chip.channels, 0);
-      ok &= pins[ch] >= 0 && l.strip.begin(pins[ch], l.chip.timing, lc.invertData);
+      const bool started = pins[ch] >= 0 && l.strip.begin(pins[ch], l.chip.timing, lc.invertData);
+      ok &= started;
+      // Dark frame at boot, as for the grid: pixels keep their colour through
+      // a reset, so a strip without a power switch would stay lit otherwise.
+      if (started && l.strip.write(l.out.data(), l.out.size())) l.strip.waitDone(50);
       hasStrips_ = true;
     } else {
       l.pwmCount = lc.mode == config::LightMode::Rgb ? 3 : 1;
@@ -397,6 +401,8 @@ void WorkLights::save() {
                                 static_cast<uint8_t>(s.effect)};
     }
   }
+  // Strips pause around the write, or the frame on the wire gets cut off.
+  FlashGuard guard;
   Preferences prefs;
   if (!prefs.begin(kPrefsNamespace, false)) return;
   prefs.putBytes(kPrefsKey, &saved, sizeof(saved));

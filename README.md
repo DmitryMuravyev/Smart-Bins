@@ -43,15 +43,15 @@ The boot log shows chip, flash, memory and partition information. If the detecte
 3. Pick your network, enter the password and press **Connect**. The page shows the address once connected.
 4. From then on the board is at **http://smartbins.local/** on your network (or at the IP shown in the serial log).
 
-The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network, hold **10 s** and release for a factory reset (Wi-Fi, configuration and web password). The LED lights steadily at 5 s and flickers at 10 s.
+The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network (a fixed IP address goes back to automatic too), hold **10 s** and release for a factory reset (Wi-Fi, configuration and web password). The LED lights steadily at 5 s and flickers at 10 s.
 
 ### Web interface
 
 Open **http://smartbins.local/** (or the board's IP). The pages so far:
 
 - **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), 12 colour presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
-- **Grid:** tap a bin to light it. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, and its colour; saved at once, no restart), grid brightness and the test patterns.
-- **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
+- **Grid:** tap a bin to light it, tap it again to turn it off; **Clear all** turns every bin off. Lit bins are shown on every open page. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, its colour and the grid brightness; saved at once, no restart) and the test patterns.
+- **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi, with an automatic (DHCP) or fixed IP address; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
 - **System:** firmware, chip, memory, storage and network details, and a restart button.
 
 The UI is built into the firmware (`web/` is gzipped into it at build time by `tools/embed_web.py`), so a firmware update, also over Wi-Fi, always brings the matching UI and there is no separate filesystem upload.
@@ -104,11 +104,11 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `POST /api/system/restart` | restarts the board |
 | `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
 | `/api/locate?x=3&y=2` | lights one bin; optional `color=FF0000`, `mode=steady\|slow-pulse\|fast-pulse`, `s=10` (0 = until cleared) |
-| `/api/locate/clear` | fades every located bin out |
+| `/api/locate/clear[?x=3&y=2]` | fades every located bin out, or just the one given |
 | `/api/locate/defaults` | without parameters: reads the defaults; with `color`, `mode`, `s`: changes and saves them |
 | `/api/led/test?pattern=walk\|chain\|rows\|columns\|colors\|off` | grid test patterns |
-| `/api/led/brightness?value=0..255` | grid brightness until the next restart |
-| `GET /api/led/status` | estimated grid current, frame rate, current limit active |
+| `/api/led/brightness?value=1..255` | grid brightness, applied and saved |
+| `GET /api/led/status` | estimated grid current, frame rate, current limit active, lit bins (`lit: [[x, y], ...]`) |
 | `GET /api/lights` | the work lights (`id`, name, type, state) |
 | `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
 | `/api/lights/off` | every light off |

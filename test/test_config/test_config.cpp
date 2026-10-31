@@ -119,6 +119,36 @@ static void test_light_channel_rules() {
                            err.c_str());
 }
 
+static void test_static_ip() {
+  AppConfig cfg;
+  std::string err;
+  const char *ok = "{\"network\":{\"mode\":\"static\",\"ip\":\"192.168.1.50\",\"gateway\":\"192.168.1.1\"}}";
+  TEST_ASSERT_TRUE_MESSAGE(parse(ok, cfg, err), err.c_str());
+  TEST_ASSERT_TRUE(cfg.network.staticIp);
+  TEST_ASSERT_EQUAL(50, cfg.network.ip[3]);
+  TEST_ASSERT_EQUAL(255, cfg.network.subnet[0]);  // default mask kept
+  // Survives a save and reload.
+  AppConfig again;
+  TEST_ASSERT_TRUE_MESSAGE(parse(serialize(cfg).c_str(), again, err), err.c_str());
+  TEST_ASSERT_TRUE(again.network.staticIp);
+  TEST_ASSERT_EQUAL(1, again.network.gateway[3]);
+
+  // DHCP ignores whatever addresses are filled in.
+  TEST_ASSERT_TRUE(parse("{\"network\":{\"mode\":\"dhcp\"}}", cfg, err));
+  TEST_ASSERT_FALSE(cfg.network.staticIp);
+
+  expectError("{\"network\":{\"ip\":\"192.168.1\"}}", "network.ip must be an address");
+  expectError("{\"network\":{\"ip\":\"192.168.1.256\"}}", "network.ip must be an address");
+  expectError("{\"network\":{\"ip\":\"1.2.3.4x\"}}", "network.ip must be an address");
+  expectError("{\"network\":{\"mode\":\"static\",\"ip\":\"192.168.1.50\",\"gateway\":\"192.168.2.1\"}}",
+              "network.gateway");
+  expectError("{\"network\":{\"mode\":\"static\",\"ip\":\"192.168.1.50\",\"gateway\":\"192.168.1.1\","
+              "\"subnet\":\"255.0.255.0\"}}",
+              "network.subnet");
+  expectError("{\"network\":{\"mode\":\"static\",\"ip\":\"192.168.1.255\",\"gateway\":\"192.168.1.1\"}}",
+              "network.ip is not a usable");
+}
+
 static void test_host_names() {
   TEST_ASSERT_TRUE(isValidHostName("smartbins"));
   TEST_ASSERT_TRUE(isValidHostName("lab-2"));
@@ -137,5 +167,6 @@ int main(int, char **) {
   RUN_TEST(test_light_channel_rules);
   RUN_TEST(test_addressable_light_rules);
   RUN_TEST(test_host_names);
+  RUN_TEST(test_static_ip);
   return UNITY_END();
 }
