@@ -291,9 +291,10 @@
 <!-- One part in the card view. -->
 <template id="part-card">
   <article class="card part">
-    <!-- Shown only when the part has a photo; a tap opens it full size. -->
-    <img class="part-thumb" alt="" loading="lazy" decoding="async" hidden>
     <div class="part-main">
+      <!-- Shown only when the part has a photo; a tap opens it full size. It
+           floats at the start of the text, so lines past the third run under it. -->
+      <img class="part-thumb" alt="" loading="lazy" decoding="async" hidden>
       <div class="part-title"><strong class="part-pn"></strong> <span class="muted part-maker"></span></div>
       <div class="part-desc"></div>
       <div class="part-meta muted small"></div>
