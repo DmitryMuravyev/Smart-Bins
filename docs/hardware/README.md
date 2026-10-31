@@ -2,7 +2,7 @@
 
 This is the reference circuit for Smart Bins on an **ESP32-DevKitC** (ESP32-WROOM-32, 8 or 16 MB flash). It covers the addressable bin grid, the work lights, the microphone and the optional microSD card. Every block can be built on perfboard; a PCB can come later.
 
-The grid's LED supply can be **5, 12 or 24 V**, depending on the strips (section 3). The reference build uses 12 V WS2815 or WS2811 strips, 10 × 6 bins with 2 pixels per bin.
+The grid's LED supply can be **5, 12 or 24 V**, depending on the strips (section 3). The reference build uses 12 V WS2815 or WS2811 strips, 10 × 6 bins with 2 pixels per bin, powered by a **Mean Well EPP-300-12**. Any supply of the right voltage works; the EPP-300-12 adds a standby 5 V output and remote on/off, which the circuit uses when they are there (section 7).
 
 The default pin map lives in [`lib/Board/src/PinMap.h`](../../lib/Board/src/PinMap.h). The firmware checks it at compile time and prints it at boot. From Task 14 on, pins and channel modes can be changed from the web UI.
 
@@ -16,8 +16,10 @@ The default pin map lives in [`lib/Board/src/PinMap.h`](../../lib/Board/src/PinM
 flowchart LR
     PSU["LED supply V_LED<br/>5, 12 or 24 V"] --> F1["Fuse F1"] --> Q1["P-MOSFET Q1<br/>grid power"] --> GRID["Addressable bin grid<br/>segments A and B"]
     PSU --> F2["Fuse F2"] --> Q2["P-MOSFET Q2<br/>work strip power"] --> WA["Addressable work strips<br/>(W1-W3 in addressable mode)"]
-    PSU --> BUCK["Buck converter<br/>V_LED to 5 V<br/>(skip at 5 V)"] --> D1["Schottky D1"] --> ESP["ESP32-DevKitC<br/>5V pin"]
-    BUCK --> U1
+    PSU -->|"5VSB (EPP-300-12)<br/>or buck converter"| D1["Schottky D1"] --> ESP["ESP32-DevKitC<br/>5V pin"]
+    D1 --> U1
+    ESP -->|"GPIO14: PS-ON"| PSU
+    PSU -->|"PG, via divider"| ESP
     PSUL["Supply for plain strips<br/>5, 12 or 24 V"] --> F3["Fuse F3"] --> STRIPS["White / analog RGB strips<br/>(+ side)"]
     STRIPS -->|"- side"| QN["N-MOSFETs<br/>W1-W5"] --> GND((GND))
     ESP -->|"GPIO16, 17"| U1["74HCT245<br/>3.3 V to 5 V"]
@@ -31,7 +33,7 @@ flowchart LR
     SD["microSD (optional)"] <-->|"SPI: 18, 19, 23, 5"| ESP
 ```
 
-All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near the LED supply. The plain-strip supply can be the same unit as the LED supply when the voltages match.
+All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near the LED supply. PS-ON and PG exist only on supplies with remote control, such as the EPP-300-12; with any other supply the ESP32 gets its 5 V from a buck converter (section 7). The plain-strip supply can be the same unit as the LED supply when the voltages match.
 
 ---
 
@@ -46,6 +48,8 @@ All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near
 | 2 | Work channel W2 | 13 | out | universal |
 | 2 | Work channel W3 | 4 | out | universal |
 | 2 | Work strip power enable | 33 | out | Q2 high-side switch, for addressable work strips |
+| 2 | Supply on/off (PS-ON) | 14 | out | EPP-300-12 and similar; optional (section 7) |
+| 2 | Supply power good (PG) | 39 | in | via divider; optional (section 7) |
 | 3 | White channel W4 | 21 | out | N-MOSFET only |
 | 3 | White channel W5 | 22 | out | N-MOSFET only |
 | 3 | Microphone I2S SCK / WS / SD | 26 / 25 / 34 | out / out / in | INMP441 |
@@ -53,7 +57,7 @@ All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near
 | – | microSD SCK / MISO / MOSI / CS | 18 / 19 / 23 / 5 | SPI | optional |
 | – | Button (clear highlight, factory reset) | 0 | in | on-board BOOT button |
 | – | Status LED | 2 | out | on-board LED |
-| – | Spare | 14, 15, 36, 39 (input-only) | | |
+| – | Spare | 15, 36 (input-only) | | |
 
 Pins to avoid: **GPIO6–11** (internal flash), **GPIO1/3** (USB serial), **GPIO12** (sets flash voltage at boot; pulled high, the board won't start), **GPIO34–39** as outputs (input-only). The firmware's pin validator rejects all of these.
 
@@ -188,7 +192,47 @@ Plain white and analog RGB strips (5, 12 or 24 V) are dimmed by switching their 
 
 ---
 
-## 7. ESP32 power
+## 7. Supply and ESP32 power
+
+### Option A: Mean Well EPP-300-12 (reference build)
+
+Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)** that stays on while the main output is off, a **PS-ON** input that turns the main output on and off, and a **PG** (power good) output. That lets the ESP32 run from 5VSB and switch the whole 12 V side off when every light is off, with no buck converter.
+
+```
+   EPP-300-12 CN951 (Hirose DF11, 4 pins)
+     1 5VSB ----------|>|------------------- DevKitC "5V" pin, U1 VCC
+                      D1 SS34
+     2, 4 DC COM ----------------------------- GND (common)
+     3 PS-ON ----+----[1k]------------------ GPIO14
+                 |
+               [10k]   PS-ON pull-down: supply stays off while the ESP32 boots
+                 |
+                GND
+
+   EPP-300-12 CN100 (Hirose DF11, 4 pins)
+     4 PG -------[10k]---+------------------ GPIO39 (input-only)
+                         |
+                       [20k]   divider: 5 V TTL -> 3.3 V
+                         |
+                        GND
+     3 DC COM ----------------------------- GND
+     1 -S, 2 +S          not connected (remote sense; the supply uses its own terminals when open)
+
+   Main output: CN3 +V, CN2 -V (M3.5 screws) --> F1, F2, F3 --> grid, work strips, plain strips
+   Fan connector CN952 (JST XH, 2 pins): +12 V AUX, 0.5 A, for an enclosure fan if needed
+```
+
+- **5VSB** gives 0.6 A without a fan. The ESP32 with Wi-Fi (about 250 mA peaks), U1, the microphone and a microSD card stay below about 0.45 A.
+- **PS-ON** turns the main output on above 2 V and off below 0.5 V. The ESP32 drives it directly from GPIO14. The datasheet doesn't say whether PS-ON has an internal pull-up. **Before connecting it**, measure PS-ON against DC COM with the supply on and nothing connected: if it reads above 0.5 V, there is a pull-up, and the 10 kΩ pull-down must be small enough to hold it below 0.5 V (start with 2.2 kΩ and measure again).
+- **PG** goes high 10–500 ms after the main output is up, and low at least 1 ms before it drops below 90 %. The firmware waits for PG before sending LED data, and treats PG going low as a power failure. If PG reads 0 V with the main output on and the divider connected, it's an open-collector output: replace the 20 kΩ with a 10 kΩ pull-up from GPIO39 to 3V3.
+- With PS-ON in use, the P-MOSFET switches Q1 and Q2 (section 5) are optional: turning the supply off already removes the pixels' idle current. Keep them if the grid and the work strips should switch independently (without them, the grid idles at about 120 mA while only a work light is on).
+- **Cooling:** without a fan the EPP-300-12 delivers 200 W (16.7 A), far more than the reference grid needs (about 36 W at full white), so no fan is required. The AUX output can drive a small 12 V fan for the enclosure.
+- **Mains:** the EPP-300 is an open-frame supply with exposed mains. Mount it in a closed enclosure and feed it through an IEC inlet with a fuse and a switch. AC goes in on CN1 (JST VH): pin 1 N, pin 3 L, pin 5 protective earth (FG), which the datasheet requires to be connected. Also earth the mounting holes marked for grounding if the enclosure is metal.
+- **Fuses:** the main output can deliver 25 A into a short, so fuses F1–F3 are essential.
+- **Breadboard shortcut:** until the firmware drives PS-ON (see below), wire PS-ON to 5VSB to keep the main output on.
+- PS-ON and PG are on the firmware's list: the pins are reserved here, and the supply control (on before any light needs power, off after the last fade-out, PG checks) comes with the power-switch work in a later task.
+
+### Option B: any other supply
 
 ```
    V_LED = 5 V:      +5V supply --[fuse 1A]--|>|-- DevKitC "5V" pin, U1 VCC
@@ -198,6 +242,10 @@ Plain white and analog RGB strips (5, 12 or 24 V) are dimmed by switching their 
 ```
 
 - Any small buck module works (MP1584, LM2596 or a fixed 5 V type). Set it to 5.0 V **before** connecting the ESP32.
+- GPIO14 and GPIO39 stay unconnected; Q1 and Q2 (section 5) do the power switching.
+
+### Both options
+
 - D1 stops the supply from back-feeding the computer's USB port while you are connected for flashing (many DevKitC clones have no diode of their own).
 - The DevKitC's on-board regulator makes 3.3 V for the ESP32, the microphone and the microSD card. Don't power anything else from it.
 
@@ -225,6 +273,8 @@ Keep the wires under 20 cm. Digital I2S is immune to the ESP32 ADC's noise, whic
 ## 9. microSD card (optional)
 
 Used for photos: with a card, photos are stored at 800 px instead of 640 px, and there is room for thousands of them. Use a 3.3 V microSD module (no on-board 5 V regulator) wired to SCK GPIO18, MISO GPIO19, MOSI GPIO23, CS GPIO5, VCC 3V3, GND.
+
+Use an **8–32 GB microSDHC** card from a known brand, formatted FAT32. Cards of 64 GB and up come formatted exFAT, which the ESP32's file system doesn't read. Capacity hardly matters: an 800 px photo is about 100 KB, so even 8 GB holds tens of thousands.
 
 ---
 
@@ -254,7 +304,7 @@ All white, 100 %:  3.0 A  (36 W, theoretical maximum)
 All dark:          120 mA  (cut to 0 by the power switches)
 Firmware limit:    1.0 A  (12 W)
 LED supply:        12 V, >= 2 A  (24 W), includes the ESP32
-ESP32 supply:      buck converter 12 V -> 5 V, >= 1 A
+ESP32 supply:      5VSB, or a buck converter 12 V -> 5 V, >= 1 A
 Grid fuse:         2 A slow-blow
 Main LED wiring:   22 AWG (0.35 mm2), inject power every ~1 m or every row
 ```
@@ -274,31 +324,38 @@ Quantities are for the full design; skip the optional blocks you don't need.
 |---|---|---|---|
 | – | ESP32-DevKitC (WROOM-32, 8/16 MB) | 1 | |
 | U1 | 74HCT245 (DIP-20 or SOIC-20) | 1 | must be HCT |
-| – | Buck converter, V_LED → 5 V, ≥ 1 A | 1 | only for 12/24 V strips |
-| Q1, Q2 | AO4407A P-MOSFET (SO-8); AOD4185 for 24 V | 1–2 | Q2 only for addressable work strips |
+| – | Buck converter, V_LED → 5 V, ≥ 1 A | 0–1 | only for 12/24 V strips without a 5 V standby output (section 7, option B) |
+| Q1, Q2 | AO4407A P-MOSFET (SO-8); AOD4185 for 24 V | 0–2 | Q2 only for addressable work strips; both optional with PS-ON (section 7) |
 | Q3, Q3' | BC547 / 2N3904 NPN | 1–2 | gate drivers for Q1, Q2 |
 | ZD1, ZD1' | 15 V zener, 0.5 W (BZX55C15) | 1–2 | gate protection for Q1, Q2 |
 | Q4–Q8 | AO3400A (or IRLB8721) N-MOSFET | up to 5 | one per plain work channel |
 | D1 | SS34 Schottky | 1 | ESP32 supply |
 | R | 330 Ω | 5 | data line series |
 | R | 1 kΩ | 2 | NPN base |
-| R | 10 kΩ | 9 | gate pull-ups / pull-downs, base pull-downs, R2 at 12 V |
+| R | 10 kΩ | 9 + 2 | gate pull-ups / pull-downs, base pull-downs, R2 at 12 V; + PS-ON pull-down and PG divider |
+| R | 1 kΩ | 1 | PS-ON series (option A) |
+| R | 20 kΩ | 1 | PG divider (option A) |
 | R | 27 kΩ | 0–2 | R2 at 24 V |
 | R | 100 Ω | 5 | N-MOSFET gate |
 | C | 100 nF ceramic | 1 | U1 decoupling |
 | C | 1000 µF electrolytic (voltage per section 10) | 1 per segment + 2 | strip inputs, V_STRIP input |
 | F1–F3 | fuses + holders | 3 | sized from the power budget |
-| – | LED supply (5, 12 or 24 V) | 1 | from the power budget |
+| – | LED supply (5, 12 or 24 V) | 1 | from the power budget; reference build: Mean Well EPP-300-12 |
+| – | Hirose DF11-4DS housing + DF11 crimp terminals (DF11-2428SC for 24–28 AWG wire) | 2 + 8 | EPP-300: CN951 (5VSB, PS-ON) and CN100 (PG) |
+| – | JST VHR-5N housing + SVH-21T-P1.1 terminals | 1 + 3 | EPP-300 AC input CN1 |
+| – | M3.5 ring or fork terminals | 4+ | EPP-300 main output screws |
+| – | IEC C14 inlet with fuse holder and switch, mains cable | 1 | for any open-frame mains supply |
+| – | Enclosure | 1 | closed; mains parts must not be touchable |
 | – | Plain-strip supply | 0–1 | only if its voltage differs from V_LED |
 | – | INMP441 module | 0–1 | music-reactive effects |
-| – | microSD module (3.3 V) | 0–1 | optional |
+| – | microSD module (3.3 V) + 8–32 GB microSDHC card | 0–1 | optional; FAT32 |
 | – | JST-SM 3-pin / screw terminals | as needed | strip connectors |
 
 ---
 
 ## 13. First power-up checklist
 
-1. With nothing connected, set the buck converter (if used) to 5.0 V.
+1. With nothing connected, set the buck converter (if used) to 5.0 V. With the EPP-300-12, check 5VSB (5.0 V) and measure PS-ON and PG as described in section 7.
 2. Power the board from the LED supply and check: 5 V at the DevKitC's 5V pin, 3.3 V at its 3V3 pin, 5 V at U1 pin 20.
 3. Flash the firmware. With nothing connected, the switched outputs of Q1 and Q2 must read 0 V.
 4. Connect one short strip (8–10 pixels) to segment A. Do the LED tests from Task 4 at low brightness before connecting the full grid.
