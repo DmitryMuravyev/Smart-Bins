@@ -32,7 +32,8 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 - **Within the grid, rows are chained serpentine** (row 1 left→right, row 2 right→left...) so each segment needs just one data wire. The mapper supports progressive wiring and any start corner too, so physical layout stays flexible.
 - **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 3 universal work-light lines (W1–W3) from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
 - **Power switching with MOSFETs:** each addressable power domain (bin grid, addressable work strips) gets a high-side P-channel MOSFET (AO4407A, driven by a small NPN, with a gate divider chosen for 5, 12 or 24 V) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
-- **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (estimated from the pixel data, per grid and per addressable work strip).
+- **Supply control (optional):** with a supply that has a 5 V standby output and remote on/off (Dmitry's build: Mean Well EPP-300-12), the ESP32 runs from standby 5 V, turns the main output on through PS-ON before any light needs it and off after the last fade-out, and watches PG to hold LED data until the output is up and to detect power failure. The P-MOSFET switches then become optional.
+- **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from the supply's standby output or a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (estimated from the pixel data, per grid and per addressable work strip).
 - **Smooth transitions:** the LED engine fades every on/off and brightness change (decision 8). Power switches turn on before a fade-in starts and off only after a fade-out ends.
 
 ### Work-light channels
@@ -56,13 +57,14 @@ W1–W3 are **universal**: each GPIO is wired to both a low-side N-MOSFET (white
 | 1 | Grid power enable | 32 | P-MOSFET high-side switch |
 | 2 | Work-light channels W1, W2, W3 | 27, 13, 4 | universal (PWM or addressable) |
 | 2 | Work-light addressable power enable | 33 | P-MOSFET, only needed for addressable work strips |
+| 2 | Supply on/off (PS-ON), power good (PG) | 14, 39 | optional, for supplies with remote control such as the EPP-300-12 |
 | 3 | White channels W4, W5 | 21, 22 | PWM only |
 | 3 | I2S microphone (INMP441) SCK, WS, SD | 26, 25, 34 | GPIO34 is input-only, fine for data in |
 | 3 | Analog microphone (MAX9814) alternative | 35 | ADC1, replaces I2S mic |
 | – | Optional microSD (photos on 4 MB boards) | 18, 19, 23, 5 | VSPI |
 | – | Button (clear highlight / factory reset) | 0 | on-board BOOT button |
 | – | Status LED | 2 | on-board LED on most DevKitC boards |
-| – | Spare | 14, 15, 36, 39 (input-only) | 12 is a strapping pin, never used |
+| – | Spare | 15, 36 (input-only) | 12 is a strapping pin, never used |
 
 Final map is confirmed with the schematic in Task 2.
 
