@@ -77,6 +77,8 @@ function t(key, vars) {
 function applyTranslations(root = document) {
   for (const el of $$('[data-i18n]', root)) el.textContent = t(el.dataset.i18n);
   for (const el of $$('[data-i18n-ph]', root)) el.placeholder = t(el.dataset.i18nPh);
+  for (const el of $$('[data-i18n-title]', root)) el.title = t(el.dataset.i18nTitle);
+  for (const el of $$('[data-i18n-aria]', root)) el.setAttribute('aria-label', t(el.dataset.i18nAria));
   for (const el of $$('#locate-presets button', root)) el.title = t(`lights.preset.${el.dataset.preset}`);
 }
 
@@ -375,6 +377,7 @@ const inv = {
   total: 0,           // matches on the board, across all pages
   seq: 0,             // searches started; only the newest one's answer is shown
   bins: [],           // /api/bins: {x, y, label, parts, outside}
+  binHits: null,      // bin grid while searching: "x,y" -> matching parts (see searchBins)
   located: '',        // the result set auto-locate last lit, so it lights once
   searchTimer: 0,
   valuesAt: 0,        // when the autocomplete lists were last loaded (ms)
@@ -442,31 +445,71 @@ function scheduleSearch() {
 async function search(more = false) {
   clearTimeout(inv.searchTimer);
   const seq = ++inv.seq;
-  const params = new URLSearchParams({ sort: inv.sort, order: inv.order, limit: PAGE_SIZE,
-    offset: more ? inv.parts.length : 0 });
-  if (inv.q.trim()) params.set('q', inv.q.trim());
-  if (inv.category) params.set('category', inv.category);
-  if (inv.manufacturer) params.set('manufacturer', inv.manufacturer);
+  if (inv.view === 'bins') return searchBins(seq);
+  const params = searchParams();
+  params.set('sort', inv.sort);
+  params.set('order', inv.order);
+  params.set('limit', PAGE_SIZE);
+  params.set('offset', more ? inv.parts.length : 0);
   if (inv.bin) { params.set('x', inv.bin.x); params.set('y', inv.bin.y); }
   let res;
   try {
     res = await api(`/api/parts?${params}`);
   } catch (e) {
-    if (seq !== inv.seq) return;
-    // 503: no database (failed to open); everything else is a passing error.
-    const unavailable = /unavailable/.test(e.message);
-    $('#inv-unavailable').hidden = !unavailable;
-    $('#inv-main').hidden = unavailable;
-    if (!unavailable) toast(e.message, true);
+    if (seq === inv.seq) searchFailed(e);
     return;
   }
   if (seq !== inv.seq) return;  // a newer search is on its way
-  $('#inv-unavailable').hidden = true;
-  $('#inv-main').hidden = false;
+  searchWorked();
   inv.parts = more ? inv.parts.concat(res.parts) : res.parts;
   inv.total = res.total;
   renderInventory();
   if (!more) autoLocate();
+}
+
+// The search words and the two filters, as /api/parts and /api/parts/bins
+// take them. The bin filter is not here: the bin grid shows every bin.
+function searchParams() {
+  const params = new URLSearchParams();
+  if (inv.q.trim()) params.set('q', inv.q.trim());
+  if (inv.category) params.set('category', inv.category);
+  if (inv.manufacturer) params.set('manufacturer', inv.manufacturer);
+  return params;
+}
+
+function searchFailed(e) {
+  // 503: no database (failed to open); everything else is a passing error.
+  const unavailable = /unavailable/.test(e.message);
+  $('#inv-unavailable').hidden = !unavailable;
+  $('#inv-main').hidden = unavailable;
+  if (!unavailable) toast(e.message, true);
+}
+
+function searchWorked() {
+  $('#inv-unavailable').hidden = true;
+  $('#inv-main').hidden = false;
+}
+
+// The bin grid's search: with search words or a filter set, asks the board
+// which bins hold matching parts and how many (inv.binHits, keyed "x,y";
+// "-1,-1" counts the matches in no bin), so the grid can show where the
+// results are. Without any, the grid shows every bin's own part count and
+// inv.binHits is null. The bins themselves are reloaded too, since counts
+// change as parts are edited.
+async function searchBins(seq) {
+  const params = searchParams();
+  const searching = [...params.keys()].length > 0;
+  let hits = null;
+  try {
+    [, hits] = await Promise.all([loadBins(), searching ? api(`/api/parts/bins?${params}`) : null]);
+  } catch (e) {
+    if (seq === inv.seq) searchFailed(e);
+    return;
+  }
+  if (seq !== inv.seq) return;  // a newer search is on its way
+  searchWorked();
+  inv.binHits = hits ? new Map(hits.bins.map(b => [`${b.x},${b.y}`, b.parts])) : null;
+  renderInventory();
 }
 
 function filtered() {
@@ -476,26 +519,48 @@ function filtered() {
 function renderInventory() {
   const view = inv.view;
   for (const b of $$('#inv-view button')) b.classList.toggle('on', b.dataset.view === view);
-  $('#inv-sort').value = inv.sort;
+  const bins = view === 'bins';
+  const sort = $('#inv-sort');
+  sort.value = inv.sort;
+  $('#inv-sort-label').textContent = sort.selectedOptions[0] ? sort.selectedOptions[0].textContent : '';
   $('#inv-order').textContent = inv.order === 'asc' ? '↑' : '↓';
   $('#inv-order').title = t(inv.order === 'asc' ? 'inv.ascending' : 'inv.descending');
+  // The grid has a fixed layout, so sorting means nothing there.
+  $('#inv-sort-box').hidden = bins;
 
+  // The bin chip filters the lists; the grid always shows every bin.
   const filter = $('#inv-bin-filter');
-  filter.hidden = !inv.bin;
+  filter.hidden = bins || !inv.bin;
   if (inv.bin) $('#inv-bin-name').textContent = t('inv.inBin', { bin: binName(inv.bin.x, inv.bin.y) });
 
-  const bins = view === 'bins';
   $('#inv-cards').hidden = view !== 'cards';
   $('#inv-table-wrap').hidden = view !== 'table';
   $('#inv-bins').hidden = !bins;
-  $('#inv-count').hidden = bins;
   $('#inv-more').hidden = bins || inv.parts.length >= inv.total;
   const empty = $('#inv-empty');
-  empty.hidden = bins || inv.total > 0;
   empty.textContent = t(filtered() ? 'inv.noMatch' : 'inv.noParts');
-  $('#inv-count').textContent = inv.total ? t('inv.count', { n: inv.total }) : '';
 
-  if (bins) return renderBinGrid();
+  if (bins) {
+    // With a search: how many matches, in how many bins, and how many of
+    // them are in no bin (those can't be shown on the grid).
+    let count = '';
+    let matches = 0;
+    if (inv.binHits) {
+      let inBins = 0;
+      for (const [key, n] of inv.binHits) {
+        matches += n;
+        if (key !== '-1,-1') inBins++;
+      }
+      const loose = inv.binHits.get('-1,-1') || 0;
+      if (matches) count = t('inv.binHits', { n: matches, bins: inBins });
+      if (loose) count += ` · ${t('inv.looseHits', { n: loose })}`;
+    }
+    $('#inv-count').textContent = count;
+    empty.hidden = !inv.binHits || matches > 0;
+    return renderBinGrid();
+  }
+  $('#inv-count').textContent = inv.total ? t('inv.count', { n: inv.total }) : '';
+  empty.hidden = inv.total > 0;
   if (view === 'cards') $('#inv-cards').replaceChildren(...inv.parts.map(buildPartCard));
   else $('#inv-table tbody').replaceChildren(...inv.parts.map(buildPartRow));
   for (const th of $$('#inv-table th')) {
@@ -637,16 +702,20 @@ function renderBinGrid() {
   const cells = [];
   const extra = [];
   for (const b of inv.bins) {
+    // While searching, a bin counts only its matching parts; bins without
+    // any look empty, so the ones holding results stand out.
+    const n = inv.binHits ? inv.binHits.get(`${b.x},${b.y}`) || 0 : b.parts;
     const cell = document.createElement('button');
-    cell.className = b.parts ? 'has-parts' : 'empty';
+    cell.className = n ? 'has-parts' : 'empty';
+    if (inv.binHits && n) cell.classList.add('hit');
     const name = document.createElement('span');
     name.className = 'bin-name';
     name.textContent = b.label || binLabel(b.x, b.y);
     const count = document.createElement('span');
     count.className = 'bin-count';
-    count.textContent = b.parts ? String(b.parts) : '';
+    count.textContent = n ? String(n) : '';
     cell.append(name, count);
-    cell.title = t('inv.binTitle', { bin: binLabel(b.x, b.y), n: b.parts });
+    cell.title = t(inv.binHits ? 'inv.binHitTitle' : 'inv.binTitle', { bin: binLabel(b.x, b.y), n });
     cell.addEventListener('click', () => {
       inv.bin = { x: b.x, y: b.y };
       inv.view = pref('listView', 'cards');
@@ -787,7 +856,15 @@ function bindInventory() {
   $('#inv-autolocate').checked = pref('autoLocate', '0') === '1';
 
   $('#inv-q').addEventListener('input', e => { inv.q = e.target.value; scheduleSearch(); });
-  $('#inv-q').addEventListener('keydown', e => { if (e.key === 'Enter') search(); });
+  // Enter (the keyboard's Search key on a phone) searches at once and takes
+  // the focus off the field, which closes the on-screen keyboard so it
+  // doesn't cover the results; tapping the field brings it back.
+  $('#inv-q').addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    e.target.blur();
+    search();
+  });
   $('#inv-category').addEventListener('change', e => { inv.category = e.target.value; search(); });
   $('#inv-maker').addEventListener('change', e => { inv.manufacturer = e.target.value; search(); });
   const setSort = (key, order) => {
@@ -811,8 +888,9 @@ function bindInventory() {
       inv.view = b.dataset.view;
       setPref('view', inv.view);
       if (inv.view !== 'bins') setPref('listView', inv.view);
-      if (inv.view === 'bins') loadBins().then(renderInventory);
-      else renderInventory();
+      // Each view asks the board for what it shows: a page of parts for the
+      // lists, per-bin counts for the grid.
+      search();
     });
   }
   $('#inv-autolocate').addEventListener('change', e => {

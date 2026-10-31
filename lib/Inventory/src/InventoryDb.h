@@ -136,6 +136,12 @@ struct FieldValue {
   int64_t parts = 0;
 };
 
+// How many of a query's parts are in one bin (see countByBin()).
+struct BinCount {
+  BinRef bin;  // x = -1: the parts in no bin
+  int64_t parts = 0;
+};
+
 enum class Result { Ok, NotFound, Invalid, Error };
 
 struct WriteHooks {
@@ -186,6 +192,10 @@ class InventoryDb {
   // match, across all pages.
   Result findParts(const PartQuery &query, const std::function<void(const Part &)> &each, int64_t &total,
                    std::string &err);
+  // How the parts matching `query` are spread over the bins: one BinCount per
+  // bin that holds at least one of them (sort, offset and limit are ignored).
+  // Lets the bin grid show where the search results are.
+  Result countByBin(const PartQuery &query, const std::function<void(const BinCount &)> &each, std::string &err);
   // The distinct non-empty values of one text field, most used first, for
   // filter lists and autocomplete. `contains` narrows them like a search word
   // (substring, any case); `limit` caps how many come back.

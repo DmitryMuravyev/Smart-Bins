@@ -285,6 +285,32 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     sendText(req, 200, "application/json", std::move(body));
   });
 
+  // Where the parts matching a search are: the same filters as /api/parts
+  // (q, category, manufacturer), answered with one entry per bin that holds
+  // any of them, {"bins":[{"x":0,"y":0,"parts":3}, ...]}. Parts in no bin
+  // come as x = -1, y = -1. The bin grid view uses it to show the search.
+  server.on(AsyncURIMatcher::exact("/api/parts/bins"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
+    if (!ready(req)) return;
+    PartQuery query;
+    std::string err;
+    if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
+    std::string body;
+    StringPrint res(body);
+    res.print("{\"bins\":[");
+    bool first = true;
+    const Result r = db.countByBin(
+        query,
+        [&](const inventory::BinCount &c) {
+          if (!first) res.print(',');
+          first = false;
+          res.printf("{\"x\":%d,\"y\":%d,\"parts\":%lld}", c.bin.x, c.bin.y, (long long)c.parts);
+        },
+        err);
+    if (r != Result::Ok) return sendResult(req, r, err);
+    res.print("]}");
+    sendText(req, 200, "application/json", std::move(body));
+  });
+
   // Distinct values of one text field with their part counts, most used
   // first: the choices for the category and manufacturer filters, and
   // autocomplete in the part form (Task 9).

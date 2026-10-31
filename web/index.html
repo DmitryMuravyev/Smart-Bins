@@ -40,27 +40,36 @@
     <p class="card empty" id="inv-unavailable" hidden data-i18n="inv.unavailable">The parts database is not available. The serial log says why.</p>
     <div id="inv-main">
       <input type="search" id="inv-q" data-i18n-ph="inv.searchPh" placeholder="Search parts, e.g. stm32 lqfp" autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <!-- Filters narrow the list; the bar under them only changes how it is shown. -->
       <div class="inv-tools">
         <select id="inv-category" aria-label="Category"></select>
         <select id="inv-maker" aria-label="Manufacturer"></select>
-        <div class="sort">
-          <select id="inv-sort" aria-label="Sort">
-            <option value="partNumber" data-i18n="field.partNumber">Part number</option>
-            <option value="description" data-i18n="field.description">Description</option>
-            <option value="manufacturer" data-i18n="field.manufacturer">Manufacturer</option>
-            <option value="category" data-i18n="field.category">Category</option>
-            <option value="package" data-i18n="field.package">Package</option>
-            <option value="value" data-i18n="field.value">Value</option>
-            <option value="quantity" data-i18n="field.quantity">Quantity</option>
-            <option value="bin" data-i18n="field.bin">Bin</option>
-            <option value="updated" data-i18n="inv.sortUpdated">Last changed</option>
-          </select>
-          <button class="secondary order" id="inv-order" aria-label="Order"></button>
-        </div>
+      </div>
+      <div class="inv-bar">
         <div class="seg" id="inv-view" role="group">
           <button data-view="cards" data-i18n="inv.view.cards">Cards</button>
           <button data-view="table" data-i18n="inv.view.table">Table</button>
           <button data-view="bins" data-i18n="inv.view.bins">Bins</button>
+        </div>
+        <!-- Sort: a compact button showing the current order. The native select
+             lies invisibly over it, so a tap opens the phone's own picker. -->
+        <div class="sort" id="inv-sort-box">
+          <label class="sort-pick" data-i18n-title="inv.sortBy">
+            <span class="sort-icon" aria-hidden="true">⇅</span>
+            <span id="inv-sort-label"></span>
+            <select id="inv-sort" data-i18n-aria="inv.sortBy" aria-label="Sort by">
+              <option value="partNumber" data-i18n="field.partNumber">Part number</option>
+              <option value="description" data-i18n="field.description">Description</option>
+              <option value="manufacturer" data-i18n="field.manufacturer">Manufacturer</option>
+              <option value="category" data-i18n="field.category">Category</option>
+              <option value="package" data-i18n="field.package">Package</option>
+              <option value="value" data-i18n="field.value">Value</option>
+              <option value="quantity" data-i18n="field.quantity">Quantity</option>
+              <option value="bin" data-i18n="field.bin">Bin</option>
+              <option value="updated" data-i18n="inv.sortUpdated">Last changed</option>
+            </select>
+          </label>
+          <button class="secondary order" id="inv-order" aria-label="Order"></button>
         </div>
       </div>
       <div class="inv-filter" id="inv-bin-filter" hidden>
