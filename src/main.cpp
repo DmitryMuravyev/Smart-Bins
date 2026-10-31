@@ -81,7 +81,7 @@ void openInventory(const sb::config::AppConfig &cfg) {
     return now > 1700000000 ? static_cast<int64_t>(now) : 0;
   });
   std::string err;
-  const uint32_t heapBefore = ESP.getFreeHeap();
+  const uint32_t heapBefore = sb::heapFree();
   if (!inventoryDb.open("/ffat/inventory.db", err)) {
     ESP_LOGE(TAG, "Inventory database unavailable: %s", err.c_str());
     return;
@@ -93,7 +93,7 @@ void openInventory(const sb::config::AppConfig &cfg) {
   if (inventoryDb.stats(s, err) == sb::inventory::Result::Ok) {
     ESP_LOGI(TAG, "Inventory: %lld parts in %lld of %lld bins, database %s, %s of RAM", (long long)s.parts,
              (long long)s.binsUsed, (long long)s.binsTotal, sb::formatBytes(s.dbBytes),
-             sb::formatBytes(heapBefore > ESP.getFreeHeap() ? heapBefore - ESP.getFreeHeap() : 0));
+             sb::formatBytes(heapBefore > sb::heapFree() ? heapBefore - sb::heapFree() : 0));
   }
 }
 
@@ -227,8 +227,8 @@ void setup() {
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);
   server.begin();
-  ESP_LOGI(TAG, "Boot complete, free heap %s, largest block %s", sb::formatBytes(ESP.getFreeHeap()),
-           sb::formatBytes(ESP.getMaxAllocHeap()));
+  ESP_LOGI(TAG, "Boot complete, free heap %s, largest block %s", sb::formatBytes(sb::heapFree()),
+           sb::formatBytes(sb::heapLargest()));
 }
 
 void loop() {
@@ -246,7 +246,7 @@ void loop() {
   if (millis() - lastReport >= 60000) {
     lastReport = millis();
     ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
-             sb::formatBytes(ESP.getFreeHeap()), sb::formatBytes(ESP.getMinFreeHeap()));
+             sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
   }
   delay(2);
 }

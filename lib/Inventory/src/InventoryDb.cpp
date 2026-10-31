@@ -618,28 +618,54 @@ Result InventoryDb::stats(Stats &out, std::string &err) {
   return Result::Ok;
 }
 
+// Removes the benchmark's parts, a batch at a time. One DELETE of every
+// matching row makes SQLite hold far more RAM while it runs (on a PC about
+// 60 KB above the page cache for 2,000 rows, against under 20 KB in batches),
+// which a board with little free heap can't spare. All batches share one
+// transaction, so the work on flash is the same.
+Result InventoryDb::deleteBenchParts(std::string &err) {
+  WriteTxn txn(*this);
+  if (!txn.began()) return err = lastError(), Result::Error;
+  Stmt del(db_, "DELETE FROM parts WHERE id IN (SELECT id FROM parts WHERE category = ? LIMIT 100)");
+  // Each pass removes up to 100 rows; a pass that removes none means they're
+  // all gone. The category is bound on every pass because reset() also
+  // clears the bindings.
+  int removed = 0;
+  do {
+    del.bind(1, std::string(kBenchCategory));
+    if (del.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+    removed = sqlite3_changes(db_);
+    del.reset();
+  } while (removed > 0);
+  return txn.commit(err) ? Result::Ok : Result::Error;
+}
+
 Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
   out = BenchResult();
   out.count = count;
+  // Every failure below names the step it happened in ("insert: out of
+  // memory"), so a report from the board says where to look.
+  const char *phase = "cleanup";
+  auto fail = [&]() {
+    if (err.empty()) err = lastError();
+    err = std::string(phase) + ": " + err;
+    return Result::Error;
+  };
   // Leftovers of an interrupted run would skew the numbers.
-  {
-    WriteTxn txn(*this);
-    Stmt del(db_, "DELETE FROM parts WHERE category = ?");
-    del.bind(1, kBenchCategory);
-    if (!txn.began() || del.step() != SQLITE_DONE || !txn.commit(err)) return err = lastError(), Result::Error;
-  }
+  if (deleteBenchParts(err) != Result::Ok) return fail();
 
   // Realistic-looking rows: a mix of manufacturers, values and packages, and
   // text in most fields, so the file grows as a real inventory would.
   static const char *const kMakers[] = {"Yageo", "Murata", "TI", "STMicro", "Vishay", "Nexperia", "Microchip", "Bourns"};
   static const char *const kKinds[] = {"Resistor", "Capacitor", "MCU", "Op-amp", "Diode", "Transistor", "Regulator"};
   static const char *const kPackages[] = {"0603", "0805", "SOT-23", "SOIC-8", "TO-220", "LQFP-48"};
+  phase = "insert";
   auto start = std::chrono::steady_clock::now();
   {
     WriteTxn txn(*this);
-    if (!txn.began()) return err = lastError(), Result::Error;
+    if (!txn.began()) return fail();
     Stmt ins(db_,
              "INSERT INTO parts (part_number, manufacturer, category, description, package, value, unit, notes,"
              " quantity, bin_id) VALUES (?, ?, ?, ?, ?, ?, 'pcs', ?, ?,"
@@ -659,51 +685,66 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
       ins.bind(8, i % 500);
       ins.bind(9, cols > 0 ? i % cols : 0);
       ins.bind(10, rows > 0 ? (i / (cols > 0 ? cols : 1)) % rows : 0);
-      if (ins.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+      if (ins.step() != SQLITE_DONE) return fail();
       ins.reset();
     }
-    if (!txn.commit(err)) return Result::Error;
+    if (!txn.commit(err)) return fail();
   }
   out.insertMs = elapsedMs(start);
 
+  // Each query below sits in its own block so its prepared statement (several
+  // KB each) is freed before the next step, instead of all of them staying
+  // allocated until the end and adding up.
+  phase = "count";
   start = std::chrono::steady_clock::now();
-  Stmt cnt(db_, "SELECT count(*) FROM parts");
-  if (cnt.step() != SQLITE_ROW) return err = lastError(), Result::Error;
+  {
+    Stmt cnt(db_, "SELECT count(*) FROM parts");
+    if (cnt.step() != SQLITE_ROW) return fail();
+  }
   out.countMs = elapsedMs(start);
 
   // The kind of query Task 8's global search will run: a substring in any
   // text field, which no index helps with, so every row is read.
+  phase = "search";
   start = std::chrono::steady_clock::now();
-  std::string sql = "SELECT count(*) FROM parts WHERE 0";
-  for (const TextFieldInfo &f : kTextFields) sql += std::string(" OR ") + f.column + " LIKE ?1";
-  Stmt search(db_, sql.c_str());
-  search.bind(1, std::string("%murata%"));
-  if (search.step() != SQLITE_ROW) return err = lastError(), Result::Error;
-  out.found = search.integer(0);
+  {
+    std::string sql = "SELECT count(*) FROM parts WHERE 0";
+    for (const TextFieldInfo &f : kTextFields) sql += std::string(" OR ") + f.column + " LIKE ?1";
+    Stmt search(db_, sql.c_str());
+    search.bind(1, std::string("%murata%"));
+    if (search.step() != SQLITE_ROW) return fail();
+    out.found = search.integer(0);
+  }
   out.searchMs = elapsedMs(start);
 
+  phase = "bin";
   start = std::chrono::steady_clock::now();
-  std::string binSql = std::string(kPartSelect) + " WHERE p.bin_id = (SELECT id FROM bins WHERE x = 0 AND y = 0)";
-  Stmt inBin(db_, binSql.c_str());
-  while (inBin.step() == SQLITE_ROW) {
+  {
+    std::string binSql = std::string(kPartSelect) + " WHERE p.bin_id = (SELECT id FROM bins WHERE x = 0 AND y = 0)";
+    Stmt inBin(db_, binSql.c_str());
+    while (inBin.step() == SQLITE_ROW) {
+    }
   }
   out.binMs = elapsedMs(start);
 
-  start = std::chrono::steady_clock::now();
-  Part p;
-  Stmt mid(db_, "SELECT id FROM parts WHERE category = ? LIMIT 1 OFFSET ?");
-  mid.bind(1, std::string(kBenchCategory));
-  mid.bind(2, count / 2);
-  if (mid.step() == SQLITE_ROW && readPart(mid.integer(0), p, err) != Result::Ok) return Result::Error;
-  out.getMs = elapsedMs(start);
-
+  phase = "get";
   start = std::chrono::steady_clock::now();
   {
-    WriteTxn txn(*this);
-    Stmt del(db_, "DELETE FROM parts WHERE category = ?");
-    del.bind(1, std::string(kBenchCategory));
-    if (!txn.began() || del.step() != SQLITE_DONE || !txn.commit(err)) return err = lastError(), Result::Error;
+    Part p;
+    int64_t id = 0;
+    {
+      Stmt mid(db_, "SELECT id FROM parts WHERE category = ? LIMIT 1 OFFSET ?");
+      mid.bind(1, std::string(kBenchCategory));
+      mid.bind(2, count / 2);
+      if (mid.step() == SQLITE_ROW) id = mid.integer(0);
+    }
+    if (id && readPart(id, p, err) != Result::Ok) return fail();
   }
+  out.getMs = elapsedMs(start);
+
+  phase = "delete";
+  start = std::chrono::steady_clock::now();
+  if (deleteBenchParts(err) != Result::Ok) return fail();
   out.deleteMs = elapsedMs(start);
   return Result::Ok;
 }

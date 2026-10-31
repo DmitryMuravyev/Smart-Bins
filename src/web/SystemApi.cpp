@@ -5,6 +5,7 @@
 #include <WiFi.h>
 
 #include "ApiUtil.h"
+#include "BootReport.h"
 #include "ConfigStore.h"
 #include "InventoryApi.h"
 #include "Security.h"
@@ -24,8 +25,8 @@ constexpr size_t kMaxConfigBody = 8192;
 
 void writeSystemStatus(JsonObject out, WifiLink &network) {
   out["uptimeS"] = millis() / 1000;
-  out["heapFree"] = ESP.getFreeHeap();
-  out["heapMin"] = ESP.getMinFreeHeap();
+  out["heapFree"] = heapFree();
+  out["heapMin"] = heapMin();
   JsonObject wifi = out["wifi"].to<JsonObject>();
   const String ssid = network.ssid();  // empty while not connected
   wifi["ssid"] = ssid;
