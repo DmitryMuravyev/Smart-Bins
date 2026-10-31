@@ -1,0 +1,8 @@
+{
+  "name": "Inventory",
+  "version": "0.1.0",
+  "description": "Smart Bins parts inventory: SQLite schema, migrations and part/bin operations",
+  "license": "MIT",
+  "frameworks": "*",
+  "platforms": "*"
+}

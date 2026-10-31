@@ -56,7 +56,8 @@ class RmtStrip {
   volatile bool inFlight_ = false;
 };
 
-// Pauses every strip around a write to flash (NVS / Preferences, LittleFS).
+// Pauses every strip around a write to flash (NVS / Preferences, the FAT
+// partition with the config, database and photos).
 //
 // Writing flash switches off the CPU's flash cache for a few milliseconds, and
 // with it every interrupt handler that lives in flash, including the RMT one
@@ -76,6 +77,11 @@ class FlashGuard {
  public:
   FlashGuard();
   ~FlashGuard();
+  // The same without a scope, for code that can't hold an object across the
+  // write (the database's write hooks). Every lock() needs one unlock() on the
+  // same task: the gate is a mutex, owned by the task that took it.
+  static void lock();
+  static void unlock();
   FlashGuard(const FlashGuard &) = delete;
   FlashGuard &operator=(const FlashGuard &) = delete;
 };

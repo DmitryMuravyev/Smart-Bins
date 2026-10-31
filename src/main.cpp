@@ -1,20 +1,24 @@
 // Smart Bins firmware entry point.
 //
-// Boot order: hold LED outputs low, print the boot report, mount LittleFS,
+// Boot order: hold LED outputs low, print the boot report, mount the FAT partition,
 // load the configuration, start the LED engine and work lights, then bring up
 // Wi-Fi (or the setup portal), mDNS, over-the-air updates and the web server.
 
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
-#include <LittleFS.h>
+#include <FFat.h>
+
+#include <ctime>
 
 #include "BootReport.h"
 #include "ConfigStore.h"
+#include "InventoryDb.h"
 #include "PinMap.h"
 #include "WifiLink.h"
 #include "led/LedEngine.h"
 #include "led/RmtStrip.h"
 #include "led/WorkLights.h"
+#include "web/InventoryApi.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
 #include "web/LiveUpdates.h"
@@ -41,6 +45,7 @@ sb::led::LedEngine leds;
 sb::led::WorkLights workLights;
 sb::Security security;
 sb::LiveUpdates live;
+sb::inventory::InventoryDb inventoryDb;
 AsyncWebServer server(80);
 
 // Restarts requested from the web API happen here, a second later, so the
@@ -53,17 +58,43 @@ void scheduleRestart() { restartAt = millis() + 1000; }
 volatile bool otaHashChanged = false;
 
 bool mountFilesystem() {
-  // formatOnFail = true: a blank partition is formatted on first boot.
-  // The partition is labelled "spiffs" (the Arduino default) even though it holds
-  // LittleFS: a label of "littlefs" collides with the IDF subtype name and makes
-  // the partition tool warn.
-  if (!LittleFS.begin(true, "/littlefs", 10, "spiffs")) {
-    ESP_LOGE(TAG, "LittleFS mount failed");
+  // formatOnFail = true: a blank partition (first boot, or after switching
+  // from the old LittleFS layout) is formatted. "ffat" is the partition label
+  // in partitions/*.csv; FAT runs on ESP-IDF's wear levelling layer there.
+  if (!FFat.begin(true, "/ffat", 10, "ffat")) {
+    ESP_LOGE(TAG, "FAT partition mount failed");
     return false;
   }
-  ESP_LOGI(TAG, "LittleFS: %s used of %s", sb::formatBytes(LittleFS.usedBytes()),
-           sb::formatBytes(LittleFS.totalBytes()));
+  ESP_LOGI(TAG, "Storage: %s used of %s", sb::formatBytes(FFat.usedBytes()), sb::formatBytes(FFat.totalBytes()));
   return true;
+}
+
+// The inventory database: /inventory.db on the FAT partition. A failure is
+// logged and the board runs on without it (the inventory API answers 503).
+void openInventory(const sb::config::AppConfig &cfg) {
+  // Writes pause the LED strips (flash writes stall their refill interrupt).
+  inventoryDb.setWriteHooks({[] { sb::led::FlashGuard::lock(); }, [] { sb::led::FlashGuard::unlock(); }});
+  // Record times only once network time has arrived: before that the clock
+  // counts from 1970 and the times would be meaningless.
+  inventoryDb.setClock([]() -> int64_t {
+    const time_t now = time(nullptr);
+    return now > 1700000000 ? static_cast<int64_t>(now) : 0;
+  });
+  std::string err;
+  const uint32_t heapBefore = ESP.getFreeHeap();
+  if (!inventoryDb.open("/ffat/inventory.db", err)) {
+    ESP_LOGE(TAG, "Inventory database unavailable: %s", err.c_str());
+    return;
+  }
+  if (inventoryDb.syncBins(cfg.grid.cols, cfg.grid.rows, err) != sb::inventory::Result::Ok) {
+    ESP_LOGE(TAG, "Bin table update failed: %s", err.c_str());
+  }
+  sb::inventory::Stats s;
+  if (inventoryDb.stats(s, err) == sb::inventory::Result::Ok) {
+    ESP_LOGI(TAG, "Inventory: %lld parts in %lld of %lld bins, database %s, %s of RAM", (long long)s.parts,
+             (long long)s.binsUsed, (long long)s.binsTotal, sb::formatBytes(s.dbBytes),
+             sb::formatBytes(heapBefore > ESP.getFreeHeap() ? heapBefore - ESP.getFreeHeap() : 0));
+  }
 }
 
 void logConfig(const sb::config::AppConfig &cfg) {
@@ -157,6 +188,7 @@ void setup() {
   mountFilesystem();
   configStore.begin();
   logConfig(configStore.get());
+  openInventory(configStore.get());
 
   // W1-W5 in channel order; the config decides what each one drives.
   const int8_t lightPins[sb::config::kLightChannels] = {
@@ -189,7 +221,8 @@ void setup() {
   network.setOtaPasswordHash(security.otaHash());
   network.begin(configStore.get().deviceName, configStore.get().network, server);
   sb::registerWebUi(server, network);
-  sb::registerSystemApi(server, configStore, network, security, scheduleRestart);
+  sb::registerSystemApi(server, configStore, network, security, inventoryDb, scheduleRestart);
+  sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows);
   sb::registerLedApi(server, leds, configStore);
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);

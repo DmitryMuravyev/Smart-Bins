@@ -9,7 +9,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–3 addressable 
 ## Features (planned)
 
 - Configurable bin grid of any size (X × Y), 1–3 pixels per bin, flexible strip wiring
-- Inventory in SQLite on LittleFS, with instant global search and sorting by manufacturer, category and part number
+- Inventory in SQLite on the board's flash, with instant global search and sorting by manufacturer, category and part number
 - Component photos (JPG)
 - Database backup (download) and restore from the browser
 - Workspace lighting: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus extra white strips; every change fades smoothly
@@ -36,6 +36,10 @@ Built with [PlatformIO](https://platformio.org/) in VS Code, using the Arduino f
 
 The boot log shows chip, flash, memory and partition information. If the detected flash size differs from the build environment, it prints a warning naming the right one.
 
+**Storage.** Everything the board keeps (`config.json`, the inventory database `inventory.db`, later the photos) lives on one FAT partition behind ESP-IDF's wear levelling. FAT rewrites only the changed 4 KB sectors when the database updates a record, where LittleFS would copy the rest of the file each time. On first boot the partition is formatted.
+
+> **Upgrading from 0.4.x:** version 0.5.0 replaced the LittleFS partition with the FAT one and made the app slots bigger. Flash it once over USB (an over-the-air update can't change the partition table); the board then starts with a default `config.json`, so re-enter your settings or paste your saved file into Settings → Advanced.
+
 ### First start and Wi-Fi
 
 1. On first boot (or when your network can't be reached) the board opens a Wi-Fi network named **SmartBins-XXXX**. The on-board LED blinks fast.
@@ -43,7 +47,7 @@ The boot log shows chip, flash, memory and partition information. If the detecte
 3. Pick your network, enter the password and press **Connect**. The page shows the address once connected.
 4. From then on the board is at **http://smartbins.local/** on your network (or at the IP shown in the serial log).
 
-The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network (a fixed IP address goes back to automatic too), hold **10 s** and release for a factory reset (Wi-Fi, configuration and web password). The LED lights steadily at 5 s and flickers at 10 s.
+The BOOT button on the board: hold **5 s** and release to forget the Wi-Fi network (a fixed IP address goes back to automatic too), hold **10 s** and release for a factory reset (Wi-Fi, configuration and web password; the inventory is kept). The LED lights steadily at 5 s and flickers at 10 s.
 
 ### Web interface
 
@@ -52,7 +56,7 @@ Open **http://smartbins.local/** (or the board's IP). The pages so far:
 - **Lights:** every work light with on/off, level, a colour slider and a white-tone slider (both fit a phone held upright), 12 colour presets and effects. Changes made anywhere (another phone, a script) show up on every open page at once.
 - **Grid:** tap a bin to light it, tap it again to turn it off; **Clear all** turns every bin off. Lit bins are shown on every open page. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, its colour and the grid brightness; saved at once, no restart) and the test patterns.
 - **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi, with an automatic (DHCP) or fixed IP address; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
-- **System:** firmware, chip, memory, storage and network details, and a restart button.
+- **System:** firmware, chip, memory, storage and network details, inventory figures (parts and pieces, photos, bins in use, categories, manufacturers, database size), and a restart button.
 
 The UI is built into the firmware (`web/` is gzipped into it at build time by `tools/embed_web.py`), so a firmware update, also over Wi-Fi, always brings the matching UI and there is no separate filesystem upload.
 
@@ -113,11 +117,21 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
 | `/api/lights/off` | every light off |
 | `POST /api/security` | `password=...` sets the password (4–64 characters), empty removes it |
+| `GET /api/parts?offset=0&limit=50` | parts in id order (`limit` up to 100) with the `total` count |
+| `GET /api/part?id=N` | one part: `partNumber`, `manufacturer`, `category`, `description`, `package`, `value`, `unit`, `datasheetUrl`, `notes`, `quantity`, `bin` (`{x, y}` or `null`), `photo`, `created`, `updated` (Unix seconds, 0 before network time) |
+| `/api/part/add?partNumber=NE555&quantity=10&x=2&y=1` | adds a part from any of the fields above (a part number or a description is required) |
+| `/api/part/update?id=N&...` | changes only the fields given; `x=-1` takes a part out of its bin |
+| `/api/part/delete?id=N` | deletes a part |
+| `/api/part/adjust?id=N&delta=-1` | quantity up or down, never below 0 |
+| `GET /api/bins` | every bin with its `label` and number of `parts` (`outside: true` for a bin left outside after the grid shrank) |
+| `/api/bin/label?x=0&y=0&label=Resistors` | names a bin; an empty label goes back to the A1-style name |
+| `GET /api/inventory/stats` | the inventory figures shown on the System page |
+| `POST /api/inventory/benchmark?n=2000`, then `GET` | inserts n test parts, times typical queries, removes them; the `GET` reports progress and results (the LED strips pause while the parts are written) |
 | `ws://smartbins.local/ws` | WebSocket: pushes light changes, grid current and system status as JSON |
 
 ### Updating over Wi-Fi
 
-Once the board is on your network, upload new firmware without a cable:
+Once the board is on your network, upload new firmware without a cable (8 MB and 16 MB boards; a 4 MB board has room for only one copy of the firmware, so it is updated over USB):
 
 ```sh
 pio run -e esp32-8mb-ota -t upload    # or esp32-16mb-ota

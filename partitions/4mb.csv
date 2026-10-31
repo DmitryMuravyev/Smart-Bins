@@ -1,9 +1,13 @@
 # Smart Bins partition table, 4 MB flash (fallback for boards with 4 MB)
-# Two OTA app slots of 1.5 MB, ~0.9 MB LittleFS (database only; photos need microSD)
+# One 2.25 MB app slot and ~1.6 MB FAT (config + database; photos need microSD).
+# There's no room for a second app slot: the firmware with SQLite is ~1.7 MB, so
+# two copies plus storage don't fit in 4 MB. Without a second slot, Wi-Fi (OTA)
+# updates can't work and these boards are updated over USB.
+# The data partition is FAT behind ESP-IDF's wear levelling: SQLite rewrites
+# 4 KB pages in the middle of its file, which FAT does sector by sector (LittleFS
+# would copy the rest of the file each time). Label "ffat" is what FFat mounts.
 # Name,     Type, SubType,  Offset,   Size
 nvs,        data, nvs,      0x9000,   0x5000
-otadata,    data, ota,      0xE000,   0x2000
-app0,       app,  ota_0,    0x10000,  0x180000
-app1,       app,  ota_1,    0x190000, 0x180000
-spiffs,     data, spiffs,   0x310000, 0xE0000
+factory,    app,  factory,  0x10000,  0x240000
+ffat,       data, fat,      0x250000, 0x1A0000
 coredump,   data, coredump, 0x3F0000, 0x10000

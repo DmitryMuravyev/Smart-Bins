@@ -1,6 +1,6 @@
 #pragma once
 
-// Loads and saves /config.json on LittleFS.
+// Loads and saves /config.json on the FAT partition.
 
 #include <string>
 
