@@ -38,7 +38,7 @@ The boot log shows chip, flash, memory and partition information. If the detecte
 
 **Storage.** Everything the board keeps (`config.json`, the inventory database `inventory.db`, later the photos) lives on one FAT partition behind ESP-IDF's wear levelling. FAT rewrites only the changed 4 KB sectors when the database updates a record, where LittleFS would copy the rest of the file each time. On first boot the partition is formatted.
 
-> **Upgrading from 0.4.x:** version 0.5.0 replaced the LittleFS partition with the FAT one. Flash it once over USB (an over-the-air update can't change the partition table); the board then starts with a default `config.json`, so re-enter your settings or paste your saved file into Settings → Advanced.
+> **Upgrading from 0.4.x:** version 0.5.0 replaced the LittleFS partition with the FAT one and made the app slots bigger. Flash it once over USB (an over-the-air update can't change the partition table); the board then starts with a default `config.json`, so re-enter your settings or paste your saved file into Settings → Advanced.
 
 ### First start and Wi-Fi
 
@@ -131,7 +131,7 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 
 ### Updating over Wi-Fi
 
-Once the board is on your network, upload new firmware without a cable:
+Once the board is on your network, upload new firmware without a cable (8 MB and 16 MB boards; a 4 MB board has room for only one copy of the firmware, so it is updated over USB):
 
 ```sh
 pio run -e esp32-8mb-ota -t upload    # or esp32-16mb-ota

@@ -7,6 +7,7 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <esp_ota_ops.h>
 
 #include "led/RmtStrip.h"
 #include "web/SetupPage.h"
@@ -121,6 +122,10 @@ void WifiLink::onConnected() {
     ArduinoOTA.onEnd([]() { ESP_LOGW(TAG, "OTA update finished, restarting"); });
     ArduinoOTA.onError([](ota_error_t e) { ESP_LOGE(TAG, "OTA error %u", (unsigned)e); });
     ArduinoOTA.begin();
+    // 4 MB boards have a single app slot (partitions/4mb.csv), so a Wi-Fi
+    // upload would have nowhere to go and fail; ArduinoOTA still runs because
+    // it is also what announces the board over mDNS.
+    if (!esp_ota_get_next_update_partition(nullptr)) ESP_LOGW(TAG, "No second app slot: update this board over USB");
     MDNS.addService("http", "tcp", 80);
     // Network time (UTC), for the created/updated times of inventory records.
     // Runs in the background and keeps the clock in step; until the first
