@@ -9,7 +9,7 @@
 namespace sb {
 namespace led {
 
-// Current of one colour channel at full value, in tenths of a milliamp.
+// Current of one color channel at full value, in tenths of a milliamp.
 // Derived from the full-white current per pixel divided by its channels.
 struct ChipCurrent {
   uint16_t channelTenthsMa;

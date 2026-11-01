@@ -10,7 +10,7 @@
 // A light is identified by its position in that list (id 0, 1, ...) and named
 // after its channels ("W1", "W1-W3").
 //
-// Every light has a user state (on, level, colour, effect) that is saved to NVS
+// Every light has a user state (on, level, color, effect) that is saved to NVS
 // a few seconds after the last change and restored on boot, with a fade-in.
 // Output runs on its own task, like the grid: PWM duty is written only when it
 // changes, addressable strips are refreshed while anything moves.
@@ -93,7 +93,7 @@ class WorkLights {
     // Output envelope, 0..65535: the user's level scaled by maxBrightness while
     // on, 0 while off. 16 bits so slow PWM fades have no visible steps.
     Fader16 level;
-    // Colour cross-fade from `colorFrom` to state.color, started at colorStart.
+    // Color cross-fade from `colorFrom` to state.color, started at colorStart.
     Rgb colorFrom;
     uint32_t colorStart = 0;
     // Effect cross-fade: the previous effect keeps running (from its own start

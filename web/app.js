@@ -134,11 +134,11 @@ function showPage() {
 // ---------------------------------------------------------------------------
 // Work lights
 
-// Colour presets: white, warm white, then the primaries and their mixes around
-// the colour wheel. A few are tuned for LEDs rather than taken literally: on a
+// Color presets: white, warm white, then the primaries and their mixes around
+// the color wheel. A few are tuned for LEDs rather than taken literally: on a
 // strip the green die is much brighter than red, so "yellow" needs less green
 // (ffb000) and orange even less, or both look green-tinted. Warm white is sent
-// as a colour temperature, which the board turns into the matching RGB mix.
+// as a color temperature, which the board turns into the matching RGB mix.
 const PRESETS = [
   { name: 'white', css: '#ffffff', params: { color: 'ffffff' } },
   { name: 'warm', css: '#ffc58f', params: { kelvin: 2700 } },
@@ -219,7 +219,7 @@ function buildLightCard(light) {
     card.querySelector('.light-level-out').textContent = percent(level.value);
     sendLight(id, { level: level.value });
   });
-  // Kept on the card so fillLightCard() can move the hue thumb to the light's colour.
+  // Kept on the card so fillLightCard() can move the hue thumb to the light's color.
   card.hueSlider = makeSlider(card.querySelector('.hue'), 0, 359, 1, v => sendLight(id, { color: hueToHex(v) }));
   makeSlider(card.querySelector('.kelvin'), 1500, 10000, 100, v => {
     card.querySelector('.light-kelvin-out').textContent = `${v} K`;
@@ -246,7 +246,7 @@ function fillLightCard(card, l) {
   card.querySelector('.light-level-out').textContent = percent(l.level);
   if (l.color) {
     card.querySelector('.light-swatch').style.background = l.color;
-    // Only a clearly coloured light has a place on the hue track; for white or
+    // Only a clearly colored light has a place on the hue track; for white or
     // pastel tones the thumb stays where it was.
     const hue = hexToHue(l.color);
     if (hue !== null) card.hueSlider.set(hue);
@@ -265,7 +265,7 @@ function setIfIdle(input, value) {
 
 function percent(level) { return `${Math.max(1, Math.round(level * 100 / 255))} %`; }
 
-// Hue (0..359) of a "#rrggbb" colour, or null when it is too close to white or
+// Hue (0..359) of a "#rrggbb" color, or null when it is too close to white or
 // grey to have a meaningful hue (saturation below 50 %).
 function hexToHue(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -1334,10 +1334,10 @@ function showLocateDefaults(d) {
   if (hue !== null) locateHue.set(hue);
 }
 
-// `quiet`: no "saved" message, for the colour slider, which saves as it moves.
+// `quiet`: no "saved" message, for the color slider, which saves as it moves.
 async function saveLocateDefaults(params, quiet = false) {
   // Numbered so that only the answer to the newest save is shown: an older
-  // answer (a slow one, or one overtaken while the colour slider moves on)
+  // answer (a slow one, or one overtaken while the color slider moves on)
   // would put an earlier setting back on screen for a moment.
   const seq = ++locateSaves;
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
@@ -1348,11 +1348,11 @@ async function saveLocateDefaults(params, quiet = false) {
   }
 }
 
-// The locate colour slider. Every save writes the board's flash, so a drag is
-// not sent move by move: the swatch follows at once, and the colour is saved
+// The locate color slider. Every save writes the board's flash, so a drag is
+// not sent move by move: the swatch follows at once, and the color is saved
 // once the slider has rested for a moment.
 let locateHue;
-let locateHueTimer = 0;  // a colour waiting to be saved; 0 when none
+let locateHueTimer = 0;  // a color waiting to be saved; 0 when none
 let locateSaves = 0;     // saves started, see saveLocateDefaults()
 function onLocateHue(hue) {
   const hex = hueToHex(hue);
@@ -2239,8 +2239,8 @@ function bindControls() {
     const res = await attempt(() => api('/api/locate/clear', { method: 'POST' }));
     if (res) updateLitBins(res);
   });
-  // Locate colour: the same hue slider and colour presets as the lights
-  // (presets that set a colour temperature don't apply to a bin and are left out).
+  // Locate color: the same hue slider and color presets as the lights
+  // (presets that set a color temperature don't apply to a bin and are left out).
   locateHue = makeSlider($('#locate-hue'), 0, 359, 1, onLocateHue);
   for (const p of PRESETS.filter(p => p.params.color)) {
     const b = document.createElement('button');

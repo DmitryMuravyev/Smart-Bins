@@ -121,7 +121,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     sendJson(req, ok ? 200 : 400, doc);
   });
 
-  // The default colour, mode and duration of a locate. A change applies at
+  // The default color, mode and duration of a locate. A change applies at
   // once and is saved to config.json (locate.*), no restart needed.
   server.on("/api/locate/defaults", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     const bool change = hasParam(req, "color") || hasParam(req, "mode") || hasParam(req, "s");

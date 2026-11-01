@@ -88,7 +88,7 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
       l.out.assign(static_cast<size_t>(l.pixels) * l.chip.channels, 0);
       const bool started = pins[ch] >= 0 && l.strip.begin(pins[ch], l.chip.timing, lc.invertData);
       ok &= started;
-      // Dark frame at boot, as for the grid: pixels keep their colour through
+      // Dark frame at boot, as for the grid: pixels keep their color through
       // a reset, so a strip without a power switch would stay lit otherwise.
       if (started && l.strip.write(l.out.data(), l.out.size())) l.strip.waitDone(50);
       hasStrips_ = true;
@@ -156,10 +156,10 @@ const char *WorkLights::set(uint8_t id, const Change &change) {
   Lock lock(lock_);
   Light &l = lights_[id];
   // A white strip has a single PWM channel: it can only get brighter or
-  // darker, so colours and the rainbow make no sense there. Breathe works,
+  // darker, so colors and the rainbow make no sense there. Breathe works,
   // because it only changes the brightness.
   if (l.type == config::LightMode::White) {
-    if (change.hasColor) return "a white light has no colour";
+    if (change.hasColor) return "a white light has no color";
     if (change.hasEffect && change.effect == WorkEffect::Rainbow) return "a white light can't show a rainbow";
   }
   applyChange(l, change, effectMillis());
@@ -189,7 +189,7 @@ void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
     case Change::Power::Off: on = false; break;
     case Change::Power::Toggle: on = !on; break;
     case Change::Power::Keep:
-      // Picking a level, colour or effect means "I want to see it", like on
+      // Picking a level, color or effect means "I want to see it", like on
       // most smart lights, so it also switches the light on.
       if (c.hasLevel || c.hasColor || c.hasEffect) on = true;
       break;
@@ -199,7 +199,7 @@ void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
     else s.level = c.level;
   }
   if (c.hasColor && !(c.color == s.color)) {
-    l.colorFrom = currentColor(l, now);  // start from the colour shown at this moment
+    l.colorFrom = currentColor(l, now);  // start from the color shown at this moment
     l.colorStart = now;
     s.color = c.color;
   }
@@ -226,7 +226,7 @@ Rgb WorkLights::currentColor(const Light &l, uint32_t now) const {
   return lerp(l.colorFrom, l.state.color, rampUp(now - l.colorStart, fadeMs_));
 }
 
-// Colour of one pixel (index 0 for PWM lights), including an effect change
+// Color of one pixel (index 0 for PWM lights), including an effect change
 // still in progress: the old effect's pixel blended into the new one.
 Rgb WorkLights::effectColor(const Light &l, uint16_t index, uint32_t now) const {
   const uint16_t count = l.pixels ? l.pixels : 1;
@@ -237,7 +237,7 @@ Rgb WorkLights::effectColor(const Light &l, uint16_t index, uint32_t now) const 
   return lerp(effectPixel(l.prevEffect, base, index, count, now - l.prevEffectStart), c, t);
 }
 
-// True while the output still changes by itself: a fade, a colour or effect
+// True while the output still changes by itself: a fade, a color or effect
 // cross-fade, or an animated effect on a light that is (or is becoming) visible.
 bool WorkLights::moving(const Light &l, uint32_t now) const {
   if (!l.level.settled(now)) return true;
@@ -251,9 +251,9 @@ void WorkLights::writePwm(Light &l, uint32_t now) {
   const uint8_t channel[3] = {c.r, c.g, c.b};  // white lights use the red value (base is white)
   for (uint8_t k = 0; k < l.pwmCount; k++) {
     if (l.pwmPins[k] < 0) continue;
-    // Perceived level of this channel = colour component x light level, then
+    // Perceived level of this channel = color component x light level, then
     // gamma to duty. Doing the gamma on the product (not on each factor) keeps
-    // a colour's hue the same at every brightness.
+    // a color's hue the same at every brightness.
     const uint16_t perceived = static_cast<uint16_t>(static_cast<uint32_t>(channel[k]) * level / 255);
     const uint16_t duty = pwmDuty(perceived, kPwmMax);
     if (duty != l.lastDuty[k]) {
@@ -269,7 +269,7 @@ void WorkLights::renderStrip(Light &l, uint32_t now) {
   const uint8_t level = static_cast<uint8_t>(l.level.value(now) / 257);
   l.strip.waitDone(50);  // the previous frame must be out before `out` changes
   uint8_t *o = l.out.data();
-  // Solid and breathe give every pixel the same colour, so it is computed once
+  // Solid and breathe give every pixel the same color, so it is computed once
   // instead of once per pixel (breathe costs a cosine).
   const bool uniform = l.state.effect != WorkEffect::Rainbow && l.prevEffect != WorkEffect::Rainbow;
   const Rgb same = effectColor(l, 0, now);
@@ -340,7 +340,7 @@ void WorkLights::run() {
         // waiting for power at that moment.
         // Also resend a still picture every kStripRefreshMs: a pixel that caught
         // a glitch (noise on a long data wire) would otherwise keep the wrong
-        // colour until the next change.
+        // color until the next change.
         if (m) l.finalFrame = true;
         if (powered_ && now - poweredAt_ >= kPowerSettleMs &&
             (m || l.finalFrame || now - l.lastSent >= kStripRefreshMs)) {

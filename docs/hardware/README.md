@@ -86,7 +86,7 @@ W1–W3 are wired to both an N-MOSFET (plain strips) and a 74HCT245 input (addre
 - **WS2815:** each pixel has a data input (DI) and a backup input (BI). At the start of each segment connect **BI to GND** and DI to the level shifter.
 - **WS2811 strips:** check that the pixel length fits your bin pitch. With 2 pixels per bin, a 10 cm segment needs bins at least 20 cm wide; otherwise use 1 pixel per bin, or pick a strip with shorter segments.
 - 12/24 V strips draw much less current for the same light than 5 V strips, and need far less power injection. That's why they're recommended for larger grids.
-- The chipset, colour order and strip voltage are settings in the firmware (Task 3).
+- The chipset, color order and strip voltage are settings in the firmware (Task 3).
 
 ---
 

@@ -298,8 +298,8 @@ void LedEngine::setPower(bool on) {
   ESP_LOGI(TAG, "Grid power %s", on ? "on" : "off");
 }
 
-// Adds a colour to a bin's pixels. blendMax rather than overwrite, so two
-// overlapping layers (or a bin located twice with different colours while one
+// Adds a color to a bin's pixels. blendMax rather than overwrite, so two
+// overlapping layers (or a bin located twice with different colors while one
 // fades out) never darken each other.
 void LedEngine::lightBin(uint8_t x, uint8_t y, Rgb color) {
   PixelSpan span;
@@ -343,7 +343,7 @@ void LedEngine::renderLayers(uint32_t now) {
     }
   }
 
-  // The effect, one colour per bin, under everything else.
+  // The effect, one color per bin, under everything else.
   if (effects_.render(now, esp_random(), effectFrame_.data())) {
     const uint8_t cols = mapper_.geometry().cols, rows = mapper_.geometry().rows;
     for (uint8_t y = 0; y < rows; y++) {
@@ -413,7 +413,7 @@ void LedEngine::renderTest(uint32_t now) {
       for (uint8_t y = 0; y < g.rows; y++) lightBin(col, y, white);
       break;
     }
-    case TestPattern::Colors: {  // red, green, blue, white: checks the colour order
+    case TestPattern::Colors: {  // red, green, blue, white: checks the color order
       static const Rgb kColors[] = {Rgb(255, 0, 0), Rgb(0, 255, 0), Rgb(0, 0, 255), white};
       const Rgb c = kColors[(t / 1500) % 4];
       for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), c);
@@ -425,7 +425,7 @@ void LedEngine::renderTest(uint32_t now) {
 }
 
 // Turns pixels into the byte stream: brightness first, then gamma (gamma must
-// come last so dimming stays perceptually even), then colour order. The current
+// come last so dimming stays perceptually even), then color order. The current
 // limit is applied after the estimate, as one factor across both segments,
 // because both run from the same supply.
 void LedEngine::encodeAndSend(uint32_t now) {

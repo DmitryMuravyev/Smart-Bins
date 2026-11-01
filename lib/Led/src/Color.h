@@ -36,7 +36,7 @@ constexpr Rgb blendMax(Rgb a, Rgb b) {
 // version forced every non-zero input up to at least 1, which on 8-bit strips
 // was worse: the tail of each fade-out sat at value 1 (clearly visible in
 // a dark room), and a dim rainbow broke into blocks where one or two channels
-// were 1 and the others 0. With rounding, colours fade out in their own
+// were 1 and the others 0. With rounding, colors fade out in their own
 // proportions and dark parts of a gradient go off evenly.
 class Gamma {
  public:

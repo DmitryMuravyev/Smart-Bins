@@ -84,7 +84,7 @@ class Reader {
     unsigned int rgb = 0;
     char tail = 0;
     if (s == nullptr || strlen(s) != 7 || s[0] != '#' || sscanf(s + 1, "%6x%c", &rgb, &tail) != 1) {
-      return fail(field, "must be a colour like #00FF40");
+      return fail(field, "must be a color like #00FF40");
     }
     out = rgb;
   }

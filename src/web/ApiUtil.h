@@ -138,8 +138,8 @@ inline bool intParam(AsyncWebServerRequest *req, const char *name, long min, lon
   return true;
 }
 
-// Reads a colour given as 6 hex digits, with or without a leading '#'
-// (an HTML colour picker sends "#ff8800").
+// Reads a color given as 6 hex digits, with or without a leading '#'
+// (an HTML color picker sends "#ff8800").
 inline bool colorParam(AsyncWebServerRequest *req, const char *name, uint32_t &out) {
   const AsyncWebParameter *p = param(req, name);
   if (!p) return false;

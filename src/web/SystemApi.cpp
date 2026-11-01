@@ -161,7 +161,7 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
         if (!updateRunning) return;  // failed earlier: ignore the rest
         if (len) {
           // Writing flash switches the cache off; the guard keeps the LED
-          // strips from flashing random colours meanwhile (see RmtStrip.h).
+          // strips from flashing random colors meanwhile (see RmtStrip.h).
           led::FlashGuard guard;
           if (Update.write(data, len) != len) {
             updateError = Update.errorString();

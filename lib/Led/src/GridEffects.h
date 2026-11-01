@@ -5,12 +5,12 @@
 // the microphone through AudioAnalyzer.
 //
 // Effects work on bins, not pixels: the grid is a few dozen bins (10 x 6 on
-// Dmitry's build), and every pixel of a bin shows the bin's colour. That
+// Dmitry's build), and every pixel of a bin shows the bin's color. That
 // keeps the pictures readable on such a coarse "screen" and the arithmetic
 // small enough to run 60 times a second next to everything else.
 //
 // The pieces, from the bottom up:
-//   Palette        a colour gradient sampled by a 0..255 index
+//   Palette        a color gradient sampled by a 0..255 index
 //   EffectParams   speed, intensity, palette, brightness, timer
 //   EffectState    one running effect: its simulation (fire's heat, the
 //                  sparks) and its random numbers
@@ -62,8 +62,8 @@ inline bool parseGridEffect(const char *name, GridEffect &out) {
 
 // ---- Palettes ----
 //
-// A palette is a short list of colour stops spread evenly over the index
-// range 0..255; colours in between are blended. "auto" means the effect's
+// A palette is a short list of color stops spread evenly over the index
+// range 0..255; colors in between are blended. "auto" means the effect's
 // own palette (fire and pulse: heat, sparks and beat: party, relax: ocean,
 // spectrum: rainbow).
 enum class Palette : uint8_t { Auto, Heat, Ocean, Forest, Lava, Rainbow, Party };
@@ -98,11 +98,11 @@ struct PaletteStops {
 
 inline PaletteStops paletteStops(Palette p) {
   // Heat: black body from dark red through orange and yellow to white, the
-  // usual fire colours. Starting at black lets cold cells go dark.
+  // usual fire colors. Starting at black lets cold cells go dark.
   static const Rgb kHeat[] = {Rgb(0, 0, 0), Rgb(90, 0, 0), Rgb(200, 20, 0), Rgb(255, 80, 0), Rgb(255, 160, 10),
                               Rgb(255, 230, 80), Rgb(255, 255, 200)};
   // Ocean and forest stay well clear of black: relax shows them as calm
-  // fields of colour, and after gamma correction dark stops would read as holes.
+  // fields of color, and after gamma correction dark stops would read as holes.
   static const Rgb kOcean[] = {Rgb(0, 40, 120), Rgb(0, 90, 180), Rgb(0, 160, 200), Rgb(40, 200, 190),
                                Rgb(80, 110, 230), Rgb(20, 60, 170)};
   static const Rgb kForest[] = {Rgb(10, 80, 10), Rgb(40, 140, 20), Rgb(110, 180, 30), Rgb(40, 160, 70),
@@ -124,8 +124,8 @@ inline PaletteStops paletteStops(Palette p) {
   }
 }
 
-// Colour at `index` (0..255). A wrapping palette treats the stops as a ring
-// (index 255 is nearly back at the first colour), so effects that scroll
+// Color at `index` (0..255). A wrapping palette treats the stops as a ring
+// (index 255 is nearly back at the first color), so effects that scroll
 // through it never jump; a non-wrapping one runs from the first stop at 0 to
 // the last at 255.
 inline Rgb paletteColor(Palette p, uint8_t index) {
@@ -222,7 +222,7 @@ class EffectState {
 
   GridEffect effect() const { return effect_; }
 
-  // Writes one colour per bin into out[y * cols + x] (y = 0 is the top row).
+  // Writes one color per bin into out[y * cols + x] (y = 0 is the top row).
   // `audio` is the latest analysis of the microphone (silence without one);
   // only the music effects look at it.
   void render(const EffectParams &p, uint32_t nowMs, const AudioFrame &audio, Rgb *out) {
@@ -332,7 +332,7 @@ class EffectState {
     }
   }
 
-  // Sparks: bins flash up in random palette colours and fade away. Intensity
+  // Sparks: bins flash up in random palette colors and fade away. Intensity
   // sets how many appear; speed how quickly (through effect time).
   void renderSparks(const EffectParams &p, Palette pal, Rgb *out) {
     advance(kSparkStepMs, [&] { sparkStep(p.intensity); });
@@ -359,10 +359,10 @@ class EffectState {
     }
   }
 
-  // Relax: soft colour fields drifting slowly across the grid and breathing
+  // Relax: soft color fields drifting slowly across the grid and breathing
   // in brightness, like a lava lamp. A pure function of effect time: three
   // slow waves at different angles and periods added together pick the
-  // palette colour, a fourth sets the brightness. Intensity is the contrast
+  // palette color, a fourth sets the brightness. Intensity is the contrast
   // of the breathing (low: nearly even light, high: deep, slow pulses).
   void renderRelax(const EffectParams &p, Palette pal, Rgb *out) {
     const float t = scaledMs_ / 1000.0f;  // effect seconds
@@ -399,7 +399,7 @@ class EffectState {
     return v < 0 ? 0 : v > 1 ? 1 : v;
   }
 
-  // A level meter's colours: green (0) through yellow (about 60 %) to red
+  // A level meter's colors: green (0) through yellow (about 60 %) to red
   // (255).
   static Rgb meterColor(uint8_t h) {
     const uint8_t kYellow = 153;
@@ -410,8 +410,8 @@ class EffectState {
   // Spectrum: one bar per column, bass on the left, treble on the right,
   // growing from the bottom row; the top cell of a bar lights partly for the
   // part of a row it reaches. Bars jump up at once and sink at a steady rate
-  // (speed sets how fast), so they look lively without flickering. Colours
-  // go by height, like a level meter: with the effect's own colours green at
+  // (speed sets how fast), so they look lively without flickering. Colors
+  // go by height, like a level meter: with the effect's own colors green at
   // the bottom through yellow to red at the top; with a chosen palette from
   // its low end at the bottom to its high end at the top.
   void renderSpectrum(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
@@ -440,7 +440,7 @@ class EffectState {
     }
   }
 
-  // Beat: every beat lights a round splash of one colour at a random spot,
+  // Beat: every beat lights a round splash of one color at a random spot,
   // bigger for a stronger beat (up to most of the grid), which then fades
   // (speed sets how fast). Splashes overlap like sparks do.
   void renderBeat(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
@@ -551,7 +551,7 @@ class EffectPlayer {
 
   // The same with the effect's own settings (each effect remembers its own).
   // The effect fading out keeps the settings it ran with until it is gone,
-  // so it doesn't jump to the new effect's speed, colours or brightness.
+  // so it doesn't jump to the new effect's speed, colors or brightness.
   void start(GridEffect effect, const EffectParams &p, uint32_t nowMs, uint32_t seed) {
     const EffectParams old = params_;
     if (effect != GridEffect::Off) params_ = p;
