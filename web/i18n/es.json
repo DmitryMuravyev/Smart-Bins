@@ -334,5 +334,14 @@
   "firmware.uploading": "Subiendo... {pct}%",
   "firmware.installed": "Instalado. Reiniciando...",
   "firmware.failed": "La actualización falló: {error}. El firmware actual sigue funcionando.",
-  "system.psram": "PSRAM libre"
+  "system.psram": "PSRAM libre",
+  "system.lastRestart": "Último reinicio",
+  "restart.power-on": "Encendido",
+  "restart.restart": "Reiniciado (actualización, ajustes o botón de reinicio)",
+  "restart.crash": "Fallo (error del firmware)",
+  "restart.watchdog": "Watchdog (el firmware dejó de responder)",
+  "restart.hang": "El bucle principal dejó de responder",
+  "restart.brownout": "Caída de la tensión de alimentación (brown-out)",
+  "restart.reset-pin": "Botón de reset",
+  "restart.other": "Otro"
 }

@@ -8,6 +8,7 @@
 
 #include "ApiUtil.h"
 #include "BootReport.h"
+#include "Health.h"
 #include "ConfigStore.h"
 #include "InventoryApi.h"
 #include "PhotoApi.h"
@@ -47,6 +48,10 @@ void writeSystemStatus(JsonObject out, WifiLink &network) {
   out["uptimeS"] = millis() / 1000;
   out["heapFree"] = heapFree();
   out["heapMin"] = heapMin();
+  // Why the board last restarted (see Health.h); `restartFault` marks the
+  // reasons that point at a problem.
+  out["restart"] = health::lastRestart();
+  out["restartFault"] = health::lastRestartWasFault();
   // PSRAM, on a board that has it (the System tab shows a row for it).
   if (ESP.getPsramSize() > 0) {
     out["psramFree"] = psramFree();

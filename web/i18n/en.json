@@ -334,5 +334,14 @@
   "firmware.uploading": "Uploading... {pct}%",
   "firmware.installed": "Installed. Restarting...",
   "firmware.failed": "Update failed: {error}. The current firmware keeps running.",
-  "system.psram": "PSRAM free"
+  "system.psram": "PSRAM free",
+  "system.lastRestart": "Last restart",
+  "restart.power-on": "Power on",
+  "restart.restart": "Restarted (update, settings or the restart button)",
+  "restart.crash": "Crash (firmware error)",
+  "restart.watchdog": "Watchdog (firmware stopped responding)",
+  "restart.hang": "Main loop stopped responding",
+  "restart.brownout": "Supply voltage dropped (brown-out)",
+  "restart.reset-pin": "Reset button",
+  "restart.other": "Other"
 }

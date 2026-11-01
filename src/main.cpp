@@ -11,6 +11,7 @@
 #include <ctime>
 
 #include "BootReport.h"
+#include "Health.h"
 #include "ConfigStore.h"
 #include "InventoryDb.h"
 #include "MemoryProfile.h"
@@ -219,6 +220,7 @@ void setup() {
   Serial.println();
   ESP_LOGI(TAG, "Smart Bins firmware %s", SB_FW_VERSION);
   sb::printBootReport();
+  sb::health::begin();  // why the board restarted; starts the main loop watch
 
   logHeapStep("storage");
   mountFilesystem();
@@ -322,6 +324,7 @@ void logStacks() {
 }
 
 void loop() {
+  sb::health::loopAlive();
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
   if (otaHashChanged) {
     otaHashChanged = false;

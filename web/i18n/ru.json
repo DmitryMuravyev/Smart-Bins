@@ -334,5 +334,14 @@
   "firmware.uploading": "Загрузка... {pct}%",
   "firmware.installed": "Установлено. Перезапуск...",
   "firmware.failed": "Обновление не удалось: {error}. Текущая прошивка продолжает работать.",
-  "system.psram": "Свободно PSRAM"
+  "system.psram": "Свободно PSRAM",
+  "system.lastRestart": "Последний перезапуск",
+  "restart.power-on": "Включение питания",
+  "restart.restart": "Перезапуск (обновление, настройки или кнопка перезапуска)",
+  "restart.crash": "Сбой (ошибка прошивки)",
+  "restart.watchdog": "Сторожевой таймер (прошивка перестала отвечать)",
+  "restart.hang": "Основной цикл перестал отвечать",
+  "restart.brownout": "Просадка напряжения питания (brown-out)",
+  "restart.reset-pin": "Кнопка сброса",
+  "restart.other": "Другое"
 }

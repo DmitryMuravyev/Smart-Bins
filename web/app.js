@@ -2107,6 +2107,9 @@ function renderSystem() {
     ['system.chip', `${s.chip}, ${s.cpuMhz} MHz`],
     ['system.flash', formatBytes(s.flashBytes)],
     ['system.uptime', formatUptime(s.uptimeS)],
+    // Why the board last restarted; a crash, watchdog, hang or brown-out is
+    // highlighted (see src/Health.h).
+    ...(s.restart ? [['system.lastRestart', t(`restart.${s.restart}`), s.restartFault]] : []),
     ['system.heap', `${formatBytes(s.heapFree)} (${t('system.minimum')} ${formatBytes(s.heapMin)})`],
     // Only on a board with PSRAM.
     ...(s.psramTotal ? [['system.psram', `${formatBytes(s.psramFree)} / ${formatBytes(s.psramTotal)}`]] : []),
@@ -2125,11 +2128,12 @@ function renderSystem() {
     ['system.network', s.wifi.ssid ? `${s.wifi.ssid}, ${s.wifi.rssi} dBm` : '-'],
     ['system.address', `${s.wifi.ip} (${s.wifi.host})`],
   ];
-  $('#system-info').replaceChildren(...rows.flatMap(([k, v]) => {
+  $('#system-info').replaceChildren(...rows.flatMap(([k, v, warn]) => {
     const dt = document.createElement('dt');
     dt.textContent = t(k);
     const dd = document.createElement('dd');
     dd.textContent = v;
+    if (warn) dd.className = 'err';
     return [dt, dd];
   }));
   renderWifi(s.wifi);
