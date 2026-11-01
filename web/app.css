@@ -34,6 +34,8 @@ h2 { font-size: 16px; margin: 0 0 8px; }
 a { color: var(--accent); }
 .muted { color: var(--muted); }
 .small { font-size: 14px; }
+/* The project link at the foot of the System page. */
+.project-link { margin-top: 24px; overflow-wrap: anywhere; }
 [hidden] { display: none !important; }
 
 /* Top bar and navigation */
@@ -310,6 +312,15 @@ details.hw[open] summary { margin-bottom: 8px; }
 .hw-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
 .hw-fields label { font-size: 14px; color: var(--muted); min-width: 0; }
 .hw-fields [hidden] { display: none; }
+/* A label with a long and a short form (Maximum / Max. brightness): each
+   field measures its own width, and below about 190 px (half a phone held
+   upright) the short form is shown, so the label stays on one line. */
+.hw-fields label { container-type: inline-size; }
+.label-short { display: none; }
+@container (max-width: 190px) {
+  .label-long { display: none; }
+  .label-short { display: inline; }
+}
 .err { color: var(--err); }
 /* The grid preview: bins as seen from the front, the strip's path on top. */
 .hw-preview { margin: 12px 0 4px; overflow-x: auto; }

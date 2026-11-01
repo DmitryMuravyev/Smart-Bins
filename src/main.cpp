@@ -11,8 +11,10 @@
 #include <ctime>
 
 #include "BootReport.h"
+#include "Health.h"
 #include "ConfigStore.h"
 #include "InventoryDb.h"
+#include "MemoryProfile.h"
 #include "PinMap.h"
 #include "WifiLink.h"
 #include "audio/Microphone.h"
@@ -71,10 +73,10 @@ void logHeapStep(const char *step) {
   static uint32_t last = 0;
   const uint32_t now = sb::heapFree();
   if (last) {
-    ESP_LOGI(TAG, "Heap after %s: %s free (%s used by it)", step, sb::formatBytes(now),
+    ESP_LOGD(TAG, "Heap after %s: %s free (%s used by it)", step, sb::formatBytes(now),
              sb::formatBytes(last > now ? last - now : 0));
   } else {
-    ESP_LOGI(TAG, "Heap before %s: %s free", step, sb::formatBytes(now));
+    ESP_LOGD(TAG, "Heap before %s: %s free", step, sb::formatBytes(now));
   }
   last = now;
 }
@@ -83,10 +85,11 @@ bool mountFilesystem() {
   // formatOnFail = true: a blank partition (first boot, or after switching
   // from the old LittleFS layout) is formatted. "ffat" is the partition label
   // in partitions/*.csv; FAT runs on ESP-IDF's wear levelling layer there.
-  // 4 files open at once: the database, its journal, config.json and one
-  // spare. Each slot can cost a sector-sized (4 KB) buffer of heap, so the
-  // default of 10 wasted around 24 KB.
-  if (!FFat.begin(true, "/ffat", 4, "ffat")) {
+  // 4 files open at once without PSRAM: the database, its journal,
+  // config.json and one spare. Each slot can cost a sector-sized (4 KB)
+  // buffer of heap, so the default of 10 wasted around 24 KB. With PSRAM 8,
+  // so photo sends and a backup can run beside the database.
+  if (!FFat.begin(true, "/ffat", sb::mem::kMaxOpenFiles, "ffat")) {
     ESP_LOGE(TAG, "FAT partition mount failed");
     return false;
   }
@@ -217,6 +220,7 @@ void setup() {
   Serial.println();
   ESP_LOGI(TAG, "Smart Bins firmware %s", SB_FW_VERSION);
   sb::printBootReport();
+  sb::health::begin();  // why the board restarted; starts the main loop watch
 
   logHeapStep("storage");
   mountFilesystem();
@@ -297,9 +301,18 @@ void logHeapLow() {
   const uint32_t low = sb::heapMin();
   if (logged != UINT32_MAX && low + 1024 > logged) return;
   logged = low;
-  ESP_LOGW(TAG, "Heap low %s (free %s, largest block %s): %d file sends, %u waiting, %u WebSocket clients",
+  // Every new low at debug level (for tuning); a warning only once it gets
+  // tight, which is the line worth seeing in the field.
+  constexpr uint32_t kWarnBelow = 24 * 1024;
+  char line[160];
+  snprintf(line, sizeof(line), "Heap low %s (free %s, largest block %s): %d file sends, %u waiting, %u WebSocket clients",
            sb::formatBytes(low), sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapLargest()),
            sb::sendGate().active(), (unsigned)sb::sendGate().waiting(), (unsigned)live.clients());
+  if (low < kWarnBelow) {
+    ESP_LOGW(TAG, "%s", line);
+  } else {
+    ESP_LOGD(TAG, "%s", line);
+  }
 }
 
 // How much of each long-running task's stack has never been used. Stacks are
@@ -316,10 +329,11 @@ void logStacks() {
     line += ' ';
     line += sb::formatBytes(uxTaskGetStackHighWaterMark(task));
   }
-  ESP_LOGI(TAG, "Unused stack: %s", line.c_str());
+  ESP_LOGD(TAG, "Unused stack: %s", line.c_str());
 }
 
 void loop() {
+  sb::health::loopAlive();
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
   if (otaHashChanged) {
     otaHashChanged = false;
@@ -336,8 +350,13 @@ void loop() {
   static uint32_t lastReport = 0;
   if (millis() - lastReport >= 60000) {
     lastReport = millis();
-    ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
-             sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
+    if (sb::mem::kPsram) {
+      ESP_LOGD(TAG, "Uptime %lus, free heap %s, min %s, PSRAM free %s", (unsigned long)(millis() / 1000),
+               sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()), sb::formatBytes(sb::psramFree()));
+    } else {
+      ESP_LOGD(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
+               sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
+    }
     logStacks();
   }
   delay(2);

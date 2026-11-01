@@ -295,7 +295,7 @@ void LedEngine::setPower(bool on) {
   if (powerPin_ >= 0) digitalWrite(powerPin_, on ? HIGH : LOW);
   powered_ = on;
   poweredAt_ = effectMillis();
-  ESP_LOGI(TAG, "Grid power %s", on ? "on" : "off");
+  ESP_LOGD(TAG, "Grid power %s", on ? "on" : "off");
 }
 
 // Adds a color to a bin's pixels. blendMax rather than overwrite, so two

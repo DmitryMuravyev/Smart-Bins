@@ -301,7 +301,7 @@ void WorkLights::setStripPower(bool on) {
   if (powerPin_ >= 0) digitalWrite(powerPin_, on ? HIGH : LOW);
   powered_ = on;
   poweredAt_ = effectMillis();
-  ESP_LOGI(TAG, "Work strip power %s", on ? "on" : "off");
+  ESP_LOGD(TAG, "Work strip power %s", on ? "on" : "off");
 }
 
 void WorkLights::taskEntry(void *arg) { static_cast<WorkLights *>(arg)->run(); }

@@ -48,6 +48,10 @@ def check_translations(web_dir):
         with open(os.path.join(i18n, name), encoding="utf-8") as f:
             keys = set(json.load(f))
         for k in sorted(reference - keys):
+            # Singular forms ("<key>.one", see t() in app.js) are optional: a
+            # language may phrase its strings so it doesn't need one.
+            if k.endswith(".one"):
+                continue
             problems.append(f"{name}: missing {k}")
         for k in sorted(keys - reference):
             problems.append(f"{name}: unknown key {k} (not in en.json)")

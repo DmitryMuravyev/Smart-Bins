@@ -74,8 +74,11 @@ function toast(text, isError = false) {
 // ---------------------------------------------------------------------------
 // Translations
 
+// A string with {n} may have a singular form under "<key>.one" ("1 part"
+// rather than "1 parts"). Russian phrases its strings so no form is needed.
 function t(key, vars) {
-  let s = state.strings[key] ?? state.fallback[key] ?? key;
+  const one = vars && Number(vars.n) === 1 ? state.strings[`${key}.one`] : undefined;
+  let s = one ?? state.strings[key] ?? state.fallback[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, v);
   return s;
 }
@@ -1698,11 +1701,11 @@ function renderLightFields() {
         <select class="hw-mode" aria-label="W${i + 1}"></select>
         <span class="muted small hw-rgb-note" hidden>${t('hw.mode.rgb')}</span></div>
       <div class="hw-fields hw-light-fields">
-        <label class="hw-max"><span>${t('hw.maxBrightness')}</span><input type="number" class="hw-maxb" min="1" max="100" inputmode="numeric"></label>
+        <label class="hw-max"><span class="label-long">${t('hw.maxBrightness')}</span><span class="label-short">${t('hw.maxBrightnessShort')}</span><input type="number" class="hw-maxb" min="1" max="100" inputmode="numeric"></label>
         <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="1000" inputmode="numeric"></label>
         <label class="hw-addr"><span>${t('hw.chipset')}</span><select class="hw-chip"></select></label>
         <label class="hw-addr"><span>${t('hw.order')}</span><select class="hw-ord"></select></label>
-        <label class="hw-addr"><span>${t('hw.current')}</span><input type="number" class="hw-cur" min="100" max="30000" step="100" inputmode="numeric"></label>
+        <label class="hw-addr"><span class="label-long">${t('hw.current')}</span><span class="label-short">${t('hw.currentShort')}</span><input type="number" class="hw-cur" min="100" max="30000" step="100" inputmode="numeric"></label>
       </div>
       <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>`;
     fillSelect($('.hw-mode', box), modes, modes.includes(l.mode) ? l.mode : (l.mode === 'rgb' ? 'white' : 'off'),
@@ -2107,7 +2110,12 @@ function renderSystem() {
     ['system.chip', `${s.chip}, ${s.cpuMhz} MHz`],
     ['system.flash', formatBytes(s.flashBytes)],
     ['system.uptime', formatUptime(s.uptimeS)],
+    // Why the board last restarted; a crash, watchdog, hang or brown-out is
+    // highlighted (see src/Health.h).
+    ...(s.restart ? [['system.lastRestart', t(`restart.${s.restart}`), s.restartFault]] : []),
     ['system.heap', `${formatBytes(s.heapFree)} (${t('system.minimum')} ${formatBytes(s.heapMin)})`],
+    // Only on a board with PSRAM.
+    ...(s.psramTotal ? [['system.psram', `${formatBytes(s.psramFree)} / ${formatBytes(s.psramTotal)}`]] : []),
     ['system.storage', `${formatBytes(s.fsUsed)} / ${formatBytes(s.fsTotal)}`],
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
@@ -2123,11 +2131,12 @@ function renderSystem() {
     ['system.network', s.wifi.ssid ? `${s.wifi.ssid}, ${s.wifi.rssi} dBm` : '-'],
     ['system.address', `${s.wifi.ip} (${s.wifi.host})`],
   ];
-  $('#system-info').replaceChildren(...rows.flatMap(([k, v]) => {
+  $('#system-info').replaceChildren(...rows.flatMap(([k, v, warn]) => {
     const dt = document.createElement('dt');
     dt.textContent = t(k);
     const dd = document.createElement('dd');
     dd.textContent = v;
+    if (warn) dd.className = 'err';
     return [dt, dd];
   }));
   renderWifi(s.wifi);

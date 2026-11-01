@@ -9,10 +9,30 @@
 #include <WiFi.h>
 #include <esp_ota_ops.h>
 
+#include "Health.h"
 #include "led/RmtStrip.h"
 #include "web/SetupPage.h"
 
 namespace sb {
+
+namespace {
+// The 404 page for addresses outside the API (see onNotFound below). Plain
+// HTML with its own colors for a light or dark screen, no scripts.
+const char kNotFoundPage[] = R"HTML(<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Smart Bins: not found</title>
+<style>
+body{font-family:system-ui,sans-serif;margin:0;padding:40px 16px;background:#f6f7f9;color:#1d2330;text-align:center}
+@media(prefers-color-scheme:dark){body{background:#14171c;color:#e6e8ec}a{color:#7aa7ff}}
+h1{font-size:22px;margin:0 0 16px}p{margin:6px 0;color:#7a8190}a{display:inline-block;margin-top:20px;font-weight:600}
+</style></head><body>
+<h1>404</h1>
+<p>This page doesn't exist.</p>
+<p>Esta página no existe.</p>
+<p>Такой страницы нет.</p>
+<a href="/">Smart Bins</a>
+</body></html>)HTML";
+}  // namespace
 
 namespace {
 const char *TAG = "net";
@@ -127,11 +147,13 @@ void WifiLink::onConnected() {
     ArduinoOTA.onStart([]() {
       if (!otaPaused) led::FlashGuard::lock();
       otaPaused = true;
+      health::pauseLoopWatch(true);  // the upload runs inside loop() (see Health.h)
       ESP_LOGW(TAG, "OTA update started");
     });
     auto resume = []() {
       if (otaPaused) led::FlashGuard::unlock();
       otaPaused = false;
+      health::pauseLoopWatch(false);
     };
     ArduinoOTA.onEnd([resume]() {
       resume();
@@ -315,7 +337,15 @@ void WifiLink::registerRoutes(AsyncWebServer &server) {
       req->redirect(("http://" + WiFi.softAPIP().toString() + "/wifi").c_str());
       return;
     }
-    req->send(404, "text/plain", "Not found");
+    // The API answers in JSON, like its other errors, so a script or the
+    // page gets a message it can show.
+    if (req->url().startsWith("/api/")) {
+      req->send(404, "application/json", "{\"error\":\"no such API endpoint\"}");
+      return;
+    }
+    // Anything else (a mistyped address, an old bookmark): a short page in
+    // the three UI languages with a way back, instead of a bare "Not found".
+    req->send(404, "text/html; charset=utf-8", kNotFoundPage);
   });
 }
 
