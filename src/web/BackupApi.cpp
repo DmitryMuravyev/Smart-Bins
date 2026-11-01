@@ -57,8 +57,11 @@ constexpr uint64_t kRestoreMargin = 64 * 1024;
 constexpr size_t kMaxSmallFile = 8192;
 // The restored database is written to flash in steps of this size.
 constexpr size_t kWriteBuffer = 4096;
-// Rows of a CSV import written per transaction.
-constexpr size_t kImportBatch = 20;
+// Rows of a CSV import written per transaction. Each changed row dirties a
+// page or two of the database, and SQLite keeps a transaction's dirty pages
+// in RAM until the commit: 20 rows spread over the whole file needed more
+// heap than a board without PSRAM has (out of memory on a 112-row import).
+constexpr size_t kImportBatch = 5;
 // Errors listed in an import's answer (the counts cover all of them).
 constexpr size_t kMaxImportErrors = 20;
 // An unfinished restore or import that has received nothing for this long
@@ -738,7 +741,7 @@ struct ImportJob {
   bool headerDone = false;
   std::vector<ImportRow> rows;  // waiting for the next transaction
   std::vector<int> lines;       // their line numbers, for error messages
-  int added = 0, updated = 0, failed = 0;
+  int added = 0, updated = 0, unchanged = 0, failed = 0;
   std::vector<std::pair<int, std::string>> errors;
   std::string error;
   int status = 400;
@@ -777,11 +780,28 @@ void importError(ImportJob &job, int line, const std::string &why) {
 bool flushImport(ImportJob &job, InventoryDb &db) {
   if (job.rows.empty()) return true;
   std::string err;
-  const Result r = db.importParts(job.rows, [&](size_t i, ImportOutcome o, const std::string &why) {
+  auto count = [&](size_t line, ImportOutcome o, const std::string &why) {
     if (o == ImportOutcome::Added) job.added++;
     if (o == ImportOutcome::Updated) job.updated++;
-    if (o == ImportOutcome::Failed) importError(job, job.lines[i], why);
+    if (o == ImportOutcome::Unchanged) job.unchanged++;
+    if (o == ImportOutcome::Failed) importError(job, static_cast<int>(line), why);
+  };
+  Result r = db.importParts(job.rows, [&](size_t i, ImportOutcome o, const std::string &why) {
+    count(job.lines[i], o, why);
   }, err);
+  if (r == Result::Error && job.rows.size() > 1) {
+    // The batch was rolled back as a whole (out of memory, most likely, with
+    // the heap fragmented): one row per transaction needs the least RAM.
+    ESP_LOGW(TAG, "CSV import: batch failed (%s), heap %u free; retrying row by row", err.c_str(),
+             (unsigned)heapFree());
+    r = Result::Ok;
+    for (size_t i = 0; i < job.rows.size() && r == Result::Ok; i++) {
+      std::vector<ImportRow> one;
+      one.push_back(std::move(job.rows[i]));
+      r = db.importParts(one, [&](size_t, ImportOutcome o, const std::string &why) { count(job.lines[i], o, why); },
+                         err);
+    }
+  }
   job.rows.clear();
   job.lines.clear();
   if (r == Result::Ok) return true;
@@ -904,6 +924,7 @@ void onImportDone(AsyncWebServerRequest *req, InventoryDb &db) {
   // Batches written before an error stay written: the counts say how far it got.
   doc["added"] = job->added;
   doc["updated"] = job->updated;
+  doc["unchanged"] = job->unchanged;
   doc["failed"] = job->failed;
   JsonArray errors = doc["errors"].to<JsonArray>();
   for (const auto &e : job->errors) {
@@ -911,8 +932,9 @@ void onImportDone(AsyncWebServerRequest *req, InventoryDb &db) {
     o["line"] = e.first;
     o["error"] = e.second;
   }
-  ESP_LOGI(TAG, "CSV import: %d added, %d updated, %d failed%s%s", job->added, job->updated, job->failed,
-           job->error.empty() ? "" : ": ", job->error.c_str());
+  ESP_LOGI(TAG, "CSV import: %d added, %d updated, %d unchanged, %d failed%s%s (heap %u free, lowest %u)", job->added,
+           job->updated, job->unchanged, job->failed, job->error.empty() ? "" : ": ", job->error.c_str(),
+           (unsigned)heapFree(), (unsigned)heapMin());
   sendJson(req, job->error.empty() ? 200 : job->status, doc);
 }
 

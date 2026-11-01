@@ -199,7 +199,7 @@
   "csv.import": "Import CSV…",
   "csv.importHint": "A row whose id matches a part updates it; other rows add new parts. Columns that are missing stay as they are. Bins are written like A1.",
   "csv.importing": "Importing…",
-  "csv.imported": "Added: {added}, updated: {updated}.",
+  "csv.imported": "Added: {added}, updated: {updated}, unchanged: {unchanged}.",
   "csv.skipped": "Rows skipped: {n}.",
   "csv.stopped": "Stopped: {error}",
   "csv.lineError": "Line {line}: {error}",

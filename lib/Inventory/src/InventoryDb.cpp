@@ -691,7 +691,7 @@ Result InventoryDb::getPart(int64_t id, Part &out, std::string &err) {
   return readPart(id, out, err);
 }
 
-Result InventoryDb::rewritePart(int64_t id, const PartChanges &changes, std::string &err) {
+Result InventoryDb::rewritePart(int64_t id, const PartChanges &changes, std::string &err, bool *unchanged) {
   // Read, merge, validate the merged part, write it back whole: the same
   // checks then apply as for a new part (a part number or description must
   // remain), and one UPDATE statement serves every combination of fields.
@@ -705,6 +705,12 @@ Result InventoryDb::rewritePart(int64_t id, const PartChanges &changes, std::str
   merged.quantity = changes.quantity.value_or(cur.quantity);
   merged.bin = changes.bin.value_or(cur.bin);
   if (!validate(merged, true, err)) return Result::Invalid;
+  if (unchanged) {
+    bool same = *merged.quantity == cur.quantity && merged.bin->x == cur.bin.x && merged.bin->y == cur.bin.y;
+    for (int f = 0; f < kTextFieldCount && same; f++) same = *merged.text[f] == cur.text[f];
+    *unchanged = same;
+    if (same) return Result::Ok;
+  }
   int64_t bin = 0;
   if (merged.bin->valid()) {
     r = binId(*merged.bin, bin, err);
@@ -1201,9 +1207,10 @@ Result InventoryDb::importParts(const std::vector<ImportRow> &rows,
       // A failing statement undoes only its own changes, so a bad row leaves
       // the others in the transaction untouched.
       Result r = Result::NotFound;
-      if (row.id > 0) r = rewritePart(row.id, row.fields, why);
+      bool same = false;
+      if (row.id > 0) r = rewritePart(row.id, row.fields, why, &same);
       if (r == Result::Ok) {
-        outcomes.emplace_back(ImportOutcome::Updated, "");
+        outcomes.emplace_back(same ? ImportOutcome::Unchanged : ImportOutcome::Updated, "");
         continue;
       }
       if (r == Result::NotFound) {

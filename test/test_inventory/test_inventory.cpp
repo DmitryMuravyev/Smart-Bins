@@ -515,25 +515,28 @@ static void test_next_photo() {
 static void test_import_parts() {
   Part existing;
   TEST_ASSERT_TRUE(db.addPart(named("OLD", 1, {0, 0}), existing, err) == Result::Ok);
-  std::vector<ImportRow> rows(4);
+  std::vector<ImportRow> rows(5);
   rows[0].id = existing.id;  // update: only the given columns change
   rows[0].fields.quantity = 42;
   rows[1].fields = named("NEW1", 3, {1, 1});
   rows[2].id = 999;  // no such part: added as new
   rows[2].fields = named("NEW2");
   rows[3].fields.quantity = 1;  // no part number or description: refused
+  rows[4].id = existing.id;     // the same values again: not written
+  rows[4].fields.text[kPartNumber] = std::string("OLD");
   std::vector<ImportOutcome> outcomes;
   std::vector<std::string> reasons;
   TEST_ASSERT_TRUE_MESSAGE(db.importParts(rows, [&](size_t, ImportOutcome o, const std::string &why) {
     outcomes.push_back(o);
     reasons.push_back(why);
   }, err) == Result::Ok, err.c_str());
-  TEST_ASSERT_EQUAL(4, (int)outcomes.size());
+  TEST_ASSERT_EQUAL(5, (int)outcomes.size());
   TEST_ASSERT_TRUE(outcomes[0] == ImportOutcome::Updated);
   TEST_ASSERT_TRUE(outcomes[1] == ImportOutcome::Added);
   TEST_ASSERT_TRUE(outcomes[2] == ImportOutcome::Added);
   TEST_ASSERT_TRUE(outcomes[3] == ImportOutcome::Failed);
   TEST_ASSERT_TRUE(reasons[3].find("part number") != std::string::npos);
+  TEST_ASSERT_TRUE(outcomes[4] == ImportOutcome::Unchanged);
   Part q;
   TEST_ASSERT_TRUE(db.getPart(existing.id, q, err) == Result::Ok);
   TEST_ASSERT_EQUAL(42, q.quantity);

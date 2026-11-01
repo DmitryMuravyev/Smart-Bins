@@ -160,7 +160,7 @@ struct ImportRow {
   PartChanges fields;   // the columns the file has; missing ones stay unset
 };
 
-enum class ImportOutcome { Added, Updated, Failed };
+enum class ImportOutcome { Added, Updated, Unchanged, Failed };
 
 struct WriteHooks {
   std::function<void()> begin;  // before the first write of a transaction
@@ -276,7 +276,10 @@ class InventoryDb {
   // The INSERT and UPDATE of addPart()/updatePart(), for use inside a write
   // transaction the caller holds (they validate, but take no lock).
   Result insertPart(const PartChanges &in, int64_t &id, std::string &err);
-  Result rewritePart(int64_t id, const PartChanges &changes, std::string &err);
+  // `unchanged` (optional): set when the changes match what is stored; the
+  // row is then not written at all (an import of an exported file touches
+  // only the rows that were edited).
+  Result rewritePart(int64_t id, const PartChanges &changes, std::string &err, bool *unchanged = nullptr);
   // What a failed WriteTxn reports: Busy while writes are held.
   Result txnFailed(std::string &err);
   static void rowToPart(Stmt &q, Part &out);

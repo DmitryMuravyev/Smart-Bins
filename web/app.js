@@ -1569,7 +1569,7 @@ async function importCsv(file) {
     });
     const r = res.body;
     if (!r) throw new Error(`${res.status}`);
-    const parts = [t('csv.imported', { added: r.added, updated: r.updated })];
+    const parts = [t('csv.imported', { added: r.added, updated: r.updated, unchanged: r.unchanged || 0 })];
     if (r.failed) parts.push(t('csv.skipped', { n: r.failed }));
     if (r.error) parts.push(t('csv.stopped', { error: r.error }));
     out.replaceChildren(parts.join(' '));

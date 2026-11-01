@@ -199,7 +199,7 @@
   "csv.import": "Importar CSV…",
   "csv.importHint": "Una fila cuyo id coincide con una pieza la actualiza; las demás añaden piezas nuevas. Las columnas que faltan no cambian. Los cajones se escriben como A1.",
   "csv.importing": "Importando…",
-  "csv.imported": "Añadidas: {added}, actualizadas: {updated}.",
+  "csv.imported": "Añadidas: {added}, actualizadas: {updated}, sin cambios: {unchanged}.",
   "csv.skipped": "Filas omitidas: {n}.",
   "csv.stopped": "Detenido: {error}",
   "csv.lineError": "Línea {line}: {error}",
