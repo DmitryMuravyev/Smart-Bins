@@ -21,14 +21,21 @@ class LedEngine;
 //       and saves them (config.json locate.*), effective at once
 //   /api/led/test?pattern=walk|chain|rows|columns|colors|off
 //   /api/led/brightness?value=1..255     applied and saved (grid.brightness)
-//   GET /api/led/status                  current, frame rate and lit bins
+//   /api/effects[?effect=off|fire|sparks|relax|demo][&speed=1..255][&intensity=1..255]
+//       [&palette=auto|heat|ocean|forest|lava|rainbow|party][&brightness=1..255][&timer=0..1440]
+//       starts an effect and/or changes its settings. Each effect keeps its
+//       own (saved as effects.<name>.*) and starts with them; settings without
+//       `effect` change the running one's. Answers with the effect that runs,
+//       remainingS and, unless off, its settings
+//   GET /api/led/status                  current, frame rate, lit bins and the effect
 // /api/locate and /api/locate/clear answer with the same status as
 // /api/led/status (plus "ok").
 void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore &config);
 
 // Fills `doc` with the grid status, as returned by /api/led/status and pushed
-// over the WebSocket: powered, test, estimateMa, currentLimited, fps and
-// lit ([[x, y], ...]) with its version (LedEngine::version()).
+// over the WebSocket: powered, test, estimateMa, currentLimited, fps, effect,
+// effectRemainingS and lit ([[x, y], ...]) with its version
+// (LedEngine::version()).
 void writeLedStatus(JsonDocument &doc, led::LedEngine &engine);
 
 }  // namespace sb

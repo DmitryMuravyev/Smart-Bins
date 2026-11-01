@@ -1,7 +1,9 @@
+#include <cstdlib>
 #include <unity.h>
 
 #include "Color.h"
 #include "Envelope.h"
+#include "GridEffects.h"
 #include "GridMapper.h"
 #include "PowerLimit.h"
 #include "WorkEffects.h"
@@ -199,6 +201,205 @@ static void test_pwm_duty() {
   }
 }
 
+// ---- Grid effects (Task 12) ----
+
+static void test_effect_and_palette_names() {
+  for (int i = 0; i < kGridEffectCount; i++) {
+    GridEffect e;
+    TEST_ASSERT_TRUE(parseGridEffect(toString(static_cast<GridEffect>(i)), e));
+    TEST_ASSERT_EQUAL(i, static_cast<int>(e));
+  }
+  for (int i = 0; i < kPaletteCount; i++) {
+    Palette p;
+    TEST_ASSERT_TRUE(parsePalette(toString(static_cast<Palette>(i)), p));
+    TEST_ASSERT_EQUAL(i, static_cast<int>(p));
+  }
+  GridEffect e;
+  Palette p;
+  TEST_ASSERT_FALSE(parseGridEffect("lasers", e));
+  TEST_ASSERT_FALSE(parsePalette(nullptr, p));
+}
+
+static void test_palette_ends() {
+  // A non-wrapping palette runs exactly from its first stop to its last.
+  TEST_ASSERT_TRUE(paletteColor(Palette::Heat, 0) == Rgb(0, 0, 0));
+  TEST_ASSERT_TRUE(paletteColor(Palette::Heat, 255) == Rgb(255, 255, 200));
+  // A wrapping one comes back round to its first colour.
+  TEST_ASSERT_TRUE(paletteColor(Palette::Rainbow, 0) == Rgb(255, 0, 0));
+  TEST_ASSERT_TRUE(paletteColor(Palette::Rainbow, 255) == Rgb(255, 0, 0));
+  // Neighbouring indices never jump: at most a sixth of the way between two stops.
+  for (int p = 1; p < kPaletteCount; p++) {
+    for (int i = 0; i < 255; i++) {
+      const Rgb a = paletteColor(static_cast<Palette>(p), i), b = paletteColor(static_cast<Palette>(p), i + 1);
+      TEST_ASSERT_TRUE(abs(a.r - b.r) <= 12 && abs(a.g - b.g) <= 12 && abs(a.b - b.b) <= 12);
+    }
+  }
+}
+
+static int level(Rgb c) { return c.r + c.g + c.b; }
+
+static void test_fire_burns_from_the_bottom() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.start(GridEffect::Fire, 0, 42);
+  Rgb out[60];
+  long top = 0, bottom = 0;
+  for (uint32_t t = 2000; t < 8000; t += 16) {
+    player.render(t, t, out);
+    for (int x = 0; x < 10; x++) {
+      top += level(out[x]);
+      bottom += level(out[50 + x]);
+    }
+  }
+  TEST_ASSERT_TRUE(bottom > 3 * top);
+  TEST_ASSERT_TRUE(top > 0);  // flames do reach the top now and then
+}
+
+static void test_fire_intensity_sets_the_height() {
+  long lit[2] = {0, 0};
+  const uint8_t intensities[2] = {30, 230};
+  for (int k = 0; k < 2; k++) {
+    EffectPlayer player;
+    player.configure(10, 6);
+    EffectParams p;
+    p.intensity = intensities[k];
+    player.setParams(p, 0);
+    player.start(GridEffect::Fire, 0, 7);
+    Rgb out[60];
+    for (uint32_t t = 2000; t < 6000; t += 16) {
+      player.render(t, t, out);
+      for (int i = 0; i < 40; i++) lit[k] += level(out[i]);  // the upper four rows
+    }
+  }
+  TEST_ASSERT_TRUE(lit[1] > 4 * lit[0]);
+}
+
+static void test_effects_are_repeatable() {
+  // Same seed, same frames: a picture can be reproduced in a test.
+  for (GridEffect e : {GridEffect::Fire, GridEffect::Sparks, GridEffect::Relax}) {
+    EffectPlayer a, b;
+    a.configure(10, 6);
+    b.configure(10, 6);
+    a.start(e, 0, 99);
+    b.start(e, 0, 99);
+    Rgb oa[60], ob[60];
+    for (uint32_t t = 0; t < 3000; t += 16) {
+      a.render(t, 5, oa);
+      b.render(t, 5, ob);
+    }
+    TEST_ASSERT_EQUAL_MEMORY(oa, ob, sizeof(oa));
+  }
+}
+
+static void test_sparks_come_and_go() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.start(GridEffect::Sparks, 0, 3);
+  Rgb out[60];
+  int changes = 0, litFrames = 0;
+  Rgb prev[60] = {};
+  for (uint32_t t = 2000; t < 6000; t += 16) {
+    player.render(t, t, out);
+    int lit = 0;
+    for (int i = 0; i < 60; i++) {
+      if (!out[i].isBlack()) lit++;
+      if (!(out[i] == prev[i])) changes++;
+      prev[i] = out[i];
+    }
+    if (lit > 0 && lit < 60) litFrames++;
+  }
+  TEST_ASSERT_TRUE(changes > 1000);
+  TEST_ASSERT_TRUE(litFrames > 200);  // some bins lit, never the whole grid
+}
+
+static void test_player_fades_in_and_out() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  Rgb out[60];
+  TEST_ASSERT_FALSE(player.active());
+  TEST_ASSERT_FALSE(player.render(0, 1, out));
+  player.start(GridEffect::Relax, 1000, 1);
+  TEST_ASSERT_TRUE(player.active());
+  player.render(1000, 1, out);
+  TEST_ASSERT_EQUAL(0, level(out[0]) + level(out[30]));  // starts from dark
+  player.render(1000 + EffectPlayer::kFadeMs / 2, 1, out);
+  const int half = level(out[30]);
+  player.render(1000 + EffectPlayer::kFadeMs + 100, 1, out);
+  const int full = level(out[30]);
+  TEST_ASSERT_TRUE(half > 0 && half < full);
+  player.start(GridEffect::Off, 5000, 1);
+  TEST_ASSERT_TRUE(player.active());  // fading out
+  player.render(5000 + EffectPlayer::kFadeMs / 2, 1, out);
+  TEST_ASSERT_TRUE(level(out[30]) > 0);
+  player.render(5000 + EffectPlayer::kFadeMs + 1, 1, out);
+  TEST_ASSERT_FALSE(player.active());
+  TEST_ASSERT_FALSE(player.render(5000 + EffectPlayer::kFadeMs + 20, 1, out));
+}
+
+static void test_player_timer_and_demo() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  EffectParams p;
+  p.timerMin = 2;
+  player.setParams(p, 0);
+  player.start(GridEffect::Demo, 0, 1);
+  Rgb out[60];
+  TEST_ASSERT_EQUAL(120, player.remainingS(0));
+  TEST_ASSERT_EQUAL(GridEffect::Demo, player.selected());
+  // The demo moves on every kDemoMs; render often enough to notice.
+  for (uint32_t t = 0; t < 119000; t += 50) player.render(t, t, out);
+  TEST_ASSERT_EQUAL(1, player.remainingS(119000));
+  TEST_ASSERT_TRUE(player.active());
+  player.render(120000, 1, out);
+  TEST_ASSERT_EQUAL(GridEffect::Off, player.selected());  // the timer stopped it
+  TEST_ASSERT_EQUAL(0, player.remainingS(120000));
+  player.render(120000 + EffectPlayer::kFadeMs, 1, out);
+  TEST_ASSERT_FALSE(player.active());
+}
+
+static void test_player_brightness_and_speed_zero() {
+  EffectPlayer player;
+  player.configure(4, 3);
+  EffectParams p;
+  p.speed = 0;  // treated as the slowest speed, never a division by zero
+  p.brightness = 0;
+  player.setParams(p, 0);
+  player.start(GridEffect::Fire, 0, 5);
+  Rgb out[12];
+  for (uint32_t t = 0; t < 4000; t += 16) player.render(t, t, out);
+  for (const Rgb &c : out) TEST_ASSERT_TRUE(c.isBlack());
+}
+
+static void test_player_settings_per_effect() {
+  // Relax at full brightness, then sparks at a low one: while relax fades
+  // out it keeps its own brightness (and timer-free settings) instead of
+  // dropping to the new effect's; sparks then runs with its own.
+  EffectPlayer player;
+  player.configure(10, 6);
+  EffectParams relax, sparks;
+  relax.brightness = 255;
+  sparks.brightness = 20;
+  sparks.intensity = 255;
+  sparks.timerMin = 3;
+  Rgb out[60];
+  player.start(GridEffect::Relax, relax, 0, 1);
+  for (uint32_t t = 0; t <= 3000; t += 16) player.render(t, 1, out);
+  int before = 0;
+  for (const Rgb &c : out) before += level(c);
+  player.start(GridEffect::Sparks, sparks, 3000, 2);
+  TEST_ASSERT_EQUAL(20, player.params().brightness);
+  TEST_ASSERT_EQUAL(180, player.remainingS(3000));  // the new effect's timer
+  player.render(3016, 1, out);
+  int during = 0;
+  for (const Rgb &c : out) during += level(c);
+  TEST_ASSERT_TRUE(during > before * 8 / 10);  // relax still nearly at full brightness
+  for (uint32_t t = 3016; t <= 6000; t += 16) player.render(t, 1, out);
+  for (const Rgb &c : out) TEST_ASSERT_TRUE(c.r <= 20 && c.g <= 20 && c.b <= 20);
+  // Off keeps the settings: the fade-out uses them, and nothing else changes.
+  player.start(GridEffect::Off, EffectParams(), 6000, 3);
+  TEST_ASSERT_EQUAL(20, player.params().brightness);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_serpentine_top_left);
@@ -212,5 +413,15 @@ int main(int, char **) {
   RUN_TEST(test_hue_and_kelvin);
   RUN_TEST(test_work_effects);
   RUN_TEST(test_pwm_duty);
+  RUN_TEST(test_effect_and_palette_names);
+  RUN_TEST(test_palette_ends);
+  RUN_TEST(test_fire_burns_from_the_bottom);
+  RUN_TEST(test_fire_intensity_sets_the_height);
+  RUN_TEST(test_effects_are_repeatable);
+  RUN_TEST(test_sparks_come_and_go);
+  RUN_TEST(test_player_fades_in_and_out);
+  RUN_TEST(test_player_timer_and_demo);
+  RUN_TEST(test_player_brightness_and_speed_zero);
+  RUN_TEST(test_player_settings_per_effect);
   return UNITY_END();
 }

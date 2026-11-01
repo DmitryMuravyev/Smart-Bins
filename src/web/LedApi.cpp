@@ -41,6 +41,61 @@ void sendLocateDefaults(AsyncWebServerRequest *req, const config::LocateConfig &
   sendJson(req, 200, doc);
 }
 
+// Reads the optional effect parameters into `out`, leaving the ones that are
+// not given as they are. Returns an error message or nullptr.
+const char *readEffectParams(AsyncWebServerRequest *req, config::EffectSettings &out) {
+  long v;
+  if (hasParam(req, "speed")) {
+    if (!intParam(req, "speed", 1, 255, v)) return "speed must be 1..255";
+    out.speed = static_cast<uint8_t>(v);
+  }
+  if (hasParam(req, "intensity")) {
+    if (!intParam(req, "intensity", 1, 255, v)) return "intensity must be 1..255";
+    out.intensity = static_cast<uint8_t>(v);
+  }
+  if (hasParam(req, "brightness")) {
+    if (!intParam(req, "brightness", 1, 255, v)) return "brightness must be 1..255";
+    out.brightness = static_cast<uint8_t>(v);
+  }
+  if (hasParam(req, "timer")) {
+    if (!intParam(req, "timer", 0, 1440, v)) return "timer must be 0..1440 minutes (0 = keep running)";
+    out.timerMin = static_cast<uint16_t>(v);
+  }
+  if (const AsyncWebParameter *p = param(req, "palette")) {
+    led::Palette pal;
+    if (!led::parsePalette(p->value().c_str(), pal)) {
+      return "palette must be auto, heat, ocean, forest, lava, rainbow or party";
+    }
+    out.palette = static_cast<config::EffectPalette>(pal);
+  }
+  return nullptr;
+}
+
+bool hasEffectParams(AsyncWebServerRequest *req) {
+  for (const char *name : {"speed", "intensity", "brightness", "timer", "palette"}) {
+    if (hasParam(req, name)) return true;
+  }
+  return false;
+}
+
+// Index of an effect's settings in config.effects; -1 for Off.
+int settingsIndex(led::GridEffect e) { return static_cast<int>(e) - 1; }
+
+void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::AppConfig &cfg) {
+  const led::LedEngine::Status s = engine.status();
+  doc["effect"] = led::toString(s.effect);
+  doc["remainingS"] = s.remainingS;
+  // The running effect's settings; none while off.
+  const int i = settingsIndex(s.effect);
+  if (i < 0) return;
+  const config::EffectSettings &e = cfg.effects[i];
+  doc["speed"] = e.speed;
+  doc["intensity"] = e.intensity;
+  doc["palette"] = config::toString(e.palette);
+  doc["brightness"] = e.brightness;
+  doc["timer"] = e.timerMin;
+}
+
 }  // namespace
 
 void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore &config) {
@@ -96,6 +151,41 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     sendJson(req, 200, doc);
   });
 
+  // Grid effects. Every effect keeps its own settings (config.json
+  // effects.<name>.*) and starts with them. Without parameters: the running
+  // effect and its settings. `effect` starts one (or off); settings given
+  // with it change that effect's, otherwise the running effect's, and apply
+  // at once.
+  server.on("/api/effects", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
+    led::GridEffect effect = led::GridEffect::Off;
+    const bool start = hasParam(req, "effect");
+    if (start && !led::parseGridEffect(param(req, "effect")->value().c_str(), effect)) {
+      return sendError(req, 400, "effect must be off, fire, sparks, relax or demo");
+    }
+    const led::GridEffect running = engine.status().effect;
+    const led::GridEffect target = start ? effect : running;
+    config::AppConfig cfg = config.get();
+    if (hasEffectParams(req)) {
+      if (target == led::GridEffect::Off) return sendError(req, 400, "no effect is running; name one with effect=");
+      config::EffectSettings &e = cfg.effects[settingsIndex(target)];
+      const config::EffectSettings before = e;
+      if (const char *err = readEffectParams(req, e)) return sendError(req, 400, err);
+      if (e.speed != before.speed || e.intensity != before.intensity || e.palette != before.palette ||
+          e.brightness != before.brightness || e.timerMin != before.timerMin) {
+        std::string err;
+        if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+        if (!start) engine.setEffectParams(led::effectParams(e));
+      }
+    }
+    if (start) {
+      const int i = settingsIndex(effect);
+      engine.startEffect(effect, i < 0 ? led::EffectParams() : led::effectParams(cfg.effects[i]));
+    }
+    JsonDocument doc;
+    writeEffects(doc, engine, cfg);
+    sendJson(req, 200, doc);
+  });
+
   server.on("/api/led/test", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
     led::TestPattern p;
     if (!hasParam(req, "pattern") || !led::parseTestPattern(param(req, "pattern")->value().c_str(), p)) {
@@ -134,6 +224,8 @@ void writeLedStatus(JsonDocument &doc, led::LedEngine &engine) {
   doc["estimateMa"] = s.estimateMa;
   doc["currentLimited"] = s.limitLevel < 255;
   doc["fps"] = s.fps;
+  doc["effect"] = led::toString(s.effect);
+  doc["effectRemainingS"] = s.remainingS;
   // Lit bins as [x, y] pairs, so every open page shows the same highlights.
   led::LedEngine::Bin bins[led::LedEngine::kMaxHighlights];
   uint32_t version;

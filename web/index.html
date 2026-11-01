@@ -140,6 +140,50 @@
       <label class="row"><span data-i18n="grid.brightness">Grid brightness</span><output id="grid-brightness-out"></output></label>
       <input type="range" id="grid-brightness" min="1" max="255">
     </div>
+    <!-- Effects (Task 12): run under the located bins, which always show on top. -->
+    <div class="card" id="effects-card">
+      <h2 data-i18n="effects.title">Effects</h2>
+      <div class="chips" id="effect-pick">
+        <button data-effect="off" data-i18n="effects.off">Off</button>
+        <button data-effect="fire" data-i18n="effects.fire">Fire</button>
+        <button data-effect="sparks" data-i18n="effects.sparks">Sparks</button>
+        <button data-effect="relax" data-i18n="effects.relax">Relax</button>
+        <button data-effect="demo" data-i18n="effects.demo">Demo</button>
+      </div>
+      <p class="muted small" id="effect-timer-left" hidden></p>
+      <!-- The running effect's settings; each effect remembers its own.
+           Hidden while no effect runs. -->
+      <div id="effect-settings" hidden>
+      <p class="muted small" data-i18n="effects.ownSettings">Each effect remembers its own settings.</p>
+      <label class="row"><span data-i18n="effects.speed">Speed</span><output id="effect-speed-out"></output></label>
+      <input type="range" id="effect-speed" min="1" max="255" data-param="speed">
+      <label class="row"><span data-i18n="effects.intensity">Intensity</span><output id="effect-intensity-out"></output></label>
+      <input type="range" id="effect-intensity" min="1" max="255" data-param="intensity">
+      <label class="row"><span data-i18n="effects.brightness">Brightness</span><output id="effect-brightness-out"></output></label>
+      <input type="range" id="effect-brightness" min="1" max="255" data-param="brightness">
+      <label class="row"><span data-i18n="effects.palette">Colors</span>
+        <select id="effect-palette">
+          <option value="auto" data-i18n="effects.pal.auto">Effect's own</option>
+          <option value="heat" data-i18n="effects.pal.heat">Heat</option>
+          <option value="ocean" data-i18n="effects.pal.ocean">Ocean</option>
+          <option value="forest" data-i18n="effects.pal.forest">Forest</option>
+          <option value="lava" data-i18n="effects.pal.lava">Lava</option>
+          <option value="rainbow" data-i18n="effects.pal.rainbow">Rainbow</option>
+          <option value="party" data-i18n="effects.pal.party">Party</option>
+        </select>
+      </label>
+      <label class="row"><span data-i18n="effects.timer">Stop after</span>
+        <select id="effect-timer">
+          <option value="0" data-i18n="effects.timer.0">Never</option>
+          <option value="15" data-i18n="effects.timer.15">15 minutes</option>
+          <option value="30" data-i18n="effects.timer.30">30 minutes</option>
+          <option value="60" data-i18n="effects.timer.60">1 hour</option>
+          <option value="120" data-i18n="effects.timer.120">2 hours</option>
+          <option value="240" data-i18n="effects.timer.240">4 hours</option>
+        </select>
+      </label>
+      </div>
+    </div>
     <div class="card">
       <h2 data-i18n="grid.tests">Test patterns</h2>
       <div class="chips" id="grid-tests">
