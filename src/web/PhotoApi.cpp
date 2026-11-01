@@ -176,7 +176,10 @@ void writePhotoStats(JsonObject out, PhotoStore &photos) {
 void registerPhotoApi(AsyncWebServer &server, PhotoStore &photos, InventoryDb &db, Security &security) {
   server.on(AsyncURIMatcher::exact("/api/photos"), HTTP_GET, [&photos](AsyncWebServerRequest *req) {
     JsonDocument doc;
-    writePhotoStats(doc.to<JsonObject>(), photos);
+    {
+      led::FlashGuard guard;  // reads the FAT (see FlashGuard)
+      writePhotoStats(doc.to<JsonObject>(), photos);
+    }
     doc["maxSide"] = photos.maxSide();
     doc["thumbSide"] = PhotoStore::kThumbSide;
     doc["maxBytes"] = PhotoStore::kMaxPhotoBytes;

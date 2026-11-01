@@ -71,7 +71,6 @@ class AudioAnalyzer {
   static constexpr uint32_t kBeatGapMs = 250;
 
   explicit AudioAnalyzer(uint32_t sampleRate = 16000) : sampleRate_(sampleRate) {
-    for (int i = 0; i < kN; i++) window_[i] = 0.5f - 0.5f * std::cos(2.0f * kPi * i / kN);
     // Band edges in FFT bins, logarithmically spaced. On a 256-point FFT the
     // lowest bands would be narrower than one bin; each band gets at least
     // one, which pushes the low edges up a little and keeps them in order.
@@ -106,11 +105,19 @@ class AudioAnalyzer {
     for (int i = 0; i < kN; i++) mean += samples[i];
     mean /= kN;
     float sumSq = 0;
+    // The Hann window, 0.5 - 0.5 cos(2 pi i / N), worked out as it goes
+    // instead of kept in a table (1 KB less): (c, d) is the point at angle
+    // 2 pi i / N on the unit circle, turned one step further per sample.
+    const float stepC = std::cos(2.0f * kPi / kN), stepS = std::sin(2.0f * kPi / kN);
+    float c = 1, d = 0;
     for (int i = 0; i < kN; i++) {
       const float s = samples[i] - mean;
       sumSq += s * s;
-      re_[i] = s * window_[i];
+      re_[i] = s * (0.5f - 0.5f * c);
       im_[i] = 0;
+      const float nc = c * stepC - d * stepS;
+      d = c * stepS + d * stepC;
+      c = nc;
     }
     // RMS in dB; +3 dB so a full-scale sine (RMS 0.707) reads 0 dB like the bands.
     frame_.levelDb = toDb(sumSq / kN) + 3.01f;
@@ -209,7 +216,6 @@ class AudioAnalyzer {
 
   uint32_t sampleRate_;
   float blockMs_ = 16;
-  float window_[kN];
   float re_[kN], im_[kN];
   uint8_t edges_[kBands + 1];
   int bassLo_ = 1, bassHi_ = 2;

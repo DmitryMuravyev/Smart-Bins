@@ -1037,18 +1037,24 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
 
   server.on(AsyncURIMatcher::exact("/api/backup/info"), HTTP_GET, [&db, &photos](AsyncWebServerRequest *req) {
     JsonDocument doc;
-    doc["dbBytes"] = fileSize(FFat, kDbFile);
     inventory::Stats s;
     std::string err;
+    // First: the database takes its own flash guard, after its lock.
     if (db.stats(s, err) == Result::Ok) {
       doc["parts"] = s.parts;
       doc["photos"] = s.photos;
     }
-    doc["flashFree"] = flashFree();
-    doc["card"] = photos.onCard();
-    // Only worth the directory walk when there is a card to move them to.
-    doc["flashPhotos"] = photos.onCard() && photos.flashHasPhotos();
-    if (FFat.exists(kPreviousFile)) doc["previousBytes"] = fileSize(FFat, kPreviousFile);
+    {
+      // File sizes, free space and the photo folder come from the FAT in
+      // flash: the strips pause meanwhile (see FlashGuard).
+      led::FlashGuard guard;
+      doc["dbBytes"] = fileSize(FFat, kDbFile);
+      doc["flashFree"] = flashFree();
+      doc["card"] = photos.onCard();
+      // Only worth the directory walk when there is a card to move them to.
+      doc["flashPhotos"] = photos.onCard() && photos.flashHasPhotos();
+      if (FFat.exists(kPreviousFile)) doc["previousBytes"] = fileSize(FFat, kPreviousFile);
+    }
     writePhotoJob(doc["job"].to<JsonObject>());
     sendJson(req, 200, doc);
   });

@@ -24,20 +24,27 @@ namespace {
 
 const char *const TAG = "mic";
 
-// DMA: 3 buffers of 128 frames (8 ms each at 16 kHz), 3 KB in all. The task
-// reads one buffer at a time; three give it 16 ms of slack before samples
+// DMA: 4 buffers of 64 frames (4 ms each at 16 kHz), 2 KB in all. The task
+// reads one buffer at a time; four give it 12 ms of slack before samples
 // are lost, which only happens during flash writes (when the I2S interrupt
 // has to wait) and costs at most a block of analysis.
-constexpr uint32_t kDmaBuffers = 3;
-constexpr uint32_t kDmaFrames = 128;
+constexpr uint32_t kDmaBuffers = 4;
+constexpr uint32_t kDmaFrames = 64;
 
 // The INMP441 needs 2^18 clock cycles after the clock starts before its
 // output is valid (about 260 ms at 16 kHz x 64); the check skips that and
-// then listens for a while.
+// then listens for a while. Every later start skips it as well.
 constexpr uint32_t kSettleMs = 300;
 constexpr uint32_t kListenMs = 250;
 
-// The work buffers, allocated only while the task runs (about 4.5 KB):
+// How long the microphone keeps running after the last music effect ended:
+// the effect fading out still draws from it, and a quick switch back (or
+// from one music effect to another through "off") doesn't restart the I2S.
+constexpr uint32_t kLingerMs = 3000;
+// How often the idle task looks whether a music effect has started.
+constexpr uint32_t kIdlePollMs = 100;
+
+// The work buffers, allocated only while the microphone runs (about 3.5 KB):
 // one DMA buffer's worth of raw stereo frames, a block of mono samples for
 // the analyzer, and the analyzer itself.
 struct Work {
@@ -49,6 +56,10 @@ struct Work {
 // A raw I2S word to a sample: the INMP441 sends 24 bits, left-aligned in
 // the 32-bit slot.
 inline float toSample(int32_t raw) { return static_cast<float>(raw >> 8) / 8388608.0f; }
+
+// dB values for the log as whole numbers: printf with floating point needs
+// over 1 KB of the task's stack, which the task would then have to keep.
+inline int dbInt(float db) { return static_cast<int>(std::lround(db)); }
 
 // What the check learns about one channel (left or right slot).
 struct SlotStats {
@@ -83,12 +94,12 @@ void Microphone::begin(int sck, int ws, int sd, led::LedEngine &engine) {
   ws_ = ws;
   sd_ = sd;
   engine_ = &engine;
-  // 4 KB of stack: the log lines with floating-point numbers alone take
-  // over 1 KB, and with 3 KB only about 500 bytes were left unused.
+  // 3 KB of stack is enough now the log lines print whole numbers (with
+  // floating point it needed 4 KB).
   // Core 1 with the LED task, below it in priority: the analysis takes well
   // under a millisecond per 16 ms block, and core 0 can be busy for a long
   // time with a database query in the web server, which would drop audio.
-  xTaskCreatePinnedToCore(taskEntry, "mic", 4096, this, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "mic", 3072, this, 1, nullptr, 1);
 }
 
 void Microphone::taskEntry(void *arg) {
@@ -96,13 +107,7 @@ void Microphone::taskEntry(void *arg) {
   vTaskDelete(nullptr);
 }
 
-void Microphone::run() {
-  Work *work = new (std::nothrow) Work;
-  if (!work) {
-    ESP_LOGE(TAG, "Not enough memory for the microphone");
-    return;
-  }
-
+void *Microphone::open() {
   i2s_chan_handle_t rx = nullptr;
   i2s_chan_config_t chanCfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
   chanCfg.dma_desc_num = kDmaBuffers;
@@ -123,64 +128,117 @@ void Microphone::run() {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "I2S start failed: %s", esp_err_to_name(err));
     if (rx) i2s_del_channel(rx);
-    delete work;
-    return;
+    return nullptr;
   }
+  return rx;
+}
 
+void Microphone::close(void *channel) {
+  auto rx = static_cast<i2s_chan_handle_t>(channel);
+  i2s_channel_disable(rx);
+  i2s_del_channel(rx);
+}
+
+void Microphone::run() {
   // ---- Is anything there? ----
-  SlotStats slots[2];
-  const uint32_t chunkMs = 1000 * kDmaFrames / kSampleRate;
-  for (uint32_t ms = 0; ms < kSettleMs + kListenMs; ms += chunkMs) {
-    size_t got = 0;
-    if (i2s_channel_read(rx, work->raw, sizeof(work->raw), &got, pdMS_TO_TICKS(100)) != ESP_OK) continue;
-    if (ms < kSettleMs) continue;
-    for (size_t i = 0; i + 1 < got / sizeof(int32_t); i += 2) {
-      slots[0].add(work->raw[i]);
-      slots[1].add(work->raw[i + 1]);
+  // The I2S and the buffers exist only for the check here and later only
+  // while a music effect runs: about 6 KB of memory (driver, DMA, buffers)
+  // that the web server gets back the rest of the time.
+  int slot = -1;
+  {
+    Work *work = new (std::nothrow) Work;
+    void *rx = work ? open() : nullptr;
+    if (!rx) {
+      if (!work) ESP_LOGE(TAG, "Not enough memory for the microphone");
+      delete work;
+      return;
     }
-  }
-  // Both channels in the log, for checking the wiring: the microphone's
-  // channel should move a little in a quiet room (-60..-85 dB), the other
-  // one should not move at all.
-  for (int i = 0; i < 2; i++) {
-    ESP_LOGI(TAG, "I2S %s channel: %.0f dB, samples %ld..%ld", i ? "right" : "left", slots[i].rmsDb(),
-             (long)slots[i].min, (long)slots[i].max);
-  }
-  const int slot = slots[0].live() ? 0 : slots[1].live() ? 1 : -1;
-  if (slot < 0) {
-    ESP_LOGI(TAG, "No microphone on GPIO %d/%d/%d; music effects off", sck_, ws_, sd_);
-    i2s_channel_disable(rx);
-    i2s_del_channel(rx);
+    SlotStats slots[2];
+    const uint32_t chunkMs = 1000 * kDmaFrames / kSampleRate;
+    for (uint32_t ms = 0; ms < kSettleMs + kListenMs; ms += chunkMs) {
+      size_t got = 0;
+      if (i2s_channel_read(static_cast<i2s_chan_handle_t>(rx), work->raw, sizeof(work->raw), &got,
+                           pdMS_TO_TICKS(100)) != ESP_OK)
+        continue;
+      if (ms < kSettleMs) continue;
+      for (size_t i = 0; i + 1 < got / sizeof(int32_t); i += 2) {
+        slots[0].add(work->raw[i]);
+        slots[1].add(work->raw[i + 1]);
+      }
+    }
+    close(rx);
     delete work;
-    return;
+    // Both channels in the log, for checking the wiring: the microphone's
+    // channel should move a little in a quiet room (-60..-85 dB), the other
+    // one should not move at all.
+    for (int i = 0; i < 2; i++) {
+      ESP_LOGI(TAG, "I2S %s channel: %d dB, samples %ld..%ld", i ? "right" : "left", dbInt(slots[i].rmsDb()),
+               (long)slots[i].min, (long)slots[i].max);
+    }
+    slot = slots[0].live() ? 0 : slots[1].live() ? 1 : -1;
+    if (slot < 0) {
+      ESP_LOGI(TAG, "No microphone on GPIO %d/%d/%d; music effects off", sck_, ws_, sd_);
+      return;
+    }
+    ESP_LOGI(TAG, "Microphone found (%s channel, room level %d dB)", slot ? "right" : "left",
+             dbInt(slots[slot].rmsDb()));
   }
-  ESP_LOGI(TAG, "Microphone found (%s channel, room level %.0f dB)", slot ? "right" : "left", slots[slot].rmsDb());
   present_ = true;
   engine_->setMicrophone(true);
 
-  // ---- Listen ----
-  int filled = 0;
-  uint32_t blocks = 0;
   for (;;) {
-    size_t got = 0;
-    if (i2s_channel_read(rx, work->raw, sizeof(work->raw), &got, pdMS_TO_TICKS(100)) != ESP_OK) continue;
-    for (size_t i = slot; i < got / sizeof(int32_t); i += 2) {
-      work->block[filled++] = toSample(work->raw[i]);
-      if (filled == led::AudioAnalyzer::kN) {
+    // ---- Idle: wait for a music effect ----
+    while (!led::isMusicEffect(engine_->status().effect)) vTaskDelay(pdMS_TO_TICKS(kIdlePollMs));
+
+    // ---- Listen while one runs ----
+    Work *work = new (std::nothrow) Work;
+    void *rx = work ? open() : nullptr;
+    if (!rx) {
+      // Memory is short right now (or the I2S refused): the effect stays
+      // silent, and the next try comes after a pause.
+      if (!work) ESP_LOGW(TAG, "Not enough memory to start the microphone");
+      delete work;
+      vTaskDelay(pdMS_TO_TICKS(kLingerMs));
+      continue;
+    }
+    ESP_LOGI(TAG, "Listening");
+    const uint32_t blockMs = 1000 * led::AudioAnalyzer::kN / kSampleRate;
+    uint32_t settledMs = 0;  // the microphone's start-up time, skipped
+    uint32_t quietMs = 0;    // how long no music effect has been running
+    uint32_t blocks = 0;
+    int filled = 0;
+    while (quietMs < kLingerMs) {
+      size_t got = 0;
+      if (i2s_channel_read(static_cast<i2s_chan_handle_t>(rx), work->raw, sizeof(work->raw), &got,
+                           pdMS_TO_TICKS(100)) != ESP_OK)
+        continue;
+      if (settledMs < kSettleMs) {
+        settledMs += 1000 * kDmaFrames / kSampleRate;
+        continue;
+      }
+      for (size_t i = slot; i < got / sizeof(int32_t); i += 2) {
+        work->block[filled++] = toSample(work->raw[i]);
+        if (filled < led::AudioAnalyzer::kN) continue;
         filled = 0;
         const led::AudioFrame &f = work->analyzer.process(work->block);
         engine_->setAudio(f);
+        const bool music = led::isMusicEffect(engine_->status().effect);
+        quietMs = music ? 0 : quietMs + blockMs;
         // While a music effect runs: what it hears, every 2 s (125 blocks),
         // for checking the microphone and tuning (clap and watch the beats).
-        if (++blocks % 125 == 0 && led::isMusicEffect(engine_->status().effect)) {
+        if (++blocks % 125 == 0 && music) {
           int loudest = 0;
           for (int b = 1; b < led::AudioFrame::kBands; b++)
             if (f.bandDb[b] > f.bandDb[loudest]) loudest = b;
-          ESP_LOGI(TAG, "Level %.0f dB (auto-gain %.0f), bass %.0f dB, loudest band %d, %lu beats", f.levelDb,
-                   f.levelPeakDb, f.bassDb, loudest, (unsigned long)f.beats);
+          ESP_LOGI(TAG, "Level %d dB (auto-gain %d), bass %d dB, loudest band %d, %lu beats", dbInt(f.levelDb),
+                   dbInt(f.levelPeakDb), dbInt(f.bassDb), loudest, (unsigned long)f.beats);
         }
       }
     }
+    close(rx);
+    delete work;
+    engine_->setAudio(led::AudioFrame());  // silence until the next start
+    ESP_LOGI(TAG, "Stopped (no music effect running)");
   }
 }
 
