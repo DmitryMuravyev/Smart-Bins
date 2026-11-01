@@ -12,7 +12,9 @@
 namespace sb {
 
 namespace {
-const char *TAG = "live";
+// Only debug lines use the tag; below debug log level they compile away,
+// so [[maybe_unused]] keeps that build free of warnings.
+[[maybe_unused]] const char *TAG = "live";
 // How often the slowly changing values (LED current, memory, signal) are pushed.
 constexpr uint32_t kStatusPeriodMs = 2000;
 // cleanupClients() closes the oldest connections beyond the library's limit;
