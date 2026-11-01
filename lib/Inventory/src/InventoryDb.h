@@ -185,6 +185,12 @@ class InventoryDb {
   bool isOpen() const { return db_ != nullptr; }
 
   void setWriteHooks(WriteHooks hooks) { hooks_ = std::move(hooks); }
+  // The same around every call that reads the database (begin before the
+  // first statement, end when the call returns). On the board, reading the
+  // file goes to the flash chip with the CPU cache switched off, which the
+  // LED strips have to be paused for, just as for writes. Hooks may nest: a
+  // write transaction can run inside a read scope, and then both run.
+  void setReadHooks(WriteHooks hooks) { readHooks_ = std::move(hooks); }
   // Current time in Unix seconds, or 0 when unknown (the board before its
   // clock is set over the network). Used for created/updated times.
   void setClock(std::function<int64_t()> clock) { clock_ = std::move(clock); }
@@ -214,6 +220,16 @@ class InventoryDb {
   // match, across all pages.
   Result findParts(const PartQuery &query, const std::function<void(const Part &)> &each, int64_t &total,
                    std::string &err);
+  // Step one of findParts() on its own: the ids of the requested page, in
+  // order, and the number of matches. The web API sends the parts behind
+  // these ids one by one as the connection takes them (getPart()), so the
+  // answer never has to be held in RAM whole.
+  Result findPartIds(const PartQuery &query, std::vector<int64_t> &ids, int64_t &total, std::string &err);
+  // The parts behind ids[from] .. ids[from + count - 1] (clamped to the
+  // list), one callback each, in order, all inside one read scope. Ids that
+  // no longer exist are skipped.
+  Result readParts(const std::vector<int64_t> &ids, size_t from, size_t count,
+                   const std::function<void(const Part &)> &each, std::string &err);
   // How the parts matching `query` are spread over the bins: one BinCount per
   // bin that holds at least one of them (sort, offset and limit are ignored).
   // Lets the bin grid show where the search results are.
@@ -297,6 +313,8 @@ class InventoryDb {
   std::recursive_mutex mutex_;
   int64_t tally_ = 0;  // rows sb_tally() accepted in the current findParts() scan
   WriteHooks hooks_;
+  WriteHooks readHooks_;
+  class ReadScope;
   std::function<int64_t()> clock_;
 };
 

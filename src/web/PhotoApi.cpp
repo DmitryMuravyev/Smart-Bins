@@ -12,6 +12,7 @@
 #include "PhotoStore.h"
 #include "Security.h"
 #include "SendGate.h"
+#include "led/RmtStrip.h"
 
 namespace sb {
 
@@ -70,6 +71,10 @@ void sendFile(AsyncWebServerRequest *req, fs::FS &fs, const String &path, size_t
   sendGate().run(req, [src, size](AsyncWebServerRequest *req, SendGate::Slot slot) {
     AsyncWebServerResponse *res =
         req->beginResponse("image/jpeg", size, [src, slot](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
+          // Reading the flash (photos kept there rather than on a card)
+          // switches its cache off: no LED frame may be on the wire
+          // meanwhile (see FlashGuard). Harmless for the card.
+          led::FlashGuard guard;
           File f = src->fs->open(src->path, FILE_READ);
           if (!f || !f.seek(index)) return 0;
           return f.read(buf, maxLen);

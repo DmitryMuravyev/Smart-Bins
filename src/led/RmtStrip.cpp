@@ -16,18 +16,26 @@ constexpr uint32_t kResolutionHz = 40000000;
 // Nanoseconds to ticks, rounded to the nearest tick (+12 is half of 25 ns).
 constexpr uint16_t ticks(uint16_t ns) { return static_cast<uint16_t>((ns + 12) / 25); }
 
-// Flash-write gate (see FlashGuard in the header). write() holds it while
+// Flash gate (see FlashGuard in the header). write() holds it while
 // starting a frame; a FlashGuard holds it for its whole life, so no frame can
-// start during a flash write. The strip list lets the guard wait for frames
+// start during a flash read or write. The strip list lets the guard wait for frames
 // that were already on the wire when it took the gate.
 constexpr int kMaxStrips = 8;  // the ESP32 has 8 RMT channels
 RmtStrip *strips[kMaxStrips] = {};
 
+// Recursive, so a FlashGuard may be taken again by the task that holds it:
+// the database takes it around every read and every write transaction, and
+// a write often starts inside a read (see InventoryDb::setReadHooks()).
 SemaphoreHandle_t gate() {
   // Function-local static: created on first use, thread-safe in C++11.
-  static SemaphoreHandle_t g = xSemaphoreCreateMutex();
+  static SemaphoreHandle_t g = xSemaphoreCreateRecursiveMutex();
   return g;
 }
+
+// How many FlashGuards the task holding the gate has open. Only the
+// outermost one stops and restarts the effect clock and waits for frames.
+// Touched only by the gate's holder, so the gate itself protects it.
+int guardDepth = 0;
 
 // The effect clock's pauses (see effectMillis()). `pausedTotal` is the
 // length of every finished FlashGuard so far; `pausedAt` is when the current
@@ -80,7 +88,8 @@ FlashGuard::FlashGuard() { lock(); }
 FlashGuard::~FlashGuard() { unlock(); }
 
 void FlashGuard::lock() {
-  xSemaphoreTake(gate(), portMAX_DELAY);
+  xSemaphoreTakeRecursive(gate(), portMAX_DELAY);
+  if (guardDepth++ > 0) return;  // already stopped by an outer guard
   // Stop the effect clock now, before waiting for frames in flight: what is
   // on the wire was rendered for the current time, and nothing after it will
   // be sent until unlock().
@@ -98,11 +107,13 @@ void FlashGuard::lock() {
 }
 
 void FlashGuard::unlock() {
-  portENTER_CRITICAL(&clockMux);
-  pausedTotal += millis() - pausedAt;
-  paused = false;
-  portEXIT_CRITICAL(&clockMux);
-  xSemaphoreGive(gate());
+  if (--guardDepth == 0) {
+    portENTER_CRITICAL(&clockMux);
+    pausedTotal += millis() - pausedAt;
+    paused = false;
+    portEXIT_CRITICAL(&clockMux);
+  }
+  xSemaphoreGiveRecursive(gate());
 }
 
 uint32_t effectMillis() {
@@ -176,14 +187,14 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
     end();
     return false;
   }
-  xSemaphoreTake(gate(), portMAX_DELAY);
+  xSemaphoreTakeRecursive(gate(), portMAX_DELAY);
   for (RmtStrip *&slot : strips) {
     if (!slot) {
       slot = this;
       break;
     }
   }
-  xSemaphoreGive(gate());
+  xSemaphoreGiveRecursive(gate());
   if (plannedStrips > 0) {
     plannedStrips--;
     freeBlocks = freeBlocks > blocks ? freeBlocks - blocks : 0;
@@ -193,11 +204,11 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
 }
 
 void RmtStrip::end() {
-  xSemaphoreTake(gate(), portMAX_DELAY);
+  xSemaphoreTakeRecursive(gate(), portMAX_DELAY);
   for (RmtStrip *&slot : strips) {
     if (slot == this) slot = nullptr;
   }
-  xSemaphoreGive(gate());
+  xSemaphoreGiveRecursive(gate());
   if (channel_) {
     if (busy_) rmt_tx_wait_all_done(channel_, 100);
     rmt_disable(channel_);
@@ -225,11 +236,11 @@ bool RmtStrip::write(const uint8_t *data, size_t len) {
   tx.loop_count = 0;
   tx.flags.eot_level = 0;  // line rests low between frames: the strip latches after ~300 us
   // Waits here while a flash write is in progress (FlashGuard holds the gate).
-  xSemaphoreTake(gate(), portMAX_DELAY);
+  xSemaphoreTakeRecursive(gate(), portMAX_DELAY);
   inFlight_ = true;
   const bool ok = rmt_transmit(channel_, encoder_, data, len, &tx) == ESP_OK;
   if (!ok) inFlight_ = false;
-  xSemaphoreGive(gate());
+  xSemaphoreGiveRecursive(gate());
   busy_ = ok;
   return ok;
 }

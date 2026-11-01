@@ -101,6 +101,9 @@ void attachment(AsyncWebServerResponse *res, const String &name) {
 // Reads part of a file, opening it for just this call: the FAT partition has
 // only four file slots (see main.cpp), and a slow download must not hold one.
 size_t readAt(fs::FS &fs, const String &path, uint64_t offset, uint8_t *buf, size_t len) {
+  // Reading the FAT partition switches the flash cache off: no LED frame may
+  // be on the wire meanwhile (see FlashGuard).
+  led::FlashGuard guard;
   File f = fs.open(path, FILE_READ);
   if (!f || !f.seek(offset)) return 0;
   return f.read(buf, len);
@@ -371,7 +374,7 @@ bool startDb(RestoreJob &job, uint64_t size) {
     led::FlashGuard guard;
     // The database kept from the last restore makes room for this one: the
     // swap replaces it anyway.
-    FFat.remove(kPreviousFile);
+    if (FFat.exists(kPreviousFile)) FFat.remove(kPreviousFile);  // exists(): remove() logs an error when it is missing
     job.dbFile = FFat.open(kIncomingFile, FILE_WRITE);
   }
   if (!job.dbFile) return restoreFail(job, 500, "can't create the database file");
@@ -1113,7 +1116,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   server.on(AsyncURIMatcher::exact("/api/backup/previous/delete"), HTTP_POST, [](AsyncWebServerRequest *req) {
     {
       led::FlashGuard guard;
-      FFat.remove(kPreviousFile);
+      if (FFat.exists(kPreviousFile)) FFat.remove(kPreviousFile);
     }
     JsonDocument doc;
     doc["ok"] = true;

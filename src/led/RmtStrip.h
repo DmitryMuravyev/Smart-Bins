@@ -56,8 +56,14 @@ class RmtStrip {
   volatile bool inFlight_ = false;
 };
 
-// Pauses every strip around a write to flash (NVS / Preferences, the FAT
-// partition with the config, database and photos).
+// Pauses every strip around a read or write of flash (NVS / Preferences,
+// the FAT partition with the config, database and photos).
+//
+// On the ESP32, reading the flash chip directly (as the file system does)
+// switches the cache off just as writing does, only for a shorter time: a
+// search reads a few hundred pages of the database, and with frames going
+// out meanwhile the strips flashed in random colors. Reads of code and
+// constants through the cache are not affected; only file and NVS access.
 //
 // Writing flash switches off the CPU's flash cache for a few milliseconds, and
 // with it every interrupt handler that lives in flash, including the RMT one
@@ -73,6 +79,9 @@ class RmtStrip {
 //   { led::FlashGuard guard; prefs.putBytes(...); }
 //
 // Strip tasks just pause for the length of the write (a missed frame or two).
+//
+// Guards may nest on one task (a write inside a read, say); only the
+// outermost one pauses and restarts the strips.
 class FlashGuard {
  public:
   FlashGuard();
