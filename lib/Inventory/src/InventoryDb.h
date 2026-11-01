@@ -156,7 +156,7 @@ bool parseBinName(const std::string &name, BinRef &out);
 
 // One row of a CSV import (see importParts()).
 struct ImportRow {
-  int64_t id = 0;       // > 0: update this part if it exists; otherwise a new part is added
+  int64_t id = 0;       // > 0: update this part if it exists, else add it under this id
   PartChanges fields;   // the columns the file has; missing ones stay unset
 };
 
@@ -275,6 +275,8 @@ class InventoryDb {
   Result readPart(int64_t id, Part &out, std::string &err);
   // The INSERT and UPDATE of addPart()/updatePart(), for use inside a write
   // transaction the caller holds (they validate, but take no lock).
+  // `id` > 0 on the way in: insert under that id (an import); otherwise the
+  // next free one. Receives the new part's id.
   Result insertPart(const PartChanges &in, int64_t &id, std::string &err);
   // `unchanged` (optional): set when the changes match what is stored; the
   // row is then not written at all (an import of an exported file touches

@@ -545,6 +545,18 @@ static void test_import_parts() {
   Stats s;
   db.stats(s, err);
   TEST_ASSERT_EQUAL(3, s.parts);
+  // A row whose id is free is added under that id, so importing it again
+  // finds it rather than adding a duplicate.
+  TEST_ASSERT_TRUE(db.getPart(999, q, err) == Result::Ok);
+  TEST_ASSERT_EQUAL_STRING("NEW2", q.text[kPartNumber].c_str());
+  std::vector<ImportRow> again(1);
+  again[0].id = 999;
+  again[0].fields = named("NEW2");
+  outcomes.clear();
+  db.importParts(again, [&](size_t, ImportOutcome o, const std::string &) { outcomes.push_back(o); }, err);
+  TEST_ASSERT_TRUE(outcomes[0] == ImportOutcome::Unchanged || outcomes[0] == ImportOutcome::Updated);
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(3, s.parts);
 }
 
 static void test_replace_file() {

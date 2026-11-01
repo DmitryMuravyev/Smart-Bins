@@ -649,13 +649,19 @@ Result InventoryDb::insertPart(const PartChanges &in, int64_t &id, std::string &
     const Result r = binId(*fields.bin, bin, err);
     if (r != Result::Ok) return r;
   }
-  // Columns: the text fields in TextField order, then quantity, bin_id and times.
+  // Columns: the text fields in TextField order, then quantity, bin_id,
+  // times and the id (NULL: SQLite picks the next free one).
   std::string sql = "INSERT INTO parts (";
   for (const TextFieldInfo &f : kTextFields) sql += std::string(f.column) + ", ";
-  sql += "quantity, bin_id, created_at, updated_at) VALUES (";
-  for (int i = 0; i < kTextFieldCount + 4; i++) sql += i ? ", ?" : "?";
+  sql += "quantity, bin_id, created_at, updated_at, id) VALUES (";
+  for (int i = 0; i < kTextFieldCount + 5; i++) sql += i ? ", ?" : "?";
   sql += ")";
   Stmt ins(db_, sql.c_str());
+  if (id > 0) {
+    ins.bind(kTextFieldCount + 5, id);
+  } else {
+    ins.bindNull(kTextFieldCount + 5);
+  }
   for (int f = 0; f < kTextFieldCount; f++) ins.bind(1 + f, fields.text[f].value_or(std::string()));
   ins.bind(kTextFieldCount + 1, fields.quantity.value_or(0));
   if (bin) {
@@ -1215,7 +1221,10 @@ Result InventoryDb::importParts(const std::vector<ImportRow> &rows,
       }
       if (r == Result::NotFound) {
         why.clear();
-        int64_t id;
+        // The file's id is kept: a part deleted here and imported again
+        // comes back under its old id, so the next import of the same file
+        // finds it instead of adding it once more.
+        int64_t id = row.id;
         r = insertPart(row.fields, id, why);
         if (r == Result::Ok) {
           outcomes.emplace_back(ImportOutcome::Added, "");
