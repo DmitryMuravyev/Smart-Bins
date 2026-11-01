@@ -195,6 +195,10 @@ button.link { padding: 4px 0; background: none; color: var(--accent); font-size:
 button.wide { display: block; width: 100%; margin: 8px 0; }
 .check { display: flex; align-items: center; gap: 8px; margin: 16px 0 0; }
 .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+/* A button right after a checkbox (Inverted data → Save and restart in the
+   LED grid settings) gets the same 12px gap the pin list leaves above its
+   buttons; .check itself has no bottom margin. */
+.check + button { margin-top: 12px; }
 
 /* Part cards. The text (part number, description, category line) comes first
    and the photo's thumbnail floats at its start, as tall as those three lines.
