@@ -969,7 +969,8 @@ void photoTask(void *) {
 bool startPhotoJob(bool move, InventoryDb &db, PhotoStore &photos, std::string &err) {
   if (photoJob.running) return err = "a photo job is already running", false;
   photoJob.move = move;
-  photoJob.done = photoJob.failed = 0;
+  photoJob.done = 0;
+  photoJob.failed = 0;
   photoJob.bytes = 0;
   photoJob.error[0] = 0;
   photoJob.db = &db;
