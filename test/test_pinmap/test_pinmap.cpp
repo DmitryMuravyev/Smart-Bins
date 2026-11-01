@@ -37,15 +37,24 @@ static void test_input_only_pins() {
 
 static void test_duplicates_report_both_entries() {
   PinAssignment dup[] = {
-      {"a", 16, PinUse::Output, false},
+      {"a", 4, PinUse::Output, false},
       {"b", kNoPin, PinUse::Output, false},
       {"c", kNoPin, PinUse::Output, false},
-      {"d", 16, PinUse::Output, false},
+      {"d", 4, PinUse::Output, false},
   };
   PinCheck c = validatePinMap(dup, 4);
   TEST_ASSERT_TRUE(c.error == PinError::Duplicate);
   TEST_ASSERT_EQUAL(3, c.index);
   TEST_ASSERT_EQUAL(0, c.other);
+}
+
+// GPIO16/17 carry the PSRAM's clock and chip select on the N16R2 modules: the
+// PSRAM build (SB_PSRAM=1) refuses them, the others accept them.
+static void test_psram_pins() {
+  PinAssignment p[] = {{"x", 16, PinUse::Output, false}, {"y", 17, PinUse::Output, false}};
+  const PinError expected = isPsramPin(16) ? PinError::PsramPin : PinError::None;
+  TEST_ASSERT_TRUE(validatePinMap(p, 1).error == expected);
+  TEST_ASSERT_TRUE(validatePinMap(p + 1, 1).error == expected);
 }
 
 int main(int, char **) {
@@ -55,5 +64,6 @@ int main(int, char **) {
   RUN_TEST(test_rejects_missing_gpio_and_gpio12);
   RUN_TEST(test_input_only_pins);
   RUN_TEST(test_duplicates_report_both_entries);
+  RUN_TEST(test_psram_pins);
   return UNITY_END();
 }

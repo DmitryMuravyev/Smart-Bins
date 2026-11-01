@@ -9,6 +9,7 @@
 #include <esp_partition.h>
 
 #include "FormatBytes.h"
+#include "MemoryProfile.h"
 #include "PinMap.h"
 
 #ifndef SB_FLASH_MB
@@ -16,6 +17,13 @@
 #endif
 
 namespace sb {
+
+// MALLOC_CAP_8BIT selects the byte-addressable regions malloc() uses (see the
+// header for why not ESP.getFreeHeap()). MALLOC_CAP_INTERNAL leaves PSRAM
+// out: with PSRAM the internal RAM is still the scarce part (stacks, Wi-Fi
+// and every block of 4 KB or less live there), and 2 MB of PSRAM would hide
+// it. Without PSRAM the two are the same.
+constexpr uint32_t kHeapCaps = MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL;
 
 static const char *TAG = "boot";
 
@@ -63,11 +71,18 @@ static void printFlashInfo() {
 
 static void printMemoryInfo() {
   ESP_LOGI(TAG, "Heap: %s free of %s, largest block %s, min ever %s", fmt(heapFree()),
-           fmt(heap_caps_get_total_size(MALLOC_CAP_8BIT)), fmt(heapLargest()), fmt(heapMin()));
+           fmt(heap_caps_get_total_size(kHeapCaps)), fmt(heapLargest()), fmt(heapMin()));
   if (ESP.getPsramSize() > 0) {
     ESP_LOGI(TAG, "PSRAM: %s free of %s", fmt(ESP.getFreePsram()), fmt(ESP.getPsramSize()));
   } else {
     ESP_LOGI(TAG, "PSRAM: none");
+  }
+  // The memory profile (MemoryProfile.h) must match the board: the PSRAM
+  // build's larger caches and queues would run out of memory without it.
+  if (mem::kPsram && ESP.getPsramSize() == 0) {
+    ESP_LOGE(TAG, "This is the PSRAM build, but the board has no PSRAM: flash esp32-%dmb instead.", SB_FLASH_MB);
+  } else if (!mem::kPsram && ESP.getPsramSize() > 0) {
+    ESP_LOGW(TAG, "The board has PSRAM: the esp32-16mb-psram build makes use of it.");
   }
   ESP_LOGI(TAG, "Sketch: %s used, %s free in app slot", fmt(ESP.getSketchSize()), fmt(ESP.getFreeSketchSpace()));
 }
@@ -136,10 +151,9 @@ void printBootReport() {
 
 const char *formatBytes(uint64_t bytes) { return fmt(bytes); }
 
-// MALLOC_CAP_8BIT selects the byte-addressable regions malloc() uses (see the
-// header for why not ESP.getFreeHeap()).
-uint32_t heapFree() { return heap_caps_get_free_size(MALLOC_CAP_8BIT); }
-uint32_t heapMin() { return heap_caps_get_minimum_free_size(MALLOC_CAP_8BIT); }
-uint32_t heapLargest() { return heap_caps_get_largest_free_block(MALLOC_CAP_8BIT); }
+uint32_t heapFree() { return heap_caps_get_free_size(kHeapCaps); }
+uint32_t heapMin() { return heap_caps_get_minimum_free_size(kHeapCaps); }
+uint32_t heapLargest() { return heap_caps_get_largest_free_block(kHeapCaps); }
+uint32_t psramFree() { return heap_caps_get_free_size(MALLOC_CAP_SPIRAM); }
 
 }  // namespace sb

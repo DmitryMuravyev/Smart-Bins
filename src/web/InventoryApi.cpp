@@ -138,8 +138,9 @@ class PartsStream {
     return false;
   }
 
-  // About 3 KB of JSON for typical parts.
-  static constexpr size_t kPartsPerRead = 10;
+  // About 3 KB of JSON for typical parts (10 parts; 25 with PSRAM, see
+  // MemoryProfile.h).
+  static constexpr size_t kPartsPerRead = mem::kPartsPerRead;
   enum class Stage { Head, Parts, Done };
   InventoryDb &db_;
   const std::vector<int64_t> ids_;

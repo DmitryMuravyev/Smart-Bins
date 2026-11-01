@@ -27,8 +27,10 @@ struct PinAssignment {
 // Priority 1: addressable bin grid. Priority 2: workspace lights.
 // Priority 3: auxiliary lights and microphone. Then optional extras.
 constexpr PinAssignment kDefaultPins[] = {
-    {"grid_data_a", 16, PinUse::Output, true},
-    {"grid_data_b", 17, PinUse::Output, true},
+    // Grid data on GPIO14/15, keeping GPIO16/17 free for PSRAM (modules
+    // such as the ESP32-WROOM-32E-N16R2 wire their PSRAM there).
+    {"grid_data_a", 14, PinUse::Output, true},
+    {"grid_data_b", 15, PinUse::Output, true},
     {"grid_power", 32, PinUse::Output, true},
     {"light_w1", 27, PinUse::Output, true},  // W1-W3: universal (white PWM, analog RGB or addressable)
     {"light_w2", 13, PinUse::Output, true},
@@ -85,7 +87,7 @@ constexpr int pinIndex(const char *name) {
 // other setting) is reset, so it has to work whatever the configuration says.
 constexpr bool isFixedPin(const char *name) { return pinIndex(name) == pinIndex("button"); }
 
-static_assert(defaultPin("grid_data_a") == 16, "findPin works at compile time");
+static_assert(defaultPin("grid_data_a") == 14, "findPin works at compile time");
 
 // GPIO numbers that exist on the ESP32 package used by the WROOM-32 module.
 constexpr bool gpioExists(int gpio) {
@@ -104,12 +106,22 @@ constexpr bool isConsolePin(int gpio) { return gpio == 1 || gpio == 3; }
 // GPIO12 selects the flash voltage at reset; pulling it high on a WROOM-32 stops it booting.
 constexpr bool isForbiddenStrapping(int gpio) { return gpio == 12; }
 
+// PSRAM on the classic ESP32 uses GPIO16 (CS) and GPIO17 (CLK); on a module
+// with PSRAM (the PSRAM build, SB_PSRAM) they are not available. Without
+// PSRAM they are ordinary pins.
+#if defined(SB_PSRAM) && SB_PSRAM
+constexpr bool isPsramPin(int gpio) { return gpio == 16 || gpio == 17; }
+#else
+constexpr bool isPsramPin(int) { return false; }
+#endif
+
 enum class PinError : uint8_t {
   None,
   NoSuchGpio,
   FlashPin,
   ConsolePin,
   StrappingPin,
+  PsramPin,
   InputOnlyUsedAsOutput,
   Duplicate,
 };
@@ -127,6 +139,7 @@ constexpr PinCheck checkPin(const PinAssignment &pin) {
   if (isFlashPin(g)) return {PinError::FlashPin, 0, 0};
   if (isConsolePin(g)) return {PinError::ConsolePin, 0, 0};
   if (isForbiddenStrapping(g)) return {PinError::StrappingPin, 0, 0};
+  if (isPsramPin(g)) return {PinError::PsramPin, 0, 0};
   if (pin.use == PinUse::Output && isInputOnly(g)) return {PinError::InputOnlyUsedAsOutput, 0, 0};
   return {PinError::None, 0, 0};
 }
@@ -150,6 +163,7 @@ constexpr const char *pinErrorText(PinError e) {
     case PinError::FlashPin: return "GPIO6-11 are used by the internal flash";
     case PinError::ConsolePin: return "GPIO1/3 are the USB serial console";
     case PinError::StrappingPin: return "GPIO12 sets flash voltage at boot";
+    case PinError::PsramPin: return "GPIO16/17 are used by the PSRAM";
     case PinError::InputOnlyUsedAsOutput: return "GPIO34-39 are input-only";
     case PinError::Duplicate: return "GPIO already used by another function";
   }
