@@ -37,6 +37,12 @@ void LiveUpdates::begin(AsyncWebServer &server, Security &security, led::WorkLig
   ws_.onEvent([this](AsyncWebSocket *, AsyncWebSocketClient *client, AwsEventType type, void *, uint8_t *, size_t) {
     if (type == WS_EVT_CONNECT) {
       ESP_LOGI(TAG, "Client %u connected (%u open)", client->id(), (unsigned)ws_.count());
+      // A client whose queue fills up (WS_MAX_QUEUED_MESSAGES in
+      // platformio.ini) has stopped reading, e.g. a phone with its screen
+      // locked. Dropping messages would leave its page showing an old state;
+      // closing frees the queue, and the page reconnects and is sent the
+      // current state (just below) when it wakes up.
+      client->setCloseClientOnQueueFull(true);
       client->text(lightsMessage());
       client->text(ledsMessage());
       client->text(systemMessage());

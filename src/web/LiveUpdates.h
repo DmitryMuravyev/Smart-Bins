@@ -30,6 +30,8 @@ class LiveUpdates {
              WifiLink &network);
   // Call from the main loop: sends what changed and drops dead connections.
   void loop();
+  // Open WebSocket connections (for the heap log).
+  size_t clients() { return ws_.count(); }
 
  private:
   String lightsMessage();

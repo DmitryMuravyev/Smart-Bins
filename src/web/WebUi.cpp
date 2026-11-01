@@ -2,6 +2,10 @@
 
 #include <ESPAsyncWebServer.h>
 
+#include <algorithm>
+#include <cstring>
+
+#include "SendGate.h"
 #include "WifiLink.h"
 #include "generated/WebAssets.h"
 
@@ -23,11 +27,24 @@ void sendAsset(AsyncWebServerRequest *req, const web::WebAsset &a) {
     req->send(res);
     return;
   }
-  AsyncWebServerResponse *res = req->beginResponse(200, a.mime, a.gz, a.size);
-  res->addHeader("Content-Encoding", "gzip");
-  res->addHeader("Cache-Control", "no-cache");
-  res->addHeader("ETag", a.etag);
-  req->send(res);
+  // Through the send gate (see SendGate.h): a page load asks for several
+  // files at once, and each one being sent costs some 8.6 KB of RAM.
+  const web::WebAsset *asset = &a;
+  sendGate().run(req, [asset](AsyncWebServerRequest *req, SendGate::Slot slot) {
+    // A filler rather than the library's flash response, so the response
+    // holds the gate's slot until it is deleted.
+    AsyncWebServerResponse *res = req->beginResponse(
+        asset->mime, asset->size, [asset, slot](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
+          if (index >= asset->size) return 0;
+          const size_t n = std::min(maxLen, asset->size - index);
+          memcpy(buf, asset->gz + index, n);
+          return n;
+        });
+    res->addHeader("Content-Encoding", "gzip");
+    res->addHeader("Cache-Control", "no-cache");
+    res->addHeader("ETag", asset->etag);
+    req->send(res);
+  });
 }
 
 const web::WebAsset *findAsset(const char *path) {

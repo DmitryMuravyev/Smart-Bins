@@ -11,6 +11,7 @@
 #include "InventoryDb.h"
 #include "PhotoStore.h"
 #include "Security.h"
+#include "SendGate.h"
 
 namespace sb {
 
@@ -64,15 +65,19 @@ void sendFile(AsyncWebServerRequest *req, fs::FS &fs, const String &path, size_t
     String path;
   };
   auto src = std::make_shared<Source>(Source{&fs, path});
-  AsyncWebServerResponse *res =
-      req->beginResponse("image/jpeg", size, [src](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
-        File f = src->fs->open(src->path, FILE_READ);
-        if (!f || !f.seek(index)) return 0;
-        return f.read(buf, maxLen);
-      });
-  // The name changes whenever the photo does, so this URL never shows anything else.
-  res->addHeader("Cache-Control", "public, max-age=31536000, immutable");
-  req->send(res);
+  // Through the send gate (see SendGate.h): a screen of part cards asks for
+  // many thumbnails at once.
+  sendGate().run(req, [src, size](AsyncWebServerRequest *req, SendGate::Slot slot) {
+    AsyncWebServerResponse *res =
+        req->beginResponse("image/jpeg", size, [src, slot](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
+          File f = src->fs->open(src->path, FILE_READ);
+          if (!f || !f.seek(index)) return 0;
+          return f.read(buf, maxLen);
+        });
+    // The name changes whenever the photo does, so this URL never shows anything else.
+    res->addHeader("Cache-Control", "public, max-age=31536000, immutable");
+    req->send(res);
+  });
 }
 
 // Body handler shared by the photo and thumbnail uploads. Runs for every
