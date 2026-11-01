@@ -1273,6 +1273,8 @@ async function enterGrid() {
 // `e`: an answer from /api/effects ({effect, remainingS, speed, ...}; the
 // settings are missing while no effect runs).
 function showEffects(e) {
+  // The music effects need the microphone; without one they stay hidden.
+  for (const el of $$('#effects-card .music')) el.hidden = !e.microphone;
   state.effect = e.effect;
   showEffectRunning(e.effect, e.remainingS);
   const settings = $('#effect-settings');

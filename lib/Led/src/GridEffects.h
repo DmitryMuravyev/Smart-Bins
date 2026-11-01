@@ -1,6 +1,8 @@
 #pragma once
 
-// Lighting effects for the bin grid (Task 12): fire, sparks, relax and demo.
+// Lighting effects for the bin grid: fire, sparks, relax and demo (Task 12),
+// and the music effects spectrum, beat and pulse (Task 13), which draw from
+// the microphone through AudioAnalyzer.
 //
 // Effects work on bins, not pixels: the grid is a few dozen bins (10 x 6 on
 // Dmitry's build), and every pixel of a bin shows the bin's colour. That
@@ -26,6 +28,7 @@
 #include <utility>
 #include <vector>
 
+#include "AudioAnalyzer.h"
 #include "Color.h"
 #include "Envelope.h"
 #include "WorkEffects.h"
@@ -33,11 +36,16 @@
 namespace sb {
 namespace led {
 
-enum class GridEffect : uint8_t { Off, Fire, Sparks, Relax, Demo };
-constexpr int kGridEffectCount = 5;
+enum class GridEffect : uint8_t { Off, Fire, Sparks, Relax, Demo, Spectrum, Beat, Pulse };
+constexpr int kGridEffectCount = 8;
+
+// The effects that follow the microphone; they can only start when one is fitted.
+inline bool isMusicEffect(GridEffect e) {
+  return e == GridEffect::Spectrum || e == GridEffect::Beat || e == GridEffect::Pulse;
+}
 
 inline const char *toString(GridEffect e) {
-  static const char *const kNames[] = {"off", "fire", "sparks", "relax", "demo"};
+  static const char *const kNames[] = {"off", "fire", "sparks", "relax", "demo", "spectrum", "beat", "pulse"};
   const int i = static_cast<int>(e);
   return i < kGridEffectCount ? kNames[i] : "off";
 }
@@ -56,7 +64,8 @@ inline bool parseGridEffect(const char *name, GridEffect &out) {
 //
 // A palette is a short list of colour stops spread evenly over the index
 // range 0..255; colours in between are blended. "auto" means the effect's
-// own palette (fire: heat, sparks: party, relax: ocean).
+// own palette (fire and pulse: heat, sparks and beat: party, relax: ocean,
+// spectrum: rainbow).
 enum class Palette : uint8_t { Auto, Heat, Ocean, Forest, Lava, Rainbow, Party };
 constexpr int kPaletteCount = 7;
 
@@ -136,7 +145,8 @@ inline Rgb paletteColor(Palette p, uint8_t index) {
 
 struct EffectParams {
   uint8_t speed = 128;       // 1..255; 128 is each effect's natural pace, 255 twice as fast
-  uint8_t intensity = 128;   // 1..255; fire: how high the flames reach, sparks: how many, relax: contrast
+  uint8_t intensity = 128;   // 1..255; fire: how high the flames reach, sparks: how many, relax: contrast,
+                             // music effects: sensitivity (how quiet a sound still shows)
   Palette palette = Palette::Auto;
   uint8_t brightness = 255;  // 1..255, on top of the grid brightness
   uint16_t timerMin = 0;     // stop after this many minutes; 0 = keep running
@@ -146,8 +156,10 @@ struct EffectParams {
 inline Palette effectivePalette(GridEffect e, Palette p) {
   if (p != Palette::Auto) return p;
   switch (e) {
-    case GridEffect::Sparks: return Palette::Party;
+    case GridEffect::Sparks:
+    case GridEffect::Beat: return Palette::Party;
     case GridEffect::Relax: return Palette::Ocean;
+    case GridEffect::Spectrum: return Palette::Rainbow;
     default: return Palette::Heat;
   }
 }
@@ -200,14 +212,20 @@ class EffectState {
     // Only the effect that needs a buffer gets one; the others free theirs.
     heat_.assign(effect == GridEffect::Fire ? cells : 0, 0);
     prevHeat_.assign(heat_.size(), 0);
-    sparkLevel_.assign(effect == GridEffect::Sparks ? cells : 0, 0);
+    const bool flashes = effect == GridEffect::Sparks || effect == GridEffect::Beat;
+    sparkLevel_.assign(flashes ? cells : 0, 0);
     sparkColor_.assign(sparkLevel_.size(), 0);
+    bars_.assign(effect == GridEffect::Spectrum ? cols : 0, 0.0f);
+    pulse_ = 0;
+    beatsSeen_ = false;
   }
 
   GridEffect effect() const { return effect_; }
 
   // Writes one colour per bin into out[y * cols + x] (y = 0 is the top row).
-  void render(const EffectParams &p, uint32_t nowMs, Rgb *out) {
+  // `audio` is the latest analysis of the microphone (silence without one);
+  // only the music effects look at it.
+  void render(const EffectParams &p, uint32_t nowMs, const AudioFrame &audio, Rgb *out) {
     // Effect time runs at speed/128 of real time: 1 is very slow, 255 about
     // twice the natural pace. Kept as a running sum so speed changes never
     // make the picture jump.
@@ -216,11 +234,15 @@ class EffectState {
     const uint32_t scaled = (dt > 1000 ? 1000 : dt) * (p.speed ? p.speed : 1) / 128;
     scaledMs_ += scaled;
     pendingMs_ += scaled;
+    frameMs_ = scaled;
     const Palette pal = effectivePalette(effect_, p.palette);
     switch (effect_) {
       case GridEffect::Fire: renderFire(p, pal, out); break;
       case GridEffect::Sparks: renderSparks(p, pal, out); break;
       case GridEffect::Relax: renderRelax(p, pal, out); break;
+      case GridEffect::Spectrum: renderSpectrum(p, pal, audio, out); break;
+      case GridEffect::Beat: renderBeat(p, pal, audio, out); break;
+      case GridEffect::Pulse: renderPulse(p, pal, audio, out); break;
       default: std::fill(out, out + cells(), Rgb()); break;
     }
   }
@@ -358,6 +380,117 @@ class EffectState {
     }
   }
 
+  // ---- Music effects ----
+  //
+  // Sound levels are shown over a window kMusicRangeDb wide that ends at the
+  // analyzer's auto-gain reference (the recent loudest). The window never
+  // starts below the gate, which comes from the intensity slider: at 128
+  // anything quieter than about -60 dB (a quiet room) stays dark, at 255 the
+  // limit is -80 dB (very sensitive), at 1 it is -40 dB (only loud music).
+  static constexpr float kMusicRangeDb = 30.0f;
+
+  static float gateDb(uint8_t intensity) { return -40.0f - intensity * 40.0f / 255.0f; }
+
+  // 0..1: how far `db` reaches into the window.
+  static float musicLevel(float db, float refDb, uint8_t intensity) {
+    const float lowest = gateDb(intensity) + kMusicRangeDb;
+    const float top = refDb > lowest ? refDb : lowest;
+    const float v = (db - (top - kMusicRangeDb)) / kMusicRangeDb;
+    return v < 0 ? 0 : v > 1 ? 1 : v;
+  }
+
+  // Spectrum: one bar per column, bass on the left, treble on the right,
+  // growing from the bottom row; the top cell of a bar lights partly for the
+  // part of a row it reaches. Bars jump up at once and sink at a steady rate
+  // (speed sets how fast), so they look lively without flickering. Colours
+  // run across the columns through the palette.
+  void renderSpectrum(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
+    const int bands = AudioFrame::kBands;
+    const float fall = frameMs_ / 700.0f;  // full height to nothing in 0.7 s at speed 128
+    for (uint8_t x = 0; x < cols_; x++) {
+      // The bands under this column: with fewer columns than bands each
+      // column shows the loudest of its bands, with more, bands repeat.
+      int b0 = x * bands / cols_, b1 = (x + 1) * bands / cols_;
+      if (b1 <= b0) b1 = b0 + 1;
+      float v = 0;
+      for (int b = b0; b < b1; b++) {
+        const float l = musicLevel(a.bandDb[b], a.peakDb, p.intensity);
+        if (l > v) v = l;
+      }
+      float &bar = bars_[x];
+      bar = v > bar ? v : (bar - fall > v ? bar - fall : v);
+      const uint8_t index = static_cast<uint8_t>(cols_ > 1 ? x * 255 / cols_ : 0);
+      const Rgb color = paletteColor(pal, index);
+      const float height = bar * rows_;  // in rows
+      for (uint8_t k = 0; k < rows_; k++) {  // k = 0 is the bottom row
+        float fill = height - k;
+        fill = fill < 0 ? 0 : fill > 1 ? 1 : fill;
+        out[at(x, static_cast<uint8_t>(rows_ - 1 - k))] = scale(color, static_cast<uint8_t>(fill * 255));
+      }
+    }
+  }
+
+  // Beat: every beat lights a round splash of one colour at a random spot,
+  // bigger for a stronger beat (up to most of the grid), which then fades
+  // (speed sets how fast). Splashes overlap like sparks do.
+  void renderBeat(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
+    advance(kSparkStepMs, [&] {
+      for (uint8_t &l : sparkLevel_) l = static_cast<uint8_t>(l * 225u / 256u);
+    });
+    if (!beatsSeen_) {  // a beat counted before this effect started is not one of ours
+      beats_ = a.beats;
+      beatsSeen_ = true;
+    }
+    if (a.beats != beats_) {
+      beats_ = a.beats;
+      const float strength = musicLevel(a.bassDb, a.bassPeakDb, p.intensity);
+      if (strength > 0) splash(strength);
+    }
+    for (size_t i = 0; i < cells(); i++) out[i] = scale(paletteColor(pal, sparkColor_[i]), sparkLevel_[i]);
+  }
+
+  void splash(float strength) {
+    const float cx = static_cast<float>(random_.below(cols_)), cy = static_cast<float>(random_.below(rows_));
+    const float maxR = (cols_ > rows_ ? cols_ : rows_) / 2.0f;
+    const float r = 0.8f + strength * maxR;
+    const uint8_t color = static_cast<uint8_t>(random_.next());
+    for (uint8_t y = 0; y < rows_; y++) {
+      for (uint8_t x = 0; x < cols_; x++) {
+        const float d = std::sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+        if (d > r) continue;
+        const uint8_t level = static_cast<uint8_t>(255.0f * (1.0f - 0.6f * d / r));
+        uint8_t &l = sparkLevel_[at(x, y)];
+        if (level >= l) {
+          l = level;
+          sparkColor_[at(x, y)] = color;
+        }
+      }
+    }
+  }
+
+  // Pulse: a glow from the middle of the grid that swells with the loudness
+  // of the music, filling the whole grid at the loudest. The palette runs
+  // from the centre (its top end: white-yellow on heat) outwards (red).
+  // Loudness jumps up at once and sinks at a pace set by speed.
+  void renderPulse(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
+    const float v = musicLevel(a.levelDb, a.levelPeakDb, p.intensity);
+    const float fall = frameMs_ / 500.0f;
+    pulse_ = v > pulse_ ? v : (pulse_ - fall > v ? pulse_ - fall : v);
+    const float cx = (cols_ - 1) / 2.0f, cy = (rows_ - 1) / 2.0f;
+    const float rx = cols_ / 2.0f, ry = rows_ / 2.0f;
+    const float reach = pulse_ * 1.2f;  // a little past the corners at full loudness
+    for (uint8_t y = 0; y < rows_; y++) {
+      for (uint8_t x = 0; x < cols_; x++) {
+        const float dx = (x - cx) / rx, dy = (y - cy) / ry;
+        const float d = std::sqrt((dx * dx + dy * dy) / 2.0f);  // 0 centre .. ~1 corners
+        float lit = (reach - d) * 4.0f;                         // soft edge a quarter wide
+        lit = lit < 0 ? 0 : lit > 1 ? 1 : lit;
+        const float dc = d > 1 ? 1 : d;
+        out[at(x, y)] = scale(paletteColor(pal, static_cast<uint8_t>(250 - dc * 190)), static_cast<uint8_t>(lit * 255));
+      }
+    }
+  }
+
   GridEffect effect_ = GridEffect::Off;
   uint8_t cols_ = 0, rows_ = 0;
   Random random_;
@@ -365,7 +498,12 @@ class EffectState {
   uint32_t scaledMs_ = 0;   // effect time since begin(), in ms
   uint32_t pendingMs_ = 0;  // effect time not yet consumed by simulation steps
   std::vector<uint8_t> heat_, prevHeat_;
-  std::vector<uint8_t> sparkLevel_, sparkColor_;
+  std::vector<uint8_t> sparkLevel_, sparkColor_;  // sparks, and beat's splashes
+  uint32_t frameMs_ = 0;      // effect time this frame
+  std::vector<float> bars_;   // spectrum: shown height per column, 0..1
+  float pulse_ = 0;           // pulse: shown loudness, 0..1
+  uint32_t beats_ = 0;        // beat: the analyzer's beat count last seen
+  bool beatsSeen_ = false;
 };
 
 // ---- The player ----
@@ -393,6 +531,9 @@ class EffectPlayer {
     params_ = p;
   }
   const EffectParams &params() const { return params_; }
+
+  // The latest sound analysis, for the music effects.
+  void setAudio(const AudioFrame &a) { audio_ = a; }
 
   // Starts `effect` (Off fades the current one out) with the current
   // settings. The timer starts over.
@@ -442,14 +583,14 @@ class EffectPlayer {
       std::fill(out, out + cells, Rgb());
       return false;
     }
-    current_.render(params_, nowMs, a_.data());
+    current_.render(params_, nowMs, audio_, a_.data());
     for (size_t i = 0; i < cells; i++) a_[i] = scale(a_[i], params_.brightness);
     const uint32_t since = nowMs - changedAt_;
     const bool fading = since < kFadeMs;
     if (fading) {
       const uint8_t t = rampUp(since, kFadeMs);
       if (previous_.effect() != GridEffect::Off) {
-        previous_.render(outgoing_, nowMs, b_.data());
+        previous_.render(outgoing_, nowMs, audio_, b_.data());
         for (size_t i = 0; i < cells; i++) b_[i] = scale(b_[i], outgoing_.brightness);
       } else {
         std::fill(b_.begin(), b_.end(), Rgb());
@@ -497,6 +638,7 @@ class EffectPlayer {
   uint8_t demoIndex_ = 0;
   uint32_t demoSince_ = 0;
   std::vector<Rgb> a_, b_;  // the current and the outgoing effect's frame
+  AudioFrame audio_;
 };
 
 }  // namespace led

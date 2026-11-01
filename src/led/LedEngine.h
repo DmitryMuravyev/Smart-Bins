@@ -3,7 +3,8 @@
 // Renders the bin grid on its own FreeRTOS task (core 1, ~60 fps).
 //
 // Layers, top first: test pattern (when running, replaces the rest), locate
-// highlights, effects (fire, sparks, relax, demo; see GridEffects.h). Every
+// highlights, effects (fire, sparks, relax, demo, and with a microphone
+// spectrum, beat and pulse; see GridEffects.h). Every
 // highlight fades in and out (config fadeMs) and can pulse, and is drawn over
 // the effect: a located bin always shows its highlight colour. Brightness
 // changes fade too. The grid's power switch turns on before anything is shown and off
@@ -62,6 +63,7 @@ class LedEngine {
     uint16_t fps;
     GridEffect effect;    // what was started (demo stays demo while it cycles)
     uint32_t remainingS;  // until the effect's timer stops it; 0 = no timer
+    bool microphone;      // a microphone was found: the music effects can run
   };
 
   static constexpr uint8_t kMaxHighlights = 32;
@@ -92,11 +94,17 @@ class LedEngine {
 
   // Starts an effect under the highlights with its settings, fading over
   // from whatever showed before (Off fades the effect out; `params` don't
-  // matter then). Its timer, if any, starts now.
-  void startEffect(GridEffect effect, const EffectParams &params);
+  // matter then). Its timer, if any, starts now. False (and nothing
+  // changes) for a music effect without a microphone.
+  bool startEffect(GridEffect effect, const EffectParams &params);
   // Changes the running effect's settings: speed, intensity, palette and
   // brightness apply at once; a changed timer counts from now.
   void setEffectParams(const EffectParams &params);
+
+  // From the microphone task: a microphone was found, and the latest sound
+  // analysis (about 62 times a second) for the music effects.
+  void setMicrophone(bool present);
+  void setAudio(const AudioFrame &frame);
 
   void startTest(TestPattern pattern);
   void setBrightness(uint8_t level);
@@ -148,6 +156,7 @@ class LedEngine {
   EffectPlayer effects_;
   std::vector<Rgb> effectFrame_;  // one colour per bin, row by row
   GridEffect shownEffect_ = GridEffect::Off;  // last effect reported through version_
+  bool microphone_ = false;
   TestPattern test_ = TestPattern::None;
   uint32_t testStart_ = 0;
 

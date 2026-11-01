@@ -79,12 +79,14 @@ bool hasEffectParams(AsyncWebServerRequest *req) {
 }
 
 // Index of an effect's settings in config.effects; -1 for Off.
+static_assert(led::kGridEffectCount - 1 == config::kGridEffects, "every effect but off has settings in the config");
 int settingsIndex(led::GridEffect e) { return static_cast<int>(e) - 1; }
 
 void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::AppConfig &cfg) {
   const led::LedEngine::Status s = engine.status();
   doc["effect"] = led::toString(s.effect);
   doc["remainingS"] = s.remainingS;
+  doc["microphone"] = s.microphone;  // the music effects can run
   // The running effect's settings; none while off.
   const int i = settingsIndex(s.effect);
   if (i < 0) return;
@@ -160,7 +162,10 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     led::GridEffect effect = led::GridEffect::Off;
     const bool start = hasParam(req, "effect");
     if (start && !led::parseGridEffect(param(req, "effect")->value().c_str(), effect)) {
-      return sendError(req, 400, "effect must be off, fire, sparks, relax or demo");
+      return sendError(req, 400, "effect must be off, fire, sparks, relax, demo, spectrum, beat or pulse");
+    }
+    if (start && led::isMusicEffect(effect) && !engine.status().microphone) {
+      return sendError(req, 409, "no microphone found: music effects can't run");
     }
     const led::GridEffect running = engine.status().effect;
     const led::GridEffect target = start ? effect : running;

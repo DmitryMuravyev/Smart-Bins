@@ -21,12 +21,15 @@ class LedEngine;
 //       and saves them (config.json locate.*), effective at once
 //   /api/led/test?pattern=walk|chain|rows|columns|colors|off
 //   /api/led/brightness?value=1..255     applied and saved (grid.brightness)
-//   /api/effects[?effect=off|fire|sparks|relax|demo][&speed=1..255][&intensity=1..255]
-//       [&palette=auto|heat|ocean|forest|lava|rainbow|party][&brightness=1..255][&timer=0..1440]
+//   /api/effects[?effect=off|fire|sparks|relax|demo|spectrum|beat|pulse][&speed=1..255]
+//       [&intensity=1..255][&palette=auto|heat|ocean|forest|lava|rainbow|party]
+//       [&brightness=1..255][&timer=0..1440]
 //       starts an effect and/or changes its settings. Each effect keeps its
 //       own (saved as effects.<name>.*) and starts with them; settings without
 //       `effect` change the running one's. Answers with the effect that runs,
-//       remainingS and, unless off, its settings
+//       remainingS, microphone (whether one was found) and, unless off, its
+//       settings. The music effects (spectrum, beat, pulse) answer 409
+//       without a microphone.
 //   GET /api/led/status                  current, frame rate, lit bins and the effect
 // /api/locate and /api/locate/clear answer with the same status as
 // /api/led/status (plus "ok").

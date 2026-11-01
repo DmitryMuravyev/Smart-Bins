@@ -19,7 +19,7 @@ const char *const kLanguages[] = {"en", "es", "ru"};
 // Same names and order as led::Palette (lib/Led/src/GridEffects.h).
 const char *const kPalettes[] = {"auto", "heat", "ocean", "forest", "lava", "rainbow", "party"};
 // Same names and order as led::GridEffect (without "off").
-const char *const kEffects[kGridEffects] = {"fire", "sparks", "relax", "demo"};
+const char *const kEffects[kGridEffects] = {"fire", "sparks", "relax", "demo", "spectrum", "beat", "pulse"};
 
 // Field readers: a missing key keeps the current (default) value; a present key
 // of the wrong type or out of range fails with the field name in the message.

@@ -149,8 +149,13 @@
         <button data-effect="sparks" data-i18n="effects.sparks">Sparks</button>
         <button data-effect="relax" data-i18n="effects.relax">Relax</button>
         <button data-effect="demo" data-i18n="effects.demo">Demo</button>
+        <!-- Music effects: shown only when the board found a microphone. -->
+        <button data-effect="spectrum" data-i18n="effects.spectrum" class="music" hidden>Spectrum</button>
+        <button data-effect="beat" data-i18n="effects.beat" class="music" hidden>Beat</button>
+        <button data-effect="pulse" data-i18n="effects.pulse" class="music" hidden>Pulse</button>
       </div>
       <p class="muted small" id="effect-timer-left" hidden></p>
+      <p class="muted small music" data-i18n="effects.musicHint" hidden>Spectrum, Beat and Pulse follow the music the microphone hears. For them, Intensity sets the sensitivity.</p>
       <!-- The running effect's settings; each effect remembers its own.
            Hidden while no effect runs. -->
       <div id="effect-settings" hidden>

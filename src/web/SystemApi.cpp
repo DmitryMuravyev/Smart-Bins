@@ -11,6 +11,7 @@
 #include "PhotoApi.h"
 #include "Security.h"
 #include "WifiLink.h"
+#include "led/RmtStrip.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -56,10 +57,17 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     doc["chip"] = ESP.getChipModel();
     doc["cpuMhz"] = ESP.getCpuFreqMHz();
     doc["flashBytes"] = ESP.getFlashChipSize();
-    doc["fsUsed"] = FFat.usedBytes();
-    doc["fsTotal"] = FFat.totalBytes();
+    {
+      // The file system figures read the FAT from flash, which switches the
+      // cache off: the strips pause meanwhile (see FlashGuard), or a frame
+      // on the wire can run long and light pixels past the end of the grid.
+      led::FlashGuard guard;
+      doc["fsUsed"] = FFat.usedBytes();
+      doc["fsTotal"] = FFat.totalBytes();
+      writePhotoStats(doc["photos"].to<JsonObject>(), photos);
+    }
+    // Outside the guard: the database takes its own (its lock comes first).
     writeInventoryStats(doc["inventory"].to<JsonObject>(), inventory);
-    writePhotoStats(doc["photos"].to<JsonObject>(), photos);
     doc["passwordSet"] = security.passwordSet();
     writeSystemStatus(doc.as<JsonObject>(), network);
     sendJson(req, 200, doc);

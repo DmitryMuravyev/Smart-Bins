@@ -78,8 +78,9 @@ struct LocateConfig {
 enum class EffectPalette : uint8_t { Auto, Heat, Ocean, Forest, Lava, Rainbow, Party };  // = led::Palette
 
 // The effects with settings, in led::GridEffect order without Off.
-constexpr int kGridEffects = 4;
-// "fire", "sparks", "relax", "demo": the keys under effects in config.json.
+constexpr int kGridEffects = 7;
+// "fire", "sparks", "relax", "demo", "spectrum", "beat", "pulse": the keys
+// under effects in config.json.
 const char *effectName(int index);
 
 struct EffectSettings {
