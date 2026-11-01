@@ -26,6 +26,7 @@
 #include "web/LightsApi.h"
 #include "web/LiveUpdates.h"
 #include "web/Security.h"
+#include "web/SendGate.h"
 #include "web/SystemApi.h"
 #include "web/WebUi.h"
 
@@ -267,6 +268,41 @@ void setup() {
            sb::formatBytes(sb::heapLargest()));
 }
 
+// Memory diagnostics. The 60-second report shows the lowest free heap since
+// boot, but not what drove it there. This logs every new low (in steps of
+// 1 KB, so a slow slide doesn't flood the log) together with what the web
+// server was doing at that moment: file sends running and waiting (see
+// SendGate) and open WebSocket connections. The largest free block shows
+// fragmentation: a big request can fail while the total still looks fine.
+// The low is noticed up to a loop pass late, so the activity is close to,
+// not exactly, what caused it.
+void logHeapLow() {
+  static uint32_t logged = UINT32_MAX;
+  const uint32_t low = sb::heapMin();
+  if (logged != UINT32_MAX && low + 1024 > logged) return;
+  logged = low;
+  ESP_LOGW(TAG, "Heap low %s (free %s, largest block %s): %d file sends, %u waiting, %u WebSocket clients",
+           sb::formatBytes(low), sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapLargest()),
+           sb::sendGate().active(), (unsigned)sb::sendGate().waiting(), (unsigned)live.clients());
+}
+
+// How much of each long-running task's stack has never been used. Stacks are
+// fixed blocks taken from the same heap, so one with lots to spare can be
+// made smaller to free RAM; one near zero is about to overflow.
+void logStacks() {
+  static const char *const kTasks[] = {"loopTask", "async_tcp", "leds", "lights"};
+  String line;
+  for (const char *name : kTasks) {
+    TaskHandle_t task = xTaskGetHandle(name);
+    if (!task) continue;
+    if (line.length()) line += ", ";
+    line += name;
+    line += ' ';
+    line += sb::formatBytes(uxTaskGetStackHighWaterMark(task));
+  }
+  ESP_LOGI(TAG, "Unused stack: %s", line.c_str());
+}
+
 void loop() {
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
   if (otaHashChanged) {
@@ -275,14 +311,18 @@ void loop() {
   }
   network.loop();
   live.loop();
+  sb::sendGate().loop();  // starts file sends that waited for a free slot
   handleButton();
   updateStatusLed();
+
+  logHeapLow();
 
   static uint32_t lastReport = 0;
   if (millis() - lastReport >= 60000) {
     lastReport = millis();
     ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
              sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
+    logStacks();
   }
   delay(2);
 }
