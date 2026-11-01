@@ -1,6 +1,9 @@
 # Smart Bins
 
-**English** · [Español](README.es.md) · [Русский](README.ru.md)
+[![Español](https://img.shields.io/badge/Espa%C3%B1ol-8A2BE2)](README.es.md)
+[![Русский](https://img.shields.io/badge/%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-8A2BE2)](README.ru.md)
+[![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
 
 An addressable parts library for the home lab, built on the ESP32.
 
