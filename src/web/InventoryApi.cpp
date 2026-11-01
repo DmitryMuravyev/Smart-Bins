@@ -67,9 +67,9 @@ void writePartJson(JsonObject out, const Part &p) {
 //   {"parts":[{...},{...}],"total":N,"offset":M}
 //
 // The search runs first and leaves only the ids of the page (findPartIds(),
-// a few hundred bytes). Each part is then read from the database and turned
-// into JSON when the previous one has been handed to the network, so only
-// one part's text is in RAM at a time. Before, the whole page was built
+// a few hundred bytes). The parts are then read from the database a few at
+// a time and turned into JSON when the previous ones have been handed to
+// the network, so only a few parts' text is in RAM at a time. Before, the whole page was built
 // first: 50 parts are some 15 KB, held until the last byte was sent, and
 // two phones searching at once took two of those on top of the network
 // buffers (the 2.8 KB lows in the log).
@@ -108,17 +108,22 @@ class PartsStream {
         return true;
       case Stage::Parts:
         while (index_ < ids_.size()) {
-          Part part;
+          // A few parts per database call: each call pauses the LED strips
+          // while it reads (see InventoryDb::setReadHooks()), and one pause
+          // for several parts is shorter than one per part.
           std::string err;
-          if (db_.getPart(ids_[index_++], part, err) != Result::Ok) continue;
-          JsonDocument doc;
-          writePartJson(doc.to<JsonObject>(), part);
-          if (!first_) pending_ += ',';
-          first_ = false;
-          std::string json;
-          serializeJson(doc, json);
-          pending_ += json;
-          return true;
+          const size_t from = index_;
+          index_ = std::min(ids_.size(), index_ + kPartsPerRead);
+          db_.readParts(ids_, from, kPartsPerRead, [this](const Part &part) {
+            JsonDocument doc;
+            writePartJson(doc.to<JsonObject>(), part);
+            if (!first_) pending_ += ',';
+            first_ = false;
+            std::string json;
+            serializeJson(doc, json);
+            pending_ += json;
+          }, err);
+          if (!pending_.empty()) return true;  // else: all of them gone; try the next few
         }
         {
           char tail[64];
@@ -133,6 +138,8 @@ class PartsStream {
     return false;
   }
 
+  // About 3 KB of JSON for typical parts.
+  static constexpr size_t kPartsPerRead = 10;
   enum class Stage { Head, Parts, Done };
   InventoryDb &db_;
   const std::vector<int64_t> ids_;

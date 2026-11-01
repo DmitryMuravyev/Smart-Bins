@@ -1,3 +1,4 @@
+#include <algorithm>
 // Inventory database tests. They run against the system's SQLite (libsqlite3)
 // with a real file in /tmp, so reopening shows what survives a restart.
 
@@ -436,6 +437,33 @@ static void test_write_hooks_wrap_writes() {
   db.setWriteHooks({});
 }
 
+// Reads run inside the read hooks (the board pauses the LED strips there),
+// balanced, and nested ones (a write inside a read) close in order.
+void test_read_hooks_wrap_reads() {
+  int depth = 0, maxDepth = 0, reads = 0, writes = 0;
+  db.setReadHooks({[&] { reads++; maxDepth = std::max(maxDepth, ++depth); }, [&] { depth--; }});
+  db.setWriteHooks({[&] { writes++; TEST_ASSERT_TRUE(depth > 0); }, [] {}});
+  Part p;
+  TEST_ASSERT_TRUE(db.addPart(named("read hooked"), p, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, writes);
+  TEST_ASSERT_EQUAL(0, depth);
+  const int before = reads;
+  TEST_ASSERT_TRUE(db.getPart(p.id, p, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(before + 1, reads);
+  int64_t total = 0;
+  TEST_ASSERT_TRUE(db.findParts(search("read hooked"), [](const Part &) {}, total, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, total);
+  std::vector<int64_t> ids{p.id, 999999, p.id};
+  int seen = 0;
+  TEST_ASSERT_TRUE(db.readParts(ids, 1, 5, [&](const Part &) { seen++; }, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(1, seen);  // 999999 doesn't exist; the range is clamped to the list
+  TEST_ASSERT_EQUAL(0, depth);
+  TEST_ASSERT_EQUAL(2, maxDepth);  // findParts() -> findPartIds()
+  TEST_ASSERT_TRUE(db.deletePart(p.id, err) == Result::Ok);
+  db.setReadHooks({});
+  db.setWriteHooks({});
+}
+
 // The board's numbers come from the same code: /api/inventory/benchmark.
 static void test_benchmark_2000() {
   BenchResult r;
@@ -651,6 +679,7 @@ int main() {
   RUN_TEST(test_stats);
   RUN_TEST(test_survives_reopen_and_timestamps);
   RUN_TEST(test_write_hooks_wrap_writes);
+  RUN_TEST(test_read_hooks_wrap_reads);
   RUN_TEST(test_benchmark_2000);
   RUN_TEST(test_refuses_newer_schema);
   RUN_TEST(test_converts_old_page_size);

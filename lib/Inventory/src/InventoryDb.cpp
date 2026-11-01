@@ -380,6 +380,23 @@ class InventoryDb::Stmt {
   int rc_;
 };
 
+// The read hooks around one call (see setReadHooks()). Taken after the
+// mutex, like the write hooks, so every task takes the two in the same order.
+class InventoryDb::ReadScope {
+ public:
+  explicit ReadScope(InventoryDb &db) : db_(db) {
+    if (db_.readHooks_.begin) db_.readHooks_.begin();
+  }
+  ~ReadScope() {
+    if (db_.readHooks_.end) db_.readHooks_.end();
+  }
+  ReadScope(const ReadScope &) = delete;
+  ReadScope &operator=(const ReadScope &) = delete;
+
+ private:
+  InventoryDb &db_;
+};
+
 // A write transaction: BEGIN IMMEDIATE on construction (inside the write
 // hooks), ROLLBACK on destruction unless commit() succeeded. Taking the write
 // lock up front means a transaction never fails half way for lack of it.
@@ -545,6 +562,7 @@ bool InventoryDb::migrate(std::string &err) {
 
 Result InventoryDb::syncBins(int cols, int rows, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   WriteTxn txn(*this);
   if (!txn.began()) return txnFailed(err);
@@ -679,6 +697,7 @@ Result InventoryDb::insertPart(const PartChanges &in, int64_t &id, std::string &
 
 Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   int64_t id = 0;
   {
@@ -693,6 +712,7 @@ Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) 
 
 Result InventoryDb::getPart(int64_t id, Part &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   return readPart(id, out, err);
 }
@@ -741,6 +761,7 @@ Result InventoryDb::rewritePart(int64_t id, const PartChanges &changes, std::str
 
 Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   {
     WriteTxn txn(*this);
@@ -754,6 +775,7 @@ Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out
 
 Result InventoryDb::deletePart(int64_t id, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   WriteTxn txn(*this);
   if (!txn.began()) return txnFailed(err);
@@ -770,6 +792,7 @@ Result InventoryDb::deletePart(int64_t id, std::string &err) {
 Result InventoryDb::setPhoto(int64_t id, const std::string &photo, std::string &previous, Part &out,
                              std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   Part cur;
   Result r = readPart(id, cur, err);
@@ -794,6 +817,7 @@ Result InventoryDb::setPhoto(int64_t id, const std::string &photo, std::string &
 
 Result InventoryDb::adjustQuantity(int64_t id, int32_t delta, Part &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   {
     WriteTxn txn(*this);
@@ -818,6 +842,7 @@ Result InventoryDb::adjustQuantity(int64_t id, int32_t delta, Part &out, std::st
 Result InventoryDb::listParts(int offset, int limit, const std::function<void(const Part &)> &each, int64_t &total,
                               std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   Stmt count(db_, "SELECT count(*) FROM parts");
   if (count.step() != SQLITE_ROW) return err = lastError(), Result::Error;
@@ -840,6 +865,7 @@ Result InventoryDb::listParts(int offset, int limit, const std::function<void(co
 Result InventoryDb::findParts(const PartQuery &query, const std::function<void(const Part &)> &each,
                               int64_t &total, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   std::vector<int64_t> ids;
   const Result r = findPartIds(query, ids, total, err);
   if (r != Result::Ok) return r;
@@ -859,9 +885,30 @@ Result InventoryDb::findParts(const PartQuery &query, const std::function<void(c
   return Result::Ok;
 }
 
+Result InventoryDb::readParts(const std::vector<int64_t> &ids, size_t from, size_t count,
+                              const std::function<void(const Part &)> &each, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
+  if (!db_) return err = lastError(), Result::Error;
+  const std::string sql = std::string(kPartSelect) + " WHERE p.id = ?";
+  Stmt q(db_, sql.c_str());
+  if (!q.ok()) return err = lastError(), Result::Error;
+  Part part;
+  for (size_t i = from; i < ids.size() && i < from + count; i++) {
+    q.bind(1, ids[i]);
+    if (q.step() == SQLITE_ROW) {
+      rowToPart(q, part);
+      each(part);
+    }
+    q.reset();
+  }
+  return Result::Ok;
+}
+
 Result InventoryDb::findPartIds(const PartQuery &query, std::vector<int64_t> &ids, int64_t &total,
                                 std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   ids.clear();
   if (!db_) return err = lastError(), Result::Error;
 
@@ -930,6 +977,7 @@ Result InventoryDb::findPartIds(const PartQuery &query, std::vector<int64_t> &id
 Result InventoryDb::countByBin(const PartQuery &query, const std::function<void(const BinCount &)> &each,
                                std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   // Same filters as findParts(); sort, offset and limit don't apply. One
   // pass over the parts, grouped by bin; parts in no bin form one group whose
@@ -959,6 +1007,7 @@ Result InventoryDb::countByBin(const PartQuery &query, const std::function<void(
 Result InventoryDb::listValues(TextField field, const std::string &contains, int limit,
                                const std::function<void(const FieldValue &)> &each, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   if (field < 0 || field >= kTextFieldCount) return err = "unknown field", Result::Invalid;
   const std::string col = kTextFields[field].column;
@@ -983,6 +1032,7 @@ Result InventoryDb::listValues(TextField field, const std::string &contains, int
 
 Result InventoryDb::listBins(const std::function<void(const BinInfo &)> &each, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   // Row by row (y, then x), the order a grid is drawn in.
   Stmt q(db_,
@@ -1004,6 +1054,7 @@ Result InventoryDb::listBins(const std::function<void(const BinInfo &)> &each, s
 
 Result InventoryDb::setBinLabel(BinRef bin, const std::string &rawLabel, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   const std::string label = trimmed(rawLabel);
   if (label.size() > kMaxBinLabel) {
@@ -1025,6 +1076,7 @@ Result InventoryDb::setBinLabel(BinRef bin, const std::string &rawLabel, std::st
 
 Result InventoryDb::stats(Stats &out, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   // One statement for all the counts: a single pass of each table, and the
   // numbers belong to the same moment.
@@ -1194,6 +1246,7 @@ void InventoryDb::holdWrites(bool hold) {
 
 Result InventoryDb::nextPhoto(int64_t afterId, int64_t &id, std::string &photo, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   Stmt q(db_, "SELECT id, photo FROM parts WHERE id > ? AND photo IS NOT NULL AND photo <> '' ORDER BY id LIMIT 1");
   q.bind(1, afterId);
@@ -1209,6 +1262,7 @@ Result InventoryDb::importParts(const std::vector<ImportRow> &rows,
                                 const std::function<void(size_t, ImportOutcome, const std::string &)> &each,
                                 std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ReadScope reading(*this);
   if (!db_) return err = lastError(), Result::Error;
   if (rows.empty()) return Result::Ok;
   // Outcomes are reported only after the commit: if it fails, no row was imported.

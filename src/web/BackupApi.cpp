@@ -101,6 +101,9 @@ void attachment(AsyncWebServerResponse *res, const String &name) {
 // Reads part of a file, opening it for just this call: the FAT partition has
 // only four file slots (see main.cpp), and a slow download must not hold one.
 size_t readAt(fs::FS &fs, const String &path, uint64_t offset, uint8_t *buf, size_t len) {
+  // Reading the FAT partition switches the flash cache off: no LED frame may
+  // be on the wire meanwhile (see FlashGuard).
+  led::FlashGuard guard;
   File f = fs.open(path, FILE_READ);
   if (!f || !f.seek(offset)) return 0;
   return f.read(buf, len);

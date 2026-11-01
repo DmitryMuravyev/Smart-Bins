@@ -97,6 +97,9 @@ bool mountFilesystem() {
 void openInventory(const sb::config::AppConfig &cfg) {
   // Writes pause the LED strips (flash writes stall their refill interrupt).
   inventoryDb.setWriteHooks({[] { sb::led::FlashGuard::lock(); }, [] { sb::led::FlashGuard::unlock(); }});
+  // Reads too: on the ESP32 reading the file switches the flash cache off
+  // like a write does, and a search reads a lot of it (see FlashGuard).
+  inventoryDb.setReadHooks({[] { sb::led::FlashGuard::lock(); }, [] { sb::led::FlashGuard::unlock(); }});
   // Record times only once network time has arrived: before that the clock
   // counts from 1970 and the times would be meaningless.
   inventoryDb.setClock([]() -> int64_t {
