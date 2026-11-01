@@ -116,6 +116,7 @@
   "effects.beat": "Ritmo",
   "effects.pulse": "Pulso",
   "effects.musicHint": "Espectro, Ritmo y Pulso siguen la música que capta el micrófono. En ellos, Intensidad ajusta la sensibilidad.",
+  "effects.ownSettings": "Cada efecto recuerda sus propios ajustes.",
   "effects.speed": "Velocidad",
   "effects.intensity": "Intensidad",
   "effects.brightness": "Brillo",

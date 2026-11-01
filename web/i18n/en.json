@@ -116,6 +116,7 @@
   "effects.beat": "Beat",
   "effects.pulse": "Pulse",
   "effects.musicHint": "Spectrum, Beat and Pulse follow the music the microphone hears. For them, Intensity sets the sensitivity.",
+  "effects.ownSettings": "Each effect remembers its own settings.",
   "effects.speed": "Speed",
   "effects.intensity": "Intensity",
   "effects.brightness": "Brightness",

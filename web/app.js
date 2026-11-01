@@ -276,14 +276,27 @@ function hexToHue(hex) {
 // A slider on a gradient track (hue and white tone), built by hand because
 // restyled range inputs proved unreliable on phones: the drag was taken by the
 // browser as a back-swipe or scroll and the thumb stuck. Here:
-//   - CSS touch-action: none stops the browser from claiming the gesture;
+//   - CSS touch-action: pan-y leaves vertical moves to the browser (the page
+//     scrolls as usual) and keeps sideways ones for the slider, so a sideways
+//     drag is never taken as a back-swipe;
+//   - a finger that lands on the slider doesn't change anything yet: only a
+//     move that is clearly sideways starts a drag, and a tap (a touch that
+//     ends without moving) sets the value where it landed. A swipe up or down
+//     that starts on the slider just scrolls the page and leaves the value
+//     alone (the browser cancels the pointer when it starts scrolling). The
+//     mouse still acts on press, as on a desktop;
 //   - pointer capture keeps the drag going when the finger leaves the track;
-//   - while dragging, updates from the board (set()) are ignored, so the thumb
-//     never jumps back under the finger;
+//   - while a finger is down, updates from the board (set()) are ignored, so
+//     the thumb never jumps back under the finger;
 //   - arrow keys and Home/End work for keyboard users.
 // onInput(value) is called for every change the user makes.
+// Movement (px) that tells a sideways drag from a tap or the start of a scroll.
+const SLIDER_SLOP = 8;
+
 function makeSlider(el, min, max, step, onInput) {
   let value = min, dragging = false;
+  // A touch that hasn't been told apart yet: where it started.
+  let pending = null;
   el.setAttribute('aria-valuemin', min);
   el.setAttribute('aria-valuemax', max);
   const show = (v, notify) => {
@@ -301,16 +314,34 @@ function makeSlider(el, min, max, step, onInput) {
     const r = el.getBoundingClientRect();
     return min + (x - r.left - 16) / Math.max(1, r.width - 32) * (max - min);
   };
-  el.addEventListener('pointerdown', e => {
+  const startDrag = e => {
+    pending = null;
     dragging = true;
     el.setPointerCapture(e.pointerId);
     show(fromX(e.clientX), true);
-    e.preventDefault();  // no text selection or emulated mouse events
+  };
+  el.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse') {
+      startDrag(e);
+      e.preventDefault();  // no text selection
+      return;
+    }
+    pending = { id: e.pointerId, x: e.clientX, y: e.clientY };
   });
-  el.addEventListener('pointermove', e => { if (dragging) show(fromX(e.clientX), true); });
-  const end = () => { dragging = false; };
-  el.addEventListener('pointerup', end);
-  el.addEventListener('pointercancel', end);
+  el.addEventListener('pointermove', e => {
+    if (dragging) return show(fromX(e.clientX), true);
+    if (!pending || e.pointerId !== pending.id) return;
+    const dx = Math.abs(e.clientX - pending.x), dy = Math.abs(e.clientY - pending.y);
+    if (dx > SLIDER_SLOP && dx > dy) startDrag(e);
+    else if (dy > SLIDER_SLOP) pending = null;  // a scroll: the browser has it
+  });
+  el.addEventListener('pointerup', e => {
+    // A tap: the finger came up close to where it landed.
+    if (pending && e.pointerId === pending.id) show(fromX(pending.x), true);
+    pending = null;
+    dragging = false;
+  });
+  el.addEventListener('pointercancel', () => { pending = null; dragging = false; });
   el.addEventListener('keydown', e => {
     const big = (max - min) / 10;
     const delta = { ArrowLeft: -step, ArrowDown: -step, ArrowRight: step, ArrowUp: step, PageDown: -big, PageUp: big }[e.key];
@@ -322,7 +353,7 @@ function makeSlider(el, min, max, step, onInput) {
   });
   el.style.setProperty('--pos', 0);
   el.setAttribute('aria-valuenow', min);
-  return { set: v => { if (!dragging) show(v, false); } };
+  return { set: v => { if (!dragging && !pending) show(v, false); } };
 }
 
 function hueToHex(h) {
@@ -1234,27 +1265,35 @@ async function enterGrid() {
 // ---------------------------------------------------------------------------
 // Grid effects (Task 12)
 //
-// The board runs one effect at a time under the located bins. Starting one
-// and changing its parameters are separate calls; parameters are saved on
-// the board (config.json effects.*), the running effect is not.
+// The board runs one effect at a time under the located bins. Every effect
+// keeps its own settings on the board (config.json effects.<name>.*) and
+// starts with them; the controls below the chips change the running one's.
+// The running effect itself is not saved.
 
-// `e`: an answer from /api/effects ({effect, remainingS, speed, ...}).
+// `e`: an answer from /api/effects ({effect, remainingS, speed, ...}; the
+// settings are missing while no effect runs).
 function showEffects(e) {
   // The music effects need the microphone; without one they stay hidden.
   for (const el of $$('#effects-card .music')) el.hidden = !e.microphone;
+  state.effect = e.effect;
   showEffectRunning(e.effect, e.remainingS);
+  const settings = $('#effect-settings');
+  settings.hidden = e.effect === 'off' || e.speed === undefined;
+  if (settings.hidden) return;
   for (const name of ['speed', 'intensity', 'brightness']) {
     const input = $(`#effect-${name}`);
-    setIfIdle(input, e[name]);
+    // Not setIfIdle: a slider just let go still has the focus, and another
+    // effect's settings must replace it anyway.
+    input.value = e[name];
     $(`#effect-${name}-out`).textContent = percent(input.value);
   }
-  setIfIdle($('#effect-palette'), e.palette);
+  $('#effect-palette').value = e.palette;
   const timer = $('#effect-timer');
   // A timer set through the API that isn't in the list gets its own entry.
   if (![...timer.options].some(o => Number(o.value) === e.timer)) {
     timer.add(new Option(t('effects.minutes', { n: e.timer }), e.timer));
   }
-  setIfIdle(timer, String(e.timer));
+  timer.value = String(e.timer);
 }
 
 // Marks the running effect and shows how long its timer has left. Also
@@ -1770,7 +1809,15 @@ async function connectLive() {
       renderSystem();
     } else if (msg.type === 'leds') {
       updateLitBins(msg);
-      if (msg.effect !== undefined) showEffectRunning(msg.effect, msg.effectRemainingS);
+      if (msg.effect !== undefined) {
+        showEffectRunning(msg.effect, msg.effectRemainingS);
+        // Another effect now (its timer ran out, another page or the API
+        // started one): fetch its settings.
+        if (msg.effect !== state.effect && state.effect !== undefined) {
+          state.effect = msg.effect;
+          attempt(() => api('/api/effects')).then(e => { if (e) showEffects(e); });
+        }
+      }
       $('#grid-status').textContent = t('grid.status', { ma: msg.estimateMa, fps: msg.fps })
         + (msg.currentLimited ? ` ${t('grid.limited')}` : '');
     }

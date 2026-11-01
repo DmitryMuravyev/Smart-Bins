@@ -121,10 +121,11 @@ input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
 .switch input:checked + span::after { transform: translateX(20px); }
 .swatch { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border); display: inline-block; }
 /* Hue and white-tone sliders: a gradient track with a round thumb, driven by
-   app.js (makeSlider). touch-action: none keeps the browser from treating a
-   drag on them as a scroll or a back-swipe. --pos (0..1) places the thumb. */
+   app.js (makeSlider). touch-action: pan-y lets a vertical swipe scroll the
+   page and keeps a sideways drag for the slider, so it is never taken as a
+   back-swipe. --pos (0..1) places the thumb. */
 .gslider { position: relative; height: 32px; margin: 8px 0; border-radius: 16px; border: 1px solid var(--border);
-  touch-action: none; cursor: pointer; --pos: 0; }
+  touch-action: pan-y; cursor: pointer; --pos: 0; }
 .gslider:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .gslider.hue { background: linear-gradient(90deg, #f00, #ff0 17%, #0f0 33%, #0ff 50%, #00f 67%, #f0f 83%, #f00); }
 .gslider.kelvin { background: linear-gradient(90deg, #ff8a12, #ffc58f 25%, #fff1e0 45%, #f3f2ff 70%, #c9d9ff); }

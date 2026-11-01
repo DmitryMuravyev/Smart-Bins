@@ -156,6 +156,10 @@
       </div>
       <p class="muted small" id="effect-timer-left" hidden></p>
       <p class="muted small music" data-i18n="effects.musicHint" hidden>Spectrum, Beat and Pulse follow the music the microphone hears. For them, Intensity sets the sensitivity.</p>
+      <!-- The running effect's settings; each effect remembers its own.
+           Hidden while no effect runs. -->
+      <div id="effect-settings" hidden>
+      <p class="muted small" data-i18n="effects.ownSettings">Each effect remembers its own settings.</p>
       <label class="row"><span data-i18n="effects.speed">Speed</span><output id="effect-speed-out"></output></label>
       <input type="range" id="effect-speed" min="1" max="255" data-param="speed">
       <label class="row"><span data-i18n="effects.intensity">Intensity</span><output id="effect-intensity-out"></output></label>
@@ -183,6 +187,7 @@
           <option value="240" data-i18n="effects.timer.240">4 hours</option>
         </select>
       </label>
+      </div>
     </div>
     <div class="card">
       <h2 data-i18n="grid.tests">Test patterns</h2>

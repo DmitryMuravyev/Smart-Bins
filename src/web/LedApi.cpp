@@ -43,7 +43,7 @@ void sendLocateDefaults(AsyncWebServerRequest *req, const config::LocateConfig &
 
 // Reads the optional effect parameters into `out`, leaving the ones that are
 // not given as they are. Returns an error message or nullptr.
-const char *readEffectParams(AsyncWebServerRequest *req, config::EffectsConfig &out) {
+const char *readEffectParams(AsyncWebServerRequest *req, config::EffectSettings &out) {
   long v;
   if (hasParam(req, "speed")) {
     if (!intParam(req, "speed", 1, 255, v)) return "speed must be 1..255";
@@ -71,16 +71,31 @@ const char *readEffectParams(AsyncWebServerRequest *req, config::EffectsConfig &
   return nullptr;
 }
 
-void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::EffectsConfig &e) {
+bool hasEffectParams(AsyncWebServerRequest *req) {
+  for (const char *name : {"speed", "intensity", "brightness", "timer", "palette"}) {
+    if (hasParam(req, name)) return true;
+  }
+  return false;
+}
+
+// Index of an effect's settings in config.effects; -1 for Off.
+static_assert(led::kGridEffectCount - 1 == config::kGridEffects, "every effect but off has settings in the config");
+int settingsIndex(led::GridEffect e) { return static_cast<int>(e) - 1; }
+
+void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::AppConfig &cfg) {
   const led::LedEngine::Status s = engine.status();
   doc["effect"] = led::toString(s.effect);
   doc["remainingS"] = s.remainingS;
+  doc["microphone"] = s.microphone;  // the music effects can run
+  // The running effect's settings; none while off.
+  const int i = settingsIndex(s.effect);
+  if (i < 0) return;
+  const config::EffectSettings &e = cfg.effects[i];
   doc["speed"] = e.speed;
   doc["intensity"] = e.intensity;
   doc["palette"] = config::toString(e.palette);
   doc["brightness"] = e.brightness;
   doc["timer"] = e.timerMin;
-  doc["microphone"] = s.microphone;  // the music effects can run
 }
 
 }  // namespace
@@ -138,9 +153,11 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     sendJson(req, 200, doc);
   });
 
-  // Grid effects. Without parameters: what runs and the saved parameters.
-  // Changed parameters apply at once and are saved (config.json effects.*);
-  // `effect` starts one (or off). Parameters and effect may come together.
+  // Grid effects. Every effect keeps its own settings (config.json
+  // effects.<name>.*) and starts with them. Without parameters: the running
+  // effect and its settings. `effect` starts one (or off); settings given
+  // with it change that effect's, otherwise the running effect's, and apply
+  // at once.
   server.on("/api/effects", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     led::GridEffect effect = led::GridEffect::Off;
     const bool start = hasParam(req, "effect");
@@ -150,19 +167,27 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     if (start && led::isMusicEffect(effect) && !engine.status().microphone) {
       return sendError(req, 409, "no microphone found: music effects can't run");
     }
+    const led::GridEffect running = engine.status().effect;
+    const led::GridEffect target = start ? effect : running;
     config::AppConfig cfg = config.get();
-    const config::EffectsConfig before = cfg.effects;
-    if (const char *err = readEffectParams(req, cfg.effects)) return sendError(req, 400, err);
-    const config::EffectsConfig &e = cfg.effects;
-    if (e.speed != before.speed || e.intensity != before.intensity || e.palette != before.palette ||
-        e.brightness != before.brightness || e.timerMin != before.timerMin) {
-      std::string err;
-      if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
-      engine.setEffectParams(led::effectParams(cfg.effects));
+    if (hasEffectParams(req)) {
+      if (target == led::GridEffect::Off) return sendError(req, 400, "no effect is running; name one with effect=");
+      config::EffectSettings &e = cfg.effects[settingsIndex(target)];
+      const config::EffectSettings before = e;
+      if (const char *err = readEffectParams(req, e)) return sendError(req, 400, err);
+      if (e.speed != before.speed || e.intensity != before.intensity || e.palette != before.palette ||
+          e.brightness != before.brightness || e.timerMin != before.timerMin) {
+        std::string err;
+        if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+        if (!start) engine.setEffectParams(led::effectParams(e));
+      }
     }
-    if (start) engine.startEffect(effect);
+    if (start) {
+      const int i = settingsIndex(effect);
+      engine.startEffect(effect, i < 0 ? led::EffectParams() : led::effectParams(cfg.effects[i]));
+    }
     JsonDocument doc;
-    writeEffects(doc, engine, cfg.effects);
+    writeEffects(doc, engine, cfg);
     sendJson(req, 200, doc);
   });
 

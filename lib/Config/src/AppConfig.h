@@ -71,12 +71,19 @@ struct LocateConfig {
   LocateMode mode = LocateMode::Steady;
 };
 
-// Grid effects (Task 12): the parameters used when an effect is started
-// from the UI or the API. Which effect runs is not saved: after a restart
-// the grid comes back dark, as with located bins.
+// Grid effects (Task 12): each effect keeps its own settings, the ones it
+// last ran with, and gets them back whenever it is started from the UI or
+// the API. Which effect runs is not saved: after a restart the grid comes
+// back dark, as with located bins.
 enum class EffectPalette : uint8_t { Auto, Heat, Ocean, Forest, Lava, Rainbow, Party };  // = led::Palette
 
-struct EffectsConfig {
+// The effects with settings, in led::GridEffect order without Off.
+constexpr int kGridEffects = 7;
+// "fire", "sparks", "relax", "demo", "spectrum", "beat", "pulse": the keys
+// under effects in config.json.
+const char *effectName(int index);
+
+struct EffectSettings {
   uint8_t speed = 128;       // 1..255, 128 = each effect's natural pace
   uint8_t intensity = 128;   // 1..255
   EffectPalette palette = EffectPalette::Auto;
@@ -106,7 +113,7 @@ struct AppConfig {
   LightConfig lights[kLightChannels];
   uint16_t fadeMs = 400;
   LocateConfig locate;
-  EffectsConfig effects;
+  EffectSettings effects[kGridEffects];  // indexed as effectName()
 };
 
 // Parses JSON into `out`, starting from defaults. On failure returns false,

@@ -569,6 +569,36 @@ static void test_beat_splashes() {
   TEST_ASSERT_EQUAL(0, litCells(out, 60));
 }
 
+static void test_player_settings_per_effect() {
+  // Relax at full brightness, then sparks at a low one: while relax fades
+  // out it keeps its own brightness (and timer-free settings) instead of
+  // dropping to the new effect's; sparks then runs with its own.
+  EffectPlayer player;
+  player.configure(10, 6);
+  EffectParams relax, sparks;
+  relax.brightness = 255;
+  sparks.brightness = 20;
+  sparks.intensity = 255;
+  sparks.timerMin = 3;
+  Rgb out[60];
+  player.start(GridEffect::Relax, relax, 0, 1);
+  for (uint32_t t = 0; t <= 3000; t += 16) player.render(t, 1, out);
+  int before = 0;
+  for (const Rgb &c : out) before += level(c);
+  player.start(GridEffect::Sparks, sparks, 3000, 2);
+  TEST_ASSERT_EQUAL(20, player.params().brightness);
+  TEST_ASSERT_EQUAL(180, player.remainingS(3000));  // the new effect's timer
+  player.render(3016, 1, out);
+  int during = 0;
+  for (const Rgb &c : out) during += level(c);
+  TEST_ASSERT_TRUE(during > before * 8 / 10);  // relax still nearly at full brightness
+  for (uint32_t t = 3016; t <= 6000; t += 16) player.render(t, 1, out);
+  for (const Rgb &c : out) TEST_ASSERT_TRUE(c.r <= 20 && c.g <= 20 && c.b <= 20);
+  // Off keeps the settings: the fade-out uses them, and nothing else changes.
+  player.start(GridEffect::Off, EffectParams(), 6000, 3);
+  TEST_ASSERT_EQUAL(20, player.params().brightness);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_serpentine_top_left);
@@ -599,5 +629,6 @@ int main(int, char **) {
   RUN_TEST(test_music_gate_follows_intensity);
   RUN_TEST(test_pulse_grows_with_loudness);
   RUN_TEST(test_beat_splashes);
+  RUN_TEST(test_player_settings_per_effect);
   return UNITY_END();
 }
