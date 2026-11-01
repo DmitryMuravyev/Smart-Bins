@@ -224,8 +224,9 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 15: Hardening and release 1.0
 - Watchdog, heap monitoring, error pages, input validation.
-- Documentation: build/flash guide, wiring, user guide, screenshots; README in English, Spanish and Russian; GitHub release with prebuilt binaries for 8 MB and 16 MB.
+- Documentation: build/flash guide, wiring, user guide, screenshots; README in English, Spanish and Russian; GitHub release with prebuilt binaries for 4, 8 and 16 MB and the PSRAM module.
 - **Verify:** fresh-flash test from the release binaries following only the docs.
+- **Status (2026-11-01):** done except the final check. Restart reason on the System page and in the log, a main-loop watchdog (60s), a 404 page, quieter log (tuning output at debug level), singular forms in the UI. Docs: `docs/flashing.md`, `docs/user-guide.md`, `docs/api.md`, `docs/development.md`, README in English, Spanish and Russian, screenshots. CI builds a full image (write at 0x0) and an update file per board; a `v*` tag drafts the GitHub release. Left for the ESP32-WROOM-32E/UE-N16R2 modules: test the PSRAM build on them, then the fresh-flash test from a release, then tag v1.0.0.
 
 ### Possible later extras (not planned unless you want them)
 Barcode/QR scanning in the UI to find parts, low-stock alerts, MQTT / Home Assistant integration, physical "find" button or rotary encoder, multiple grids/cabinets, printable bin labels.

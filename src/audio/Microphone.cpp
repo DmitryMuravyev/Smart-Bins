@@ -287,7 +287,7 @@ void Microphone::run() {
     if (analog_) {
       // The level and where the signal sits in the ADC's range (about 1550
       // of 4095 for a MAX9814's 1.25 V bias), for checking the wiring.
-      ESP_LOGI(TAG, "Analog GPIO%d: %d dB, samples %ld..%ld of 4095", adcPin_, dbInt(slots[0].rmsDb()),
+      ESP_LOGD(TAG, "Analog GPIO%d: %d dB, samples %ld..%ld of 4095", adcPin_, dbInt(slots[0].rmsDb()),
                (long)slots[0].min, (long)slots[0].max);
       if (!slots[0].liveAnalog()) {
         ESP_LOGI(TAG, "No analog microphone on GPIO%d; music effects off", adcPin_);
@@ -299,7 +299,7 @@ void Microphone::run() {
       // should move a little in a quiet room (-60..-85 dB), the other one
       // should not move at all.
       for (int i = 0; i < 2; i++) {
-        ESP_LOGI(TAG, "I2S %s channel: %d dB, samples %ld..%ld", i ? "right" : "left", dbInt(slots[i].rmsDb()),
+        ESP_LOGD(TAG, "I2S %s channel: %d dB, samples %ld..%ld", i ? "right" : "left", dbInt(slots[i].rmsDb()),
                  (long)slots[i].min, (long)slots[i].max);
       }
       slot_ = slots[0].liveI2s() ? 0 : slots[1].liveI2s() ? 1 : -1;
@@ -329,7 +329,7 @@ void Microphone::run() {
       vTaskDelay(pdMS_TO_TICKS(kLingerMs));
       continue;
     }
-    ESP_LOGI(TAG, "Listening");
+    ESP_LOGD(TAG, "Listening");
     const uint32_t blockMs = 1000 * led::AudioAnalyzer::kN / rate;
     uint32_t settled = 0;  // samples of the start-up time skipped so far
     uint32_t quietMs = 0;  // how long no music effect has been running
@@ -354,14 +354,14 @@ void Microphone::run() {
         int loudest = 0;
         for (int b = 1; b < led::AudioFrame::kBands; b++)
           if (f.bandDb[b] > f.bandDb[loudest]) loudest = b;
-        ESP_LOGI(TAG, "Level %d dB (auto-gain %d), bass %d dB, loudest band %d, %lu beats", dbInt(f.levelDb),
+        ESP_LOGD(TAG, "Level %d dB (auto-gain %d), bass %d dB, loudest band %d, %lu beats", dbInt(f.levelDb),
                  dbInt(f.levelPeakDb), dbInt(f.bassDb), loudest, (unsigned long)f.beats);
       }
     }
     close(handle);
     delete work;
     engine_->setAudio(led::AudioFrame());  // silence until the next start
-    ESP_LOGI(TAG, "Stopped (no music effect running)");
+    ESP_LOGD(TAG, "Stopped (no music effect running)");
   }
 }
 

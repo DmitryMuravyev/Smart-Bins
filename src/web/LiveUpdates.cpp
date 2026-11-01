@@ -36,7 +36,7 @@ void LiveUpdates::begin(AsyncWebServer &server, Security &security, led::WorkLig
   // so the page never shows stale values while waiting for the next push.
   ws_.onEvent([this](AsyncWebSocket *, AsyncWebSocketClient *client, AwsEventType type, void *, uint8_t *, size_t) {
     if (type == WS_EVT_CONNECT) {
-      ESP_LOGI(TAG, "Client %u connected (%u open)", client->id(), (unsigned)ws_.count());
+      ESP_LOGD(TAG, "Client %u connected (%u open)", client->id(), (unsigned)ws_.count());
       // A client whose queue fills up (WS_MAX_QUEUED_MESSAGES in
       // platformio.ini) has stopped reading, e.g. a phone with its screen
       // locked. Dropping messages would leave its page showing an old state;
@@ -47,7 +47,7 @@ void LiveUpdates::begin(AsyncWebServer &server, Security &security, led::WorkLig
       client->text(ledsMessage());
       client->text(systemMessage());
     } else if (type == WS_EVT_DISCONNECT) {
-      ESP_LOGI(TAG, "Client %u left", client->id());
+      ESP_LOGD(TAG, "Client %u left", client->id());
     }
   });
   server.addHandler(&ws_);

@@ -370,7 +370,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
       if (r != Result::Ok) return sendResult(req, r, err);
       // One line per search in the serial log: how long the database took and
       // how much memory was left, to tell a slow query from a slow connection.
-      ESP_LOGI(TAG, "parts q=\"%s\": %lld found, %u ms, heap %u free (lowest %u)", query.search.c_str(),
+      ESP_LOGD(TAG, "parts q=\"%s\": %lld found, %u ms, heap %u free (lowest %u)", query.search.c_str(),
                (long long)total, (unsigned)(millis() - startMs), (unsigned)heapFree(), (unsigned)heapMin());
       auto stream = std::make_shared<PartsStream>(db, std::move(ids), total, query.offset);
       AsyncWebServerResponse *res = req->beginChunkedResponse(

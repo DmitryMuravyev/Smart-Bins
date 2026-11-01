@@ -199,7 +199,7 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
     plannedStrips--;
     freeBlocks = freeBlocks > blocks ? freeBlocks - blocks : 0;
   }
-  ESP_LOGI(TAG, "GPIO%d ready (%s, %d symbols)", gpio, invert ? "inverted" : "normal", blocks * kSymbolsPerBlock);
+  ESP_LOGD(TAG, "GPIO%d ready (%s, %d symbols)", gpio, invert ? "inverted" : "normal", blocks * kSymbolsPerBlock);
   return true;
 }
 
