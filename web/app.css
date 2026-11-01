@@ -279,6 +279,11 @@ button.danger { background: var(--err); color: #fff; }
 /* Full-size view: the photo on a dark backdrop; any tap closes it. */
 .photo-viewer { padding: 0; border: 0; background: transparent; max-width: 100vw; max-height: 100vh; }
 .photo-viewer::backdrop { background: rgba(0, 0, 0, .85); }
+/* showModal() moves the focus to the dialog itself (it holds nothing
+   focusable), and phone browsers then draw their focus ring around it: a
+   thin white and orange frame around the photo. The viewer closes on any
+   tap or Esc, so the ring tells nobody anything. */
+.photo-viewer:focus, .photo-viewer:focus-visible { outline: none; }
 .photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
 #part-title:focus { outline: none; }
 
