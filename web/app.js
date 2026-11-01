@@ -1542,12 +1542,13 @@ async function deletePreviousDb() {
   if (await attempt(() => api('/api/backup/previous/delete', { method: 'POST' }))) loadBackupInfo();
 }
 
-// Semicolons for Russian and Spanish (Excel there uses the comma for decimals
-// and expects ;), commas otherwise; a choice made here is remembered.
+// Semicolon unless this browser chose otherwise: what Excel expects in most
+// European settings (the comma is their decimal mark), and the import
+// accepts either anyway.
 function setCsvSeparator() {
   let sep = null;
   try { sep = localStorage.getItem('csvSep'); } catch (e) { /* storage blocked */ }
-  if (sep !== ';' && sep !== ',') sep = state.lang === 'ru' || state.lang === 'es' ? ';' : ',';
+  if (sep !== ';' && sep !== ',') sep = ';';
   $('#csv-sep').value = sep;
   updateCsvLink();
 }
