@@ -132,6 +132,13 @@ void Microphone::run() {
       slots[1].add(work->raw[i + 1]);
     }
   }
+  // Both channels in the log, for checking the wiring: the microphone's
+  // channel should move a little in a quiet room (-60..-85 dB), the other
+  // one should not move at all.
+  for (int i = 0; i < 2; i++) {
+    ESP_LOGI(TAG, "I2S %s channel: %.0f dB, samples %ld..%ld", i ? "right" : "left", slots[i].rmsDb(),
+             (long)slots[i].min, (long)slots[i].max);
+  }
   const int slot = slots[0].live() ? 0 : slots[1].live() ? 1 : -1;
   if (slot < 0) {
     ESP_LOGI(TAG, "No microphone on GPIO %d/%d/%d; music effects off", sck_, ws_, sd_);
@@ -146,6 +153,7 @@ void Microphone::run() {
 
   // ---- Listen ----
   int filled = 0;
+  uint32_t blocks = 0;
   for (;;) {
     size_t got = 0;
     if (i2s_channel_read(rx, work->raw, sizeof(work->raw), &got, pdMS_TO_TICKS(100)) != ESP_OK) continue;
@@ -153,7 +161,17 @@ void Microphone::run() {
       work->block[filled++] = toSample(work->raw[i]);
       if (filled == led::AudioAnalyzer::kN) {
         filled = 0;
-        engine_->setAudio(work->analyzer.process(work->block));
+        const led::AudioFrame &f = work->analyzer.process(work->block);
+        engine_->setAudio(f);
+        // While a music effect runs: what it hears, every 2 s (125 blocks),
+        // for checking the microphone and tuning (clap and watch the beats).
+        if (++blocks % 125 == 0 && led::isMusicEffect(engine_->status().effect)) {
+          int loudest = 0;
+          for (int b = 1; b < led::AudioFrame::kBands; b++)
+            if (f.bandDb[b] > f.bandDb[loudest]) loudest = b;
+          ESP_LOGI(TAG, "Level %.0f dB (auto-gain %.0f), bass %.0f dB, loudest band %d, %lu beats", f.levelDb,
+                   f.levelPeakDb, f.bassDb, loudest, (unsigned long)f.beats);
+        }
       }
     }
   }
