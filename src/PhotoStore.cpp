@@ -215,6 +215,12 @@ void PhotoStore::remove(const std::string &name) {
 bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size,
                       bool fallback) const {
   if (!validName(name)) return false;
+  // exists() and open() read the FAT's directory from flash, which switches
+  // the flash cache off like a write does: no LED frame may be on the wire
+  // meanwhile (see FlashGuard). Every thumbnail a list of search results asks
+  // for comes through here, so without the guard a long search with photos
+  // lit the far end of the strip now and then. Harmless for the card.
+  led::FlashGuard guard;
   // The thumbnail first, then the photo itself, which the page then scales.
   const Kind second = fallback ? Kind::Photo : kind;
   for (Kind k : {kind, second}) {
@@ -256,9 +262,15 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
   if (!validName(name)) return err = "bad photo name", false;
   for (Kind kind : {Kind::Photo, Kind::Thumb}) {
     const String path = pathFor(name, kind);
-    if (!FFat.exists(path)) continue;
+    {
+      led::FlashGuard guard;  // reads the FAT (see find())
+      if (!FFat.exists(path)) continue;
+    }
     size_t size;
     {
+      // The guard is held for the whole copy: every read of the flash copy
+      // needs it, and so does closing the file at the end of this block.
+      led::FlashGuard guard;
       File src = FFat.open(path, FILE_READ);
       if (!src) return err = "can't read " + std::string(path.c_str()) + " in flash", false;
       size = src.size();
@@ -302,6 +314,7 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
 
 bool PhotoStore::flashHasPhotos() const {
   if (!card_) return false;
+  led::FlashGuard guard;  // walks the FAT directory (see find())
   File dir = FFat.open(kDir);
   if (!dir || !dir.isDirectory()) return false;
   std::string name;
