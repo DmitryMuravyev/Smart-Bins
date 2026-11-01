@@ -281,3 +281,11 @@ button.danger { background: var(--err); color: #fff; }
 .photo-viewer::backdrop { background: rgba(0, 0, 0, .85); }
 .photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
 #part-title:focus { outline: none; }
+
+/* Backup, CSV and photo tools on the System page. */
+#page-system h3 { margin: 16px 0 4px; font-size: 16px; }
+#page-system .buttons label.button { cursor: pointer; }
+.button.small { padding: 6px 12px; font-size: 14px; }
+.button.busy { opacity: .5; pointer-events: none; }
+#csv-result ul { margin: 4px 0 0; padding-left: 20px; }
+#restore-status.err, #csv-result.err, #photo-job.err { color: var(--err); }

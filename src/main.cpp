@@ -19,6 +19,7 @@
 #include "led/RmtStrip.h"
 #include "led/WorkLights.h"
 #include "web/InventoryApi.h"
+#include "web/BackupApi.h"
 #include "web/PhotoApi.h"
 #include "PhotoStore.h"
 #include "web/LedApi.h"
@@ -255,6 +256,8 @@ void setup() {
   sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows,
                            [](const std::string &photo) { photos.remove(photo); });
   sb::registerPhotoApi(server, photos, inventoryDb, security);
+  sb::registerBackupApi(server, inventoryDb, photos, configStore, security, scheduleRestart,
+                        configStore.get().grid.cols, configStore.get().grid.rows);
   sb::registerLedApi(server, leds, configStore);
   sb::registerLightsApi(server, workLights);
   live.begin(server, security, workLights, leds, network);

@@ -228,6 +228,65 @@
   <section id="page-system" class="page">
     <h1 data-i18n="nav.system">System</h1>
     <div class="card"><dl id="system-info" class="info"></dl></div>
+
+    <!-- Backup and restore: downloads are plain links (the browser saves the
+         file as it streams in); a restore uploads the chosen file. -->
+    <div class="card" id="backup-card">
+      <h2 data-i18n="backup.title">Backup</h2>
+      <p class="muted small" data-i18n="backup.hint">Parts, photos and settings in one .tar file. Keep it on your computer or in the cloud.</p>
+      <div class="buttons">
+        <a class="button" id="backup-download" href="/api/backup" download data-i18n="backup.download">Download backup</a>
+        <a class="button secondary" href="/api/backup/db" download data-i18n="backup.downloadDb">Database only</a>
+      </div>
+      <h3 data-i18n="backup.restoreTitle">Restore</h3>
+      <p class="muted small" data-i18n="backup.restoreHint">Replaces all parts with those in the backup and adds its photos. The current database is kept, so a restore can be undone.</p>
+      <label class="check"><input type="checkbox" id="restore-settings"><span data-i18n="backup.restoreSettings">Also restore the settings (the device restarts)</span></label>
+      <div class="buttons">
+        <label class="button secondary" id="restore-pick">
+          <span data-i18n="backup.restorePick">Restore from file…</span>
+          <input type="file" id="restore-file" accept=".tar,.db,application/x-tar" hidden>
+        </label>
+      </div>
+      <p class="small" id="restore-status" aria-live="polite" hidden></p>
+      <div id="previous-db" hidden>
+        <p class="muted small" id="previous-db-text"></p>
+        <div class="buttons">
+          <a class="button secondary small" href="/api/backup/previous" download data-i18n="backup.previousDownload">Download it</a>
+          <button type="button" class="link" id="previous-db-delete" data-i18n="backup.previousDelete">Delete it</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="csv-card">
+      <h2 data-i18n="csv.title">Spreadsheet (CSV)</h2>
+      <p class="muted small" data-i18n="csv.hint">Edit the parts in Excel, LibreOffice or Google Sheets, then import the file again.</p>
+      <label class="row"><span data-i18n="csv.separator">Separator</span>
+        <select id="csv-sep">
+          <option value=";" data-i18n="csv.semicolon">Semicolon ( ; )</option>
+          <option value="," data-i18n="csv.comma">Comma ( , )</option>
+        </select>
+      </label>
+      <div class="buttons">
+        <a class="button secondary" id="csv-export" href="/api/parts.csv" download data-i18n="csv.export">Export CSV</a>
+        <label class="button secondary" id="csv-pick">
+          <span data-i18n="csv.import">Import CSV…</span>
+          <input type="file" id="csv-file" accept=".csv,text/csv,text/plain" hidden>
+        </label>
+      </div>
+      <p class="muted small" data-i18n="csv.importHint">A row whose id matches a part updates it; other rows add new parts. Columns that are missing stay as they are. Bins are written like A1.</p>
+      <div id="csv-result" class="small" aria-live="polite" hidden></div>
+    </div>
+
+    <div class="card" id="photo-tools">
+      <h2 data-i18n="photoTools.title">Photo storage</h2>
+      <p class="muted small" id="photo-tools-text"></p>
+      <div class="buttons">
+        <button type="button" id="photos-move" class="secondary" data-i18n="photoTools.move" hidden>Move photos to card</button>
+        <button type="button" id="photos-clean" class="secondary" data-i18n="photoTools.clean">Remove unused photos</button>
+      </div>
+      <p class="small" id="photo-job" aria-live="polite" hidden></p>
+    </div>
+
     <button class="secondary" id="restart" data-i18n="system.restart">Restart device</button>
   </section>
 </main>

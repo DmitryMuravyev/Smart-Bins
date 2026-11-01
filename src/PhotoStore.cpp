@@ -7,6 +7,7 @@
 #include <esp_random.h>
 
 #include <algorithm>
+#include <vector>
 #include <cstdio>
 #include <cstring>
 
@@ -19,6 +20,9 @@ namespace {
 const char *TAG = "photos";
 const char *kDir = "/photos";
 const char *kTempPath = "/photos/upload.tmp";
+// Where moveToCard() copies a file before renaming it (not kTempPath: an
+// upload to the card may be using that at the same time).
+const char *kMovePath = "/photos/move.tmp";
 // SPI clock for the card. 20 MHz works with short wires on a breadboard;
 // SD.begin() falls back to nothing slower on its own, so a card that fails
 // here is treated as absent (photos then go to flash).
@@ -208,10 +212,12 @@ void PhotoStore::remove(const std::string &name) {
   }
 }
 
-bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size) const {
+bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size,
+                      bool fallback) const {
   if (!validName(name)) return false;
   // The thumbnail first, then the photo itself, which the page then scales.
-  for (Kind k : {kind, Kind::Photo}) {
+  const Kind second = fallback ? Kind::Photo : kind;
+  for (Kind k : {kind, second}) {
     path = pathFor(name, k);
     for (fs::FS *candidate : {card_ ? static_cast<fs::FS *>(&SD) : nullptr, static_cast<fs::FS *>(&FFat)}) {
       if (!candidate) continue;
@@ -226,6 +232,124 @@ bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &p
     }
   }
   return false;
+}
+
+bool PhotoStore::parseFileName(const String &file, std::string &name, Kind &kind) {
+  String base = file;
+  const int slash = base.lastIndexOf('/');
+  if (slash >= 0) base = base.substring(slash + 1);
+  if (base.endsWith("-t.jpg")) {
+    kind = Kind::Thumb;
+    base.remove(base.length() - 6);
+  } else if (base.endsWith(".jpg")) {
+    kind = Kind::Photo;
+    base.remove(base.length() - 4);
+  } else {
+    return false;
+  }
+  name = base.c_str();
+  return validName(name);
+}
+
+bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::string &err) {
+  if (!card_) return err = "no microSD card", false;
+  if (!validName(name)) return err = "bad photo name", false;
+  for (Kind kind : {Kind::Photo, Kind::Thumb}) {
+    const String path = pathFor(name, kind);
+    if (!FFat.exists(path)) continue;
+    size_t size;
+    {
+      File src = FFat.open(path, FILE_READ);
+      if (!src) return err = "can't read " + std::string(path.c_str()) + " in flash", false;
+      size = src.size();
+      // Already on the card with the same size (an earlier run stopped
+      // between the copy and the delete): only the delete is left to do.
+      bool copied = false;
+      if (SD.exists(path)) {
+        File dst = SD.open(path, FILE_READ);
+        copied = dst && dst.size() == size;
+      }
+      if (!copied) {
+        // Into a temp file first, so a card pulled half way leaves no broken photo.
+        File dst = SD.open(kMovePath, FILE_WRITE);
+        if (!dst) return err = "can't write to the card", false;
+        uint8_t buf[1024];  // on the task's stack, see the move task in BackupApi.cpp
+        size_t left = size;
+        while (left) {
+          const size_t n = src.read(buf, std::min(left, sizeof(buf)));
+          if (!n || dst.write(buf, n) != n) {
+            dst.close();
+            SD.remove(kMovePath);
+            return err = "copying " + std::string(path.c_str()) + " failed (card full?)", false;
+          }
+          left -= n;
+        }
+        dst.close();
+        if (SD.exists(path)) SD.remove(path);
+        if (!SD.rename(kMovePath, path)) return err = "can't finish the copy on the card", false;
+        File check = SD.open(path, FILE_READ);
+        if (!check || check.size() != size) return err = "the copy on the card has the wrong size", false;
+      }
+    }
+    {
+      led::FlashGuard guard;
+      if (!FFat.remove(path)) return err = "can't delete " + std::string(path.c_str()) + " from flash", false;
+    }
+    moved += size;
+  }
+  return true;
+}
+
+bool PhotoStore::flashHasPhotos() const {
+  if (!card_) return false;
+  File dir = FFat.open(kDir);
+  if (!dir || !dir.isDirectory()) return false;
+  std::string name;
+  Kind kind;
+  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+    if (!f.isDirectory() && parseFileName(f.name(), name, kind)) return true;
+  }
+  return false;
+}
+
+int PhotoStore::removeUnused(const std::function<bool(const std::string &name)> &inUse, uint64_t &freed) {
+  int removed = 0;
+  for (fs::FS *fs : {card_ ? static_cast<fs::FS *>(&SD) : nullptr, static_cast<fs::FS *>(&FFat)}) {
+    if (!fs) continue;
+    // Deleting while the directory is open can confuse the walk, so each
+    // round collects a few names, closes the directory, then deletes them;
+    // rounds repeat until one finds nothing to delete. Names kept in use
+    // are skipped by remembering where the walk got to.
+    size_t skip = 0;
+    for (;;) {
+      std::vector<String> doomed;
+      size_t seen = 0;
+      {
+        File dir = fs->open(kDir);
+        if (!dir || !dir.isDirectory()) break;
+        std::string name;
+        Kind kind;
+        for (File f = dir.openNextFile(); f && doomed.size() < 16; f = dir.openNextFile()) {
+          if (f.isDirectory()) continue;
+          if (seen++ < skip) continue;
+          const String file = f.name();
+          // Kept: anything that isn't a photo (upload.tmp) and photos in use.
+          if (!parseFileName(file, name, kind) || inUse(name)) {
+            skip++;
+            continue;
+          }
+          freed += f.size();
+          doomed.push_back(String(kDir) + "/" + (file.lastIndexOf('/') >= 0 ? file.substring(file.lastIndexOf('/') + 1) : file));
+        }
+      }
+      if (doomed.empty()) break;
+      led::FlashGuard guard;  // harmless on the card, needed in flash
+      for (const String &path : doomed) {
+        if (fs->remove(path)) removed++;
+      }
+    }
+  }
+  return removed;
 }
 
 }  // namespace sb

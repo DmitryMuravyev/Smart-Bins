@@ -386,7 +386,9 @@ class InventoryDb::Stmt {
 class InventoryDb::WriteTxn {
  public:
   explicit WriteTxn(InventoryDb &db) : db_(db) {
+    if (db_.held_) return;  // see holdWrites(); began() stays false
     if (db_.hooks_.begin) db_.hooks_.begin();
+    hooked_ = true;
     std::string err;
     began_ = db_.exec("BEGIN IMMEDIATE", err);
   }
@@ -395,18 +397,28 @@ class InventoryDb::WriteTxn {
       std::string err;
       db_.exec("ROLLBACK", err);
     }
-    if (db_.hooks_.end) db_.hooks_.end();
+    if (hooked_ && db_.hooks_.end) db_.hooks_.end();
   }
   bool began() const { return began_; }
   bool commit(std::string &err) { return committed_ = db_.exec("COMMIT", err); }
 
  private:
   InventoryDb &db_;
+  bool hooked_ = false;
   bool began_ = false;
   bool committed_ = false;
 };
 
 std::string InventoryDb::lastError() const { return db_ ? sqlite3_errmsg(db_) : "database not open"; }
+
+Result InventoryDb::txnFailed(std::string &err) {
+  if (held_) {
+    err = "a backup is reading the database, try again in a moment";
+    return Result::Busy;
+  }
+  err = lastError();
+  return Result::Error;
+}
 
 bool InventoryDb::exec(const char *sql, std::string &err) {
   char *msg = nullptr;
@@ -419,6 +431,8 @@ bool InventoryDb::exec(const char *sql, std::string &err) {
 bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   close();
+  path_ = path;
+  cacheKiB_ = cacheKiB;
 #ifdef SB_HAS_VFS_FIX
   const char *vfs = fixedVfs();  // see "File layer fix" at the top
 #else
@@ -533,7 +547,7 @@ Result InventoryDb::syncBins(int cols, int rows, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
   WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
+  if (!txn.began()) return txnFailed(err);
   // INSERT OR IGNORE: bins that already exist (with their labels) stay as they are.
   Stmt add(db_, "INSERT OR IGNORE INTO bins (x, y) VALUES (?, ?)");
   for (int y = 0; y < rows; y++) {
@@ -624,9 +638,7 @@ Result InventoryDb::readPart(int64_t id, Part &out, std::string &err) {
   return Result::Ok;
 }
 
-Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  if (!db_) return err = lastError(), Result::Error;
+Result InventoryDb::insertPart(const PartChanges &in, int64_t &id, std::string &err) {
   PartChanges fields = in;
   for (auto &t : fields.text) {
     if (t) *t = trimmed(*t);
@@ -637,9 +649,6 @@ Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) 
     const Result r = binId(*fields.bin, bin, err);
     if (r != Result::Ok) return r;
   }
-
-  WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
   // Columns: the text fields in TextField order, then quantity, bin_id and times.
   std::string sql = "INSERT INTO parts (";
   for (const TextFieldInfo &f : kTextFields) sql += std::string(f.column) + ", ";
@@ -658,8 +667,21 @@ Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) 
   ins.bindTime(kTextFieldCount + 3, t);
   ins.bindTime(kTextFieldCount + 4, t);
   if (ins.step() != SQLITE_DONE) return err = lastError(), Result::Error;
-  const int64_t id = sqlite3_last_insert_rowid(db_);
-  if (!txn.commit(err)) return Result::Error;
+  id = sqlite3_last_insert_rowid(db_);
+  return Result::Ok;
+}
+
+Result InventoryDb::addPart(const PartChanges &in, Part &out, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  int64_t id = 0;
+  {
+    WriteTxn txn(*this);
+    if (!txn.began()) return txnFailed(err);
+    const Result r = insertPart(in, id, err);
+    if (r != Result::Ok) return r;  // the transaction rolls back
+    if (!txn.commit(err)) return Result::Error;
+  }
   return readPart(id, out, err);
 }
 
@@ -669,9 +691,7 @@ Result InventoryDb::getPart(int64_t id, Part &out, std::string &err) {
   return readPart(id, out, err);
 }
 
-Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out, std::string &err) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  if (!db_) return err = lastError(), Result::Error;
+Result InventoryDb::rewritePart(int64_t id, const PartChanges &changes, std::string &err) {
   // Read, merge, validate the merged part, write it back whole: the same
   // checks then apply as for a new part (a part number or description must
   // remain), and one UPDATE statement serves every combination of fields.
@@ -690,9 +710,6 @@ Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out
     r = binId(*merged.bin, bin, err);
     if (r != Result::Ok) return r;
   }
-
-  WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
   std::string sql = "UPDATE parts SET ";
   for (const TextFieldInfo &f : kTextFields) sql += std::string(f.column) + " = ?, ";
   sql += "quantity = ?, bin_id = ?, updated_at = ? WHERE id = ?";
@@ -707,7 +724,19 @@ Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out
   upd.bindTime(kTextFieldCount + 3, now());
   upd.bind(kTextFieldCount + 4, id);
   if (upd.step() != SQLITE_DONE) return err = lastError(), Result::Error;
-  if (!txn.commit(err)) return Result::Error;
+  return Result::Ok;
+}
+
+Result InventoryDb::updatePart(int64_t id, const PartChanges &changes, Part &out, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  {
+    WriteTxn txn(*this);
+    if (!txn.began()) return txnFailed(err);
+    const Result r = rewritePart(id, changes, err);
+    if (r != Result::Ok) return r;
+    if (!txn.commit(err)) return Result::Error;
+  }
   return readPart(id, out, err);
 }
 
@@ -715,7 +744,7 @@ Result InventoryDb::deletePart(int64_t id, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
   if (!db_) return err = lastError(), Result::Error;
   WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
+  if (!txn.began()) return txnFailed(err);
   Stmt del(db_, "DELETE FROM parts WHERE id = ?");
   del.bind(1, id);
   if (del.step() != SQLITE_DONE) return err = lastError(), Result::Error;
@@ -736,7 +765,7 @@ Result InventoryDb::setPhoto(int64_t id, const std::string &photo, std::string &
   previous = cur.photo;
   {
     WriteTxn txn(*this);
-    if (!txn.began()) return err = lastError(), Result::Error;
+    if (!txn.began()) return txnFailed(err);
     Stmt upd(db_, "UPDATE parts SET photo = ?1, updated_at = ?2 WHERE id = ?3");
     if (photo.empty()) {
       upd.bindNull(1);  // like a part that never had one
@@ -756,7 +785,7 @@ Result InventoryDb::adjustQuantity(int64_t id, int32_t delta, Part &out, std::st
   if (!db_) return err = lastError(), Result::Error;
   {
     WriteTxn txn(*this);
-    if (!txn.began()) return err = lastError(), Result::Error;
+    if (!txn.began()) return txnFailed(err);
     // max(0, min(limit, ...)): clamped in SQL, so the read and the write are
     // one step and the stored value always passes the CHECK constraint.
     Stmt upd(db_, "UPDATE parts SET quantity = max(0, min(?1, quantity + ?2)), updated_at = ?3 WHERE id = ?4");
@@ -964,7 +993,7 @@ Result InventoryDb::setBinLabel(BinRef bin, const std::string &rawLabel, std::st
   const Result r = binId(bin, id, err);
   if (r != Result::Ok) return r;
   WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
+  if (!txn.began()) return txnFailed(err);
   Stmt upd(db_, "UPDATE bins SET label = ? WHERE id = ?");
   // An empty label is stored as NULL: "no label", the UI shows the A1 name.
   label.empty() ? upd.bindNull(1) : upd.bind(1, label);
@@ -1009,7 +1038,7 @@ Result InventoryDb::stats(Stats &out, std::string &err) {
 // transaction, so the work on flash is the same.
 Result InventoryDb::deleteBenchParts(std::string &err) {
   WriteTxn txn(*this);
-  if (!txn.began()) return err = lastError(), Result::Error;
+  if (!txn.began()) return txnFailed(err);
   Stmt del(db_, "DELETE FROM parts WHERE id IN (SELECT id FROM parts WHERE category = ? LIMIT 100)");
   // Each pass removes up to 100 rows; a pass that removes none means they're
   // all gone. The category is bound on every pass because reset() also
@@ -1131,6 +1160,159 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   if (deleteBenchParts(err) != Result::Ok) return fail();
   out.deleteMs = elapsedMs(start);
   return Result::Ok;
+}
+
+// ---- Backup and restore ------------------------------------------------
+
+void InventoryDb::holdWrites(bool hold) {
+  // Taking the lock means a write that is under way finishes (and commits)
+  // before the hold starts, so the file is complete when the copy begins.
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  held_ = hold;
+}
+
+Result InventoryDb::nextPhoto(int64_t afterId, int64_t &id, std::string &photo, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  Stmt q(db_, "SELECT id, photo FROM parts WHERE id > ? AND photo IS NOT NULL AND photo <> '' ORDER BY id LIMIT 1");
+  q.bind(1, afterId);
+  const int rc = q.step();
+  if (rc == SQLITE_DONE) return Result::NotFound;
+  if (rc != SQLITE_ROW) return err = lastError(), Result::Error;
+  id = q.integer(0);
+  photo = q.text(1);
+  return Result::Ok;
+}
+
+Result InventoryDb::importParts(const std::vector<ImportRow> &rows,
+                                const std::function<void(size_t, ImportOutcome, const std::string &)> &each,
+                                std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  if (!db_) return err = lastError(), Result::Error;
+  if (rows.empty()) return Result::Ok;
+  // Outcomes are reported only after the commit: if it fails, no row was imported.
+  std::vector<std::pair<ImportOutcome, std::string>> outcomes;
+  outcomes.reserve(rows.size());
+  {
+    WriteTxn txn(*this);
+    if (!txn.began()) return txnFailed(err);
+    for (const ImportRow &row : rows) {
+      std::string why;
+      // A failing statement undoes only its own changes, so a bad row leaves
+      // the others in the transaction untouched.
+      Result r = Result::NotFound;
+      if (row.id > 0) r = rewritePart(row.id, row.fields, why);
+      if (r == Result::Ok) {
+        outcomes.emplace_back(ImportOutcome::Updated, "");
+        continue;
+      }
+      if (r == Result::NotFound) {
+        why.clear();
+        int64_t id;
+        r = insertPart(row.fields, id, why);
+        if (r == Result::Ok) {
+          outcomes.emplace_back(ImportOutcome::Added, "");
+          continue;
+        }
+      }
+      if (r == Result::Error) return err = why, Result::Error;  // the database itself failed: roll back
+      outcomes.emplace_back(ImportOutcome::Failed, why);
+    }
+    if (!txn.commit(err)) return Result::Error;
+  }
+  for (size_t i = 0; i < outcomes.size(); i++) each(i, outcomes[i].first, outcomes[i].second);
+  return Result::Ok;
+}
+
+bool InventoryDb::replaceFile(const char *path, const char *incoming, const char *previous, std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  const int cache = cacheKiB_;
+  const std::string journal = std::string(path) + "-journal";
+  // File operations write to flash too, so they run inside the write hooks;
+  // open() is outside them (its own writes take the hooks themselves).
+  auto files = [this](const std::function<bool()> &fn) {
+    if (hooks_.begin) hooks_.begin();
+    const bool ok = fn();
+    if (hooks_.end) hooks_.end();
+    return ok;
+  };
+  close();
+  std::string ignored;
+  // The journal of the old file: with journal_mode PERSIST it stays behind
+  // with a cleared header after the last commit; removed so it can't be
+  // taken for the new file's. FAT can't rename onto an existing file, hence
+  // the remove() before each rename.
+  if (!files([&] {
+        std::remove(journal.c_str());
+        std::remove(previous);
+        return std::rename(path, previous) == 0;
+      })) {
+    err = "can't set the current database aside";
+    open(path, ignored, cache);
+    return false;
+  }
+  if (!files([&] { return std::rename(incoming, path) == 0; })) {
+    err = "can't move the restored database into place";
+    files([&] { return std::rename(previous, path) == 0; });
+    open(path, ignored, cache);
+    return false;
+  }
+  std::string why;
+  bool ok = open(path, why, cache);
+  if (ok) {
+    // A quick structural check of every page: catches a file that is cut
+    // short or damaged in a way the header doesn't show.
+    Stmt q(db_, "PRAGMA quick_check(1)");
+    if (q.step() != SQLITE_ROW || q.text(0) != "ok") {
+      why = "the database file is damaged (" + q.text(0) + ")";
+      ok = false;
+    }
+  }
+  if (ok) return true;
+  // Put the old database back.
+  close();
+  files([&] {
+    std::remove(journal.c_str());
+    std::remove(path);
+    return std::rename(previous, path) == 0;
+  });
+  open(path, ignored, cache);
+  err = "the backup's database can't be used: " + why;
+  return false;
+}
+
+std::string binName(BinRef bin) {
+  if (!bin.valid()) return std::string();
+  // Column letters count like spreadsheet columns: A..Z, AA..AZ, BA...
+  std::string col;
+  for (int n = bin.x + 1; n > 0; n = (n - 1) / 26) col.insert(col.begin(), static_cast<char>('A' + (n - 1) % 26));
+  return col + std::to_string(bin.y + 1);
+}
+
+bool parseBinName(const std::string &name, BinRef &out) {
+  out = BinRef();
+  size_t i = 0;
+  while (i < name.size() && name[i] == ' ') i++;
+  size_t end = name.size();
+  while (end > i && name[end - 1] == ' ') end--;
+  if (i == end) return true;  // no bin
+  int x = 0, letters = 0;
+  for (; i < end; i++) {
+    char c = name[i];
+    if (c >= 'a' && c <= 'z') c = static_cast<char>(c - 32);
+    if (c < 'A' || c > 'Z') break;
+    if (++letters > 3) return false;
+    x = x * 26 + (c - 'A' + 1);
+  }
+  int y = 0, digits = 0;
+  for (; i < end; i++) {
+    const char c = name[i];
+    if (c < '0' || c > '9' || ++digits > 5) return false;
+    y = y * 10 + (c - '0');
+  }
+  if (!letters || !digits || y < 1) return false;
+  out = {x - 1, y - 1};
+  return true;
 }
 
 }  // namespace inventory
