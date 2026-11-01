@@ -1,6 +1,6 @@
 # Smart Bins: Implementation Plan (draft v0.4)
 
-An ESP32-based addressable parts library for a home lab: a grid of bins, each with 1–3 addressable pixels, a SQLite inventory stored on flash, a web UI for search/add/edit with photos, backup/restore, workspace lighting and LED effects. Open source under MIT.
+An ESP32-based addressable parts library for a home lab: a grid of bins, each with 1–8 addressable pixels, a SQLite inventory stored on flash, a web UI for search/add/edit with photos, backup/restore, workspace lighting and LED effects. Open source under MIT.
 
 Status: **proposal**. Every stack choice below is a default that can be changed before the task that depends on it starts. Each task ends with a demo you can verify on hardware, and nothing moves to the next task without your confirmation.
 
@@ -16,9 +16,9 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 | 4 | Work lights | Two options (updated 2026-10-29): **1.** an analog RGB strip on W1–W3 plus white strips on W4–W5; **2.** W1–W3 each set to addressable data or white PWM, plus white strips on W4–W5. See "Work-light channels" below. |
 | 5 | Pin priority | Main addressable grid → workspace illumination → auxiliary lights and/or microphone. |
 | 6 | LED types | Widest possible range: 5 V WS2812/WS2812B/SK6812 and 12/24 V WS2811/WS2815, chosen in the config. Dmitry's build: 12 V strips (WS2811 or WS2815). The grid supply voltage is a design parameter (5, 12 or 24 V). |
-| 7 | Grid | Dmitry's build: 10 × 6 bins, 2 pixels per bin (configurable 1–3). All bins identical. Optional per-row/per-column overrides if they stay simple (see Task 4); multi-cell bins dropped. |
+| 7 | Grid | Dmitry's build: 10 × 6 bins, 2 pixels per bin (configurable 1–8). All bins identical. Optional per-row/per-column overrides if they stay simple (see Task 4); multi-cell bins dropped. |
 | 8 | Smooth transitions | Every on/off and brightness change of the grid and the work lights fades smoothly (default ~400 ms). Exceptions: lighting effects, and hard power cuts (fault, overcurrent, power loss). |
-| 9 | Locate highlight | Configured in the UI: duration (e.g. 10 s to "until dismissed"), colour, and mode: **steady** (fade in/out), **slow pulse**, **fast pulse** (smooth). |
+| 9 | Locate highlight | Configured in the UI: duration (e.g. 10 s to "until dismissed"), color, and mode: **steady** (fade in/out), **slow pulse**, **fast pulse** (smooth). |
 | 10 | Part data | One bin per part, many parts per bin; default field list (section 3). Quick +/− quantity buttons on every part card. |
 | 11 | Photos | Resized in the browser to **640 px** (long side) when stored on flash, **800 px** when a microSD card is present. Firmware constants, not exposed in the UI. |
 | 12 | Backup | Both options: database only, or database + photos + config in one file. |
@@ -79,7 +79,7 @@ Final map is confirmed with the schematic in Task 2.
 | Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × 2.25 MB OTA app slots + rest FAT (≈3.4 MB / ≈11.4 MB). 4 MB fallback: one 2.25 MB app slot + ≈1.6 MB FAT (config and database only, photos on microSD); updated over USB. | OTA updates over Wi-Fi from day one. The firmware is ~1.7 MB with SQLite (v0.5.0), so two copies plus storage no longer fit in 4 MB; the slots were sized with room for the remaining tasks. |
 | Filesystem | **FAT on ESP-IDF wear levelling** for everything (changed in Task 7, was: LittleFS) | LittleFS copies the rest of a file whenever its middle changes, which every SQLite commit does: seconds per edit and extra wear on a large database. FAT rewrites only the changed sectors. One partition for config, database and photos means no fixed split, and the same code serves the optional microSD (also FAT). Power-loss safety: SQLite's journal for the database, write-then-rename with recovery for `config.json`. |
 | Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on the FAT partition | 2 KB pages, 16 KB page cache, 4 KB journal write buffer (tuned for no PSRAM: 4 KB pages made write peaks too large). Schema version in `PRAGMA user_version`. Search with `LIKE` across all text fields; FTS5 only if needed. |
-| LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, colour order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's colour math may still be used for effects (Task 12). |
+| LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, color order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's color math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
 | Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and the data partition stays free for the inventory and photos. |
 | Backup | **Plain tar** archive (manifest, config.json, inventory.db, photos), streamed both ways a 512-byte block at a time; the database file is copied while writes are held (rollback journal: the file is consistent between transactions); restore swaps the file in and keeps the old one | No RAM for compression or a copy; every OS opens tar. |
@@ -146,7 +146,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** you review the doc against your parts.
 
 ### Task 3: Configuration and Wi-Fi
-- `config.json` on LittleFS: grid width/height, pixels per bin (1–3), strip wiring order (row-by-row or serpentine, start corner), LED pin(s), chipset (WS2812/WS2812B/SK6812/WS2811/WS2815), color order, strip voltage, work-light outputs, brightness and current limit, device name.
+- `config.json` on LittleFS: grid width/height, pixels per bin (1–8), strip wiring order (row-by-row or serpentine, start corner), LED pin(s), chipset (WS2812/WS2812B/SK6812/WS2811/WS2815), color order, strip voltage, work-light outputs, brightness and current limit, device name.
 - Wi-Fi station + fallback AP with a minimal setup page, mDNS, OTA update. Wi-Fi credentials in NVS, not in `config.json`, so backups never contain them.
 - BOOT button: hold 5 s to forget Wi-Fi, 10 s for a factory reset. Status LED shows portal / connecting / connected.
 - **Verify:** fresh board opens an AP, you enter Wi-Fi credentials, it joins your network and answers at `smartbins.local`; firmware updates over the air.
@@ -154,8 +154,8 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 ### Task 4: LED driver and grid mapping
 - `GridMapper`: bin (x, y) → list of pixel indices for any grid size, pixels per bin, serpentine or progressive layout, start corner. Optional per-row / per-column overrides (bins in a row, pixels per bin, skipped pixels between bins) if they stay simple; otherwise deferred. Unit-tested in `native`.
 - `LedEngine` render task with layers (locate highlight above effects), global brightness and power limit, and smooth fades for every on/off and brightness change (decision 8).
-- Locate highlight modes: steady (fade in/out), slow pulse, fast pulse; duration and colour as settings.
-- Test patterns: walk every bin, chain (one pixel along the wiring), row/column sweep, colour order check; locate any bin by x/y. Temporary REST endpoints until the UI (Task 6).
+- Locate highlight modes: steady (fade in/out), slow pulse, fast pulse; duration and color as settings.
+- Test patterns: walk every bin, chain (one pixel along the wiring), row/column sweep, color order check; locate any bin by x/y. Temporary REST endpoints until the UI (Task 6).
 - Optional inverted data output for single-transistor level shifters (`grid.invertData`).
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
@@ -166,9 +166,9 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 6: Web server and REST API foundation
 - ESPAsyncWebServer, gzipped UI files embedded in the firmware, JSON REST conventions, error format, WebSocket channel for state pushes.
-- Endpoints so far: system info, restart, config get/set, LED test, locate bin and locate defaults (mode, duration, colour), work lights.
+- Endpoints so far: system info, restart, config get/set, LED test, locate bin and locate defaults (mode, duration, color), work lights.
 - Basic UI shell (navigation, status bar) with no inventory yet, and the translation mechanism: English, Spanish and Russian string files, language picker (per browser).
-- Pages so far: work lights (on/off, level, colour wheel and white tone sliders that fit a phone in portrait, effects), grid (tap a bin to locate it, locate mode/duration/colour, test patterns), settings (language, password, raw config editor), system info.
+- Pages so far: work lights (on/off, level, color wheel and white tone sliders that fit a phone in portrait, effects), grid (tap a bin to locate it, locate mode/duration/color, test patterns), settings (language, password, raw config editor), system info.
 - Optional password (off by default) protecting the UI, the API and over-the-air updates (HTTP digest auth; the Wi-Fi setup page stays open on the setup access point; a 10 s BOOT factory reset removes it).
 - **Verify:** UI loads on phone and desktop; "locate bin (x,y)" lights the right bin.
 
@@ -218,7 +218,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 
 ### Task 14: Settings and effects UI
 - Hardware page: per-channel mode (off / white PWM / RGB group / addressable) and GPIO assignment for every function, validated against the board (flash, input-only and strapping pins rejected, no double use), applied after a reboot. Holding the BOOT button for 10 s (factory reset) restores the default pin map in case a bad setting leaves the device unreachable. (Holding BOOT *during* power-up isn't possible: it puts the ESP32 into its flashing mode.)
-- Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, fade time, locate highlight (duration, colour, steady / slow pulse / fast pulse), language, password, OTA upload.
+- Settings page: grid and LED config editor with live preview, Wi-Fi, device name, brightness/current limit, fade time, locate highlight (duration, color, steady / slow pulse / fast pulse), language, password, OTA upload.
 - Effects page: pick effect, parameters, timer; work-light controls.
 - **Verify:** reconfigure the grid size from the browser and the mapping updates without reflashing.
 

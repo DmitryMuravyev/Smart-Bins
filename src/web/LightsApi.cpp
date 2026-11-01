@@ -96,8 +96,8 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
       c.hasLevel = true;
       c.level = static_cast<uint8_t>(n);
     }
-    // A colour picker and a white-tone slider may both be on the same form;
-    // an explicit colour wins over kelvin.
+    // A color picker and a white-tone slider may both be on the same form;
+    // an explicit color wins over kelvin.
     uint32_t rgb;
     if (hasParam(req, "color")) {
       if (!colorParam(req, "color", rgb)) return sendError(req, 400, "color must be 6 hex digits, e.g. FF8800");

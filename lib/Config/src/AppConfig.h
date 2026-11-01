@@ -14,6 +14,8 @@
 #include <cstdint>
 #include <string>
 
+#include "PinMap.h"
+
 namespace sb {
 namespace config {
 
@@ -26,6 +28,9 @@ enum class Layout : uint8_t { Serpentine, Progressive };
 enum class StartCorner : uint8_t { TopLeft, TopRight, BottomLeft, BottomRight };
 enum class LightMode : uint8_t { Off, White, Rgb, Addressable };
 enum class LocateMode : uint8_t { Steady, SlowPulse, FastPulse };
+// Which microphone feeds the music effects (Task 14): the I2S INMP441 on
+// pins.mic_i2s_*, an analog module (MAX9814) on pins.mic_analog, or none.
+enum class MicType : uint8_t { Off, I2s, Analog };
 
 struct GridConfig {
   uint8_t cols = 10;
@@ -105,6 +110,21 @@ struct NetworkConfig {
   Ipv4 dns = {0, 0, 0, 0};  // 0.0.0.0 = use the gateway
 };
 
+// Which GPIO each function uses (Task 14), in the order of board::kDefaultPins;
+// -1 = not wired. Starts as the default pin map. Changes apply after a
+// restart. The BOOT button (GPIO0) is fixed and not part of config.json.
+struct PinsConfig {
+  int8_t gpio[board::kDefaultPinCount];
+  PinsConfig() {
+    for (size_t i = 0; i < board::kDefaultPinCount; i++) gpio[i] = board::kDefaultPins[i].gpio;
+  }
+  // GPIO of a named function (see kDefaultPins), -1 when not wired or unknown.
+  int8_t operator[](const char *name) const {
+    const int i = board::pinIndex(name);
+    return i < 0 ? board::kNoPin : gpio[i];
+  }
+};
+
 struct AppConfig {
   char deviceName[33] = "smartbins";
   char language[3] = "en";
@@ -114,6 +134,8 @@ struct AppConfig {
   uint16_t fadeMs = 400;
   LocateConfig locate;
   EffectSettings effects[kGridEffects];  // indexed as effectName()
+  PinsConfig pins;
+  MicType microphone = MicType::I2s;
 };
 
 // Parses JSON into `out`, starting from defaults. On failure returns false,
@@ -122,6 +144,9 @@ bool parse(const char *json, AppConfig &out, std::string &error);
 
 // Checks cross-field rules (also run by parse). Returns false with a reason.
 bool validate(const AppConfig &cfg, std::string &error);
+// The pin map part of validate(): the board's pin rules, and a pin for every
+// function the configuration uses.
+bool validatePins(const AppConfig &cfg, std::string &error);
 
 // Serializes the full configuration, including defaults, as pretty JSON.
 std::string serialize(const AppConfig &cfg);
@@ -146,6 +171,7 @@ const char *toString(Layout v);
 const char *toString(StartCorner v);
 const char *toString(LightMode v);
 const char *toString(LocateMode v);
+const char *toString(MicType v);
 const char *toString(EffectPalette v);
 
 }  // namespace config

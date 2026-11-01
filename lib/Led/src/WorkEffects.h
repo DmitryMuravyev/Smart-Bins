@@ -1,11 +1,11 @@
 #pragma once
 
-// Colour maths and simple effects for the workspace lights (W1-W5).
+// Color maths and simple effects for the workspace lights (W1-W5).
 //
 // The same functions serve both kinds of hardware: an addressable strip asks
 // for every pixel (index 0..count-1), while an analog RGB strip is treated as
 // a strip with exactly one pixel. That way "rainbow" on an analog strip cycles
-// through the colours over time, and on an addressable strip the same rainbow
+// through the colors over time, and on an addressable strip the same rainbow
 // is also spread along its length.
 
 #include <cmath>
@@ -22,7 +22,7 @@ enum class WorkEffect : uint8_t { Solid, Breathe, Rainbow };
 
 constexpr uint32_t kBreathePeriodMs = 6000;  // one slow breath: calm enough for a desk light
 constexpr uint8_t kBreatheMinLevel = 40;     // never fully dark, so the light doesn't seem to switch off
-constexpr uint32_t kRainbowCycleMs = 12000;  // time for a colour to travel once around the wheel
+constexpr uint32_t kRainbowCycleMs = 12000;  // time for a color to travel once around the wheel
 
 constexpr uint16_t kMinKelvin = 1500;
 constexpr uint16_t kMaxKelvin = 10000;
@@ -44,14 +44,14 @@ inline bool parseWorkEffect(const char *name, WorkEffect &out) {
   return true;
 }
 
-// Linear blend from a (t = 0) to b (t = 255), used for colour and effect cross-fades.
+// Linear blend from a (t = 0) to b (t = 255), used for color and effect cross-fades.
 constexpr uint8_t lerp8(uint8_t a, uint8_t b, uint8_t t) {
   return static_cast<uint8_t>(a + (static_cast<int>(b) - a) * t / 255);
 }
 
 constexpr Rgb lerp(Rgb a, Rgb b, uint8_t t) { return Rgb(lerp8(a.r, b.r, t), lerp8(a.g, b.g, t), lerp8(a.b, b.b, t)); }
 
-// Fully saturated colour for a hue of 0..255 (0 = red, 85 = green, 170 = blue).
+// Fully saturated color for a hue of 0..255 (0 = red, 85 = green, 170 = blue).
 //
 // The wheel is split into six sectors. In each sector one channel is at 255,
 // one is 0 and the third ramps up or down, so the brightest channel is always
@@ -71,13 +71,13 @@ inline Rgb hueToRgb(uint8_t hue) {
   }
 }
 
-// Approximate colour of a black-body light source at `kelvin` (1500..10000 K),
+// Approximate color of a black-body light source at `kelvin` (1500..10000 K),
 // for the "white tone" of RGB and addressable strips: 2700 K is a warm bulb,
 // 4000 K neutral, 6500 K daylight.
 //
 // Curve fit by Tanner Helland (public domain), which is accurate to a few
 // percent in this range. RGB LEDs are not true white sources, so the result is
-// a good starting point rather than a calibrated colour.
+// a good starting point rather than a calibrated color.
 inline Rgb kelvinToRgb(uint16_t kelvin) {
   if (kelvin < kMinKelvin) kelvin = kMinKelvin;
   if (kelvin > kMaxKelvin) kelvin = kMaxKelvin;
@@ -97,9 +97,9 @@ inline Rgb kelvinToRgb(uint16_t kelvin) {
   return Rgb(clamp(r), clamp(g), clamp(b));
 }
 
-// Colour of pixel `index` out of `count` for an effect, `elapsedMs` after the
+// Color of pixel `index` out of `count` for an effect, `elapsedMs` after the
 // effect started. Brightness (on/off fades and the user's level) is applied
-// afterwards by the caller, so effects only decide the colour and its shape.
+// afterwards by the caller, so effects only decide the color and its shape.
 inline Rgb effectPixel(WorkEffect effect, Rgb base, uint16_t index, uint16_t count, uint32_t elapsedMs) {
   switch (effect) {
     case WorkEffect::Breathe:

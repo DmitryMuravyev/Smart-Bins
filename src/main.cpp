@@ -40,7 +40,7 @@ namespace {
 const char *TAG = "main";
 
 constexpr int kButtonPin = 0;      // on-board BOOT button, active low
-constexpr int kStatusLedPin = 2;   // on-board LED on most DevKitC boards
+int statusLedPin = -1;             // from the pin map (status_led); -1 = none
 constexpr uint32_t kWifiResetHoldMs = 5000;
 constexpr uint32_t kFactoryResetHoldMs = 10000;
 
@@ -140,6 +140,11 @@ void logConfig(const sb::config::AppConfig &cfg) {
       ESP_LOGI(TAG, "Light W%d: %s", i + 1, sb::config::toString(l.mode));
     }
   }
+  // The pin map was printed above as the defaults; these are the changes.
+  for (size_t i = 0; i < sb::board::kDefaultPinCount; i++) {
+    const auto &d = sb::board::kDefaultPins[i];
+    if (cfg.pins.gpio[i] != d.gpio) ESP_LOGI(TAG, "Pin %s: GPIO%d (default %d)", d.name, cfg.pins.gpio[i], d.gpio);
+  }
 }
 
 // BOOT button: hold 5 s to forget Wi-Fi (and a fixed IP address), 10 s for a
@@ -199,7 +204,7 @@ void updateStatusLed() {
       default: on = (now / 250) % 2; break;
     }
   }
-  digitalWrite(kStatusLedPin, on ? HIGH : LOW);
+  if (statusLedPin >= 0) digitalWrite(statusLedPin, on ? HIGH : LOW);
 }
 
 }  // namespace
@@ -217,18 +222,22 @@ void setup() {
   mountFilesystem();
   configStore.begin();
   logConfig(configStore.get());
+  // The pin map from the configuration (the defaults until changed on the
+  // Hardware page). The early hold above used the default map.
+  const sb::config::PinsConfig &pins = configStore.get().pins;
+  sb::holdOutputsLow(pins.gpio);
+  statusLedPin = pins["status_led"];
+  if (statusLedPin >= 0) pinMode(statusLedPin, OUTPUT);
   logHeapStep("storage and config");
   openInventory(configStore.get());
   logHeapStep("database");
   // Photos go on a microSD card when one is in the slot, else in flash.
-  photos.begin(sb::board::defaultPin("sd_sck"), sb::board::defaultPin("sd_miso"), sb::board::defaultPin("sd_mosi"),
-               sb::board::defaultPin("sd_cs"));
+  photos.begin(pins["sd_sck"], pins["sd_miso"], pins["sd_mosi"], pins["sd_cs"]);
   logHeapStep("photo storage");
 
   // W1-W5 in channel order; the config decides what each one drives.
   const int8_t lightPins[sb::config::kLightChannels] = {
-      sb::board::defaultPin("light_w1"), sb::board::defaultPin("light_w2"), sb::board::defaultPin("light_w3"),
-      sb::board::defaultPin("light_w4"), sb::board::defaultPin("light_w5")};
+      pins["light_w1"], pins["light_w2"], pins["light_w3"], pins["light_w4"], pins["light_w5"]};
 
   // Count the addressable strips before starting any, so the RMT's transmit
   // memory is shared among exactly those (more memory per strip means more
@@ -237,22 +246,20 @@ void setup() {
   {
     const sb::config::AppConfig &cfg = configStore.get();
     int strips = 0;
-    if (sb::board::defaultPin("grid_data_a") >= 0) strips++;
-    if (cfg.grid.segments >= 2 && sb::board::defaultPin("grid_data_b") >= 0) strips++;
+    if (pins["grid_data_a"] >= 0) strips++;
+    if (cfg.grid.segments >= 2 && pins["grid_data_b"] >= 0) strips++;
     for (int i = 0; i < sb::config::kLightChannels; i++) {
       if (cfg.lights[i].mode == sb::config::LightMode::Addressable && lightPins[i] >= 0) strips++;
     }
     sb::led::RmtStrip::planStrips(strips);
   }
 
-  leds.begin(configStore.get(), sb::board::defaultPin("grid_data_a"), sb::board::defaultPin("grid_data_b"),
-             sb::board::defaultPin("grid_power"));
-  workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
+  leds.begin(configStore.get(), pins["grid_data_a"], pins["grid_data_b"], pins["grid_power"]);
+  workLights.begin(configStore.get(), lightPins, pins["light_power"]);
   logHeapStep("LED strips and work lights");
   // Optional: checks in the background whether a microphone answers, and
   // feeds the music effects if one does.
-  microphone.begin(sb::board::defaultPin("mic_i2s_sck"), sb::board::defaultPin("mic_i2s_ws"),
-                   sb::board::defaultPin("mic_i2s_sd"), leds);
+  microphone.begin(configStore.get(), leds);
 
   // Security first: its password check is middleware, and it must be in place
   // before the server starts answering.

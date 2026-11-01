@@ -6,7 +6,7 @@
 // highlights, effects (fire, sparks, relax, demo, and with a microphone
 // spectrum, beat and pulse; see GridEffects.h). Every
 // highlight fades in and out (config fadeMs) and can pulse, and is drawn over
-// the effect: a located bin always shows its highlight colour. Brightness
+// the effect: a located bin always shows its highlight color. Brightness
 // changes fade too. The grid's power switch turns on before anything is shown and off
 // a moment after the last pixel went dark; while off, the data lines rest low.
 
@@ -71,7 +71,7 @@ class LedEngine {
   // Sets up the data lines and starts the render task.
   bool begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, int powerPin);
 
-  // Lights a bin with the configured locate colour, mode and duration.
+  // Lights a bin with the configured locate color, mode and duration.
   bool locate(uint8_t x, uint8_t y);
   // durationMs 0 = until cleared.
   bool locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs);
@@ -89,7 +89,7 @@ class LedEngine {
   // Increases whenever the set of lit bins changes (located, cleared, timed
   // out); the WebSocket pushes the new set when it moves.
   uint32_t version() const { return version_; }
-  // Changes the colour, mode and duration used by locate(x, y) from now on.
+  // Changes the color, mode and duration used by locate(x, y) from now on.
   void setLocateDefaults(const config::LocateConfig &locate);
 
   // Starts an effect under the highlights with its settings, fading over
@@ -154,7 +154,7 @@ class LedEngine {
   // Written under the lock, read without it (a 32-bit load is atomic).
   volatile uint32_t version_ = 0;
   EffectPlayer effects_;
-  std::vector<Rgb> effectFrame_;  // one colour per bin, row by row
+  std::vector<Rgb> effectFrame_;  // one color per bin, row by row
   GridEffect shownEffect_ = GridEffect::Off;  // last effect reported through version_
   bool microphone_ = false;
   TestPattern test_ = TestPattern::None;

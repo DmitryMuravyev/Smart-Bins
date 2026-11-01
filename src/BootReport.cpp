@@ -94,6 +94,27 @@ void holdOutputsLow() {
   }
 }
 
+void holdOutputsLow(const int8_t *gpio) {
+  using sb::board::kDefaultPins;
+  using sb::board::kDefaultPinCount;
+  // Is `g` an LED output in the configured map?
+  auto heldInConfig = [gpio](int g) {
+    for (size_t i = 0; i < kDefaultPinCount; i++) {
+      if (kDefaultPins[i].lowAtBoot && gpio[i] == g) return true;
+    }
+    return false;
+  };
+  for (const auto &pin : kDefaultPins) {
+    if (pin.lowAtBoot && pin.gpio != sb::board::kNoPin && !heldInConfig(pin.gpio)) pinMode(pin.gpio, INPUT);
+  }
+  for (size_t i = 0; i < kDefaultPinCount; i++) {
+    if (kDefaultPins[i].lowAtBoot && gpio[i] != sb::board::kNoPin) {
+      pinMode(gpio[i], OUTPUT);
+      digitalWrite(gpio[i], LOW);
+    }
+  }
+}
+
 static void printPinMap() {
   ESP_LOGI(TAG, "Pin map (defaults):");
   for (const auto &pin : sb::board::kDefaultPins) {

@@ -21,6 +21,7 @@ const state = {
   strings: {},    // strings of the chosen language
   system: null,   // last /api/system answer
   config: null,   // last /api/config answer
+  pins: null,     // last /api/pins answer (Hardware settings)
   locate: null,   // locate defaults: {color, mode, s}
   lights: [],
   litBins: [],    // bins the board reports as lit, [[x, y], ...]
@@ -104,6 +105,7 @@ async function setLanguage(lang) {
   renderBackup();
   renderPasswordState();
   renderDeviceName();
+  if ($('#page-settings').classList.contains('active')) renderHardware();
   if ($('#page-inventory').classList.contains('active')) {
     loadFilterLists();
     renderInventory();
@@ -132,11 +134,11 @@ function showPage() {
 // ---------------------------------------------------------------------------
 // Work lights
 
-// Colour presets: white, warm white, then the primaries and their mixes around
-// the colour wheel. A few are tuned for LEDs rather than taken literally: on a
+// Color presets: white, warm white, then the primaries and their mixes around
+// the color wheel. A few are tuned for LEDs rather than taken literally: on a
 // strip the green die is much brighter than red, so "yellow" needs less green
 // (ffb000) and orange even less, or both look green-tinted. Warm white is sent
-// as a colour temperature, which the board turns into the matching RGB mix.
+// as a color temperature, which the board turns into the matching RGB mix.
 const PRESETS = [
   { name: 'white', css: '#ffffff', params: { color: 'ffffff' } },
   { name: 'warm', css: '#ffc58f', params: { kelvin: 2700 } },
@@ -217,7 +219,7 @@ function buildLightCard(light) {
     card.querySelector('.light-level-out').textContent = percent(level.value);
     sendLight(id, { level: level.value });
   });
-  // Kept on the card so fillLightCard() can move the hue thumb to the light's colour.
+  // Kept on the card so fillLightCard() can move the hue thumb to the light's color.
   card.hueSlider = makeSlider(card.querySelector('.hue'), 0, 359, 1, v => sendLight(id, { color: hueToHex(v) }));
   makeSlider(card.querySelector('.kelvin'), 1500, 10000, 100, v => {
     card.querySelector('.light-kelvin-out').textContent = `${v} K`;
@@ -244,7 +246,7 @@ function fillLightCard(card, l) {
   card.querySelector('.light-level-out').textContent = percent(l.level);
   if (l.color) {
     card.querySelector('.light-swatch').style.background = l.color;
-    // Only a clearly coloured light has a place on the hue track; for white or
+    // Only a clearly colored light has a place on the hue track; for white or
     // pastel tones the thumb stays where it was.
     const hue = hexToHue(l.color);
     if (hue !== null) card.hueSlider.set(hue);
@@ -263,7 +265,7 @@ function setIfIdle(input, value) {
 
 function percent(level) { return `${Math.max(1, Math.round(level * 100 / 255))} %`; }
 
-// Hue (0..359) of a "#rrggbb" colour, or null when it is too close to white or
+// Hue (0..359) of a "#rrggbb" color, or null when it is too close to white or
 // grey to have a meaningful hue (saturation below 50 %).
 function hexToHue(hex) {
   const [r, g, b] = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
@@ -1332,10 +1334,10 @@ function showLocateDefaults(d) {
   if (hue !== null) locateHue.set(hue);
 }
 
-// `quiet`: no "saved" message, for the colour slider, which saves as it moves.
+// `quiet`: no "saved" message, for the color slider, which saves as it moves.
 async function saveLocateDefaults(params, quiet = false) {
   // Numbered so that only the answer to the newest save is shown: an older
-  // answer (a slow one, or one overtaken while the colour slider moves on)
+  // answer (a slow one, or one overtaken while the color slider moves on)
   // would put an earlier setting back on screen for a moment.
   const seq = ++locateSaves;
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
@@ -1346,11 +1348,11 @@ async function saveLocateDefaults(params, quiet = false) {
   }
 }
 
-// The locate colour slider. Every save writes the board's flash, so a drag is
-// not sent move by move: the swatch follows at once, and the colour is saved
+// The locate color slider. Every save writes the board's flash, so a drag is
+// not sent move by move: the swatch follows at once, and the color is saved
 // once the slider has rested for a moment.
 let locateHue;
-let locateHueTimer = 0;  // a colour waiting to be saved; 0 when none
+let locateHueTimer = 0;  // a color waiting to be saved; 0 when none
 let locateSaves = 0;     // saves started, see saveLocateDefaults()
 function onLocateHue(hue) {
   const hex = hueToHex(hue);
@@ -1409,8 +1411,10 @@ async function enterSettings() {
     $('#config-text').value = JSON.stringify(cfg, null, 2);
   }
   if (!state.system) await loadSystem();
+  await loadPins();
   renderPasswordState();
   renderNetwork();
+  renderHardware();
 }
 
 // IP address settings. With DHCP the fields show the address the board has
@@ -1497,6 +1501,391 @@ async function waitForRestart() {
 }
 
 // ---------------------------------------------------------------------------
+// Hardware settings (Task 14): the LED grid with a live preview of its
+// wiring, the work-light channels, the microphone and the pin map. Each
+// section saves into config.json, which the board checks field by field
+// (the same rules as below, and more) and then restarts to apply: strips
+// and pins are set up at boot.
+
+const CHIPSETS = ['WS2812', 'WS2812B', 'SK6812', 'SK6812_RGBW', 'WS2811', 'WS2815'];
+const COLOR_ORDERS = ['GRB', 'RGB', 'BRG', 'BGR', 'RBG', 'GBR'];
+const MAX_GRID_PIXELS = 1500;  // config::kMaxGridPixels
+const LIGHT_CHANNELS = 5;      // W1-W5; W1-W3 are universal, W4-W5 white only
+
+function fillSelect(sel, values, current, label = v => v) {
+  sel.replaceChildren(...values.map(v => {
+    const o = document.createElement('option');
+    o.value = v;
+    o.textContent = label(v);
+    return o;
+  }));
+  if (current !== undefined) sel.value = String(current);
+}
+
+function intValue(input) { return Math.round(Number(input.value)); }
+
+function renderHardware() {
+  const cfg = state.config;
+  if (!cfg || !cfg.grid) return;
+  const g = cfg.grid;
+  $('#hw-cols').value = g.cols;
+  $('#hw-rows').value = g.rows;
+  $('#hw-ppb').value = String(g.pixelsPerBin);
+  $('#hw-layout').value = g.layout;
+  $('#hw-start').value = g.start;
+  $('#hw-segments').value = String(g.segments);
+  $('#hw-split').value = g.splitRow;
+  fillSelect($('#hw-chipset'), CHIPSETS, g.chipset);
+  fillSelect($('#hw-order'), COLOR_ORDERS, g.colorOrder);
+  $('#hw-voltage').value = String(g.voltage);
+  $('#hw-current').value = g.currentLimitMa;
+  $('#hw-fade').value = cfg.fadeMs;
+  $('#hw-invert').checked = !!g.invertData;
+  renderGridPreview();
+  renderLightFields();
+  renderPinFields();
+}
+
+// The grid as the form describes it now (not yet saved).
+function gridForm() {
+  return {
+    cols: intValue($('#hw-cols')),
+    rows: intValue($('#hw-rows')),
+    pixelsPerBin: intValue($('#hw-ppb')),
+    layout: $('#hw-layout').value,
+    start: $('#hw-start').value,
+    segments: intValue($('#hw-segments')),
+    splitRow: intValue($('#hw-split')),
+  };
+}
+
+// What's wrong with the grid fields, or '' (the board checks again).
+function gridProblem(g) {
+  if (!(g.cols >= 1 && g.cols <= 64 && g.rows >= 1 && g.rows <= 64)) return t('hw.errSize');
+  if (g.segments === 2 && !(g.splitRow >= 1 && g.splitRow < g.rows)) return t('hw.errSplit', { max: g.rows - 1 });
+  const pixels = g.cols * g.rows * g.pixelsPerBin;
+  if (pixels > MAX_GRID_PIXELS) return t('hw.errPixels', { n: pixels, max: MAX_GRID_PIXELS });
+  return '';
+}
+
+// Bins in the order the strip passes them, per data line: the same steps as
+// GridMapper (lib/Led/src/GridMapper.h) in reverse, so the preview shows
+// exactly what the firmware will do. Returns [[{x, y}, ...], ...].
+function wiringOrder(g) {
+  const startTop = g.start.startsWith('top'), startLeft = g.start.endsWith('left');
+  const two = g.segments === 2;
+  const lines = two ? [[0, g.splitRow], [g.splitRow, g.rows]] : [[0, g.rows]];
+  return lines.map(([from, to]) => {
+    const bins = [];
+    for (let w = from; w < to; w++) {          // w = row in wiring order
+      const rowInLine = w - from;
+      const y = startTop ? w : g.rows - 1 - w;
+      const ltr = g.layout === 'serpentine' && rowInLine % 2 ? !startLeft : startLeft;
+      for (let c = 0; c < g.cols; c++) bins.push({ x: ltr ? c : g.cols - 1 - c, y });
+    }
+    return bins;
+  });
+}
+
+// Live preview: the bins seen from the front, the strip's path through them
+// (line A solid, line B dashed), each line's first pixel marked with its
+// letter, and on small grids the index of each bin's first pixel.
+function renderGridPreview() {
+  const g = gridForm();
+  $('#hw-split-box').hidden = g.segments !== 2;
+  $('#hw-split').max = Math.max(1, g.rows - 1);
+  const problem = gridProblem(g);
+  const summary = $('#hw-grid-summary');
+  summary.classList.toggle('err', !!problem);
+  $('#hw-grid-save').disabled = !!problem;
+  if (problem) {
+    summary.textContent = problem;
+    $('#hw-preview').replaceChildren();
+    return;
+  }
+  const order = wiringOrder(g);
+  const counts = order.map(line => line.length * g.pixelsPerBin);
+  summary.textContent = g.segments === 2
+    ? t('hw.summary2', { n: counts[0] + counts[1], a: counts[0], b: counts[1] })
+    : t('hw.summary1', { n: counts[0] });
+
+  // On small grids each bin shows the index of its first pixel in its upper
+  // half, and the path runs through the lower half so both stay readable.
+  const showIndex = g.cols * g.rows <= 160;
+  const cell = 26, pad = 14;
+  const w = g.cols * cell + 2 * pad, h = g.rows * cell + 2 * pad;
+  const cx = x => pad + x * cell + cell / 2;
+  const cy = y => pad + y * cell + (showIndex ? cell * 0.68 : cell / 2);
+  let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg">`;
+  svg += '<defs><marker id="hw-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" class="hw-arrowhead"/></marker></defs>';
+  for (let y = 0; y < g.rows; y++) {
+    for (let x = 0; x < g.cols; x++) {
+      svg += `<rect class="hw-bin" x="${pad + x * cell + 1.5}" y="${pad + y * cell + 1.5}" width="${cell - 3}" height="${cell - 3}" rx="3"/>`;
+    }
+  }
+  order.forEach((line, i) => {
+    const pts = line.map(b => `${cx(b.x)},${cy(b.y)}`).join(' ');
+    svg += `<polyline class="hw-path${i ? ' b' : ''}" points="${pts}" marker-end="url(#hw-arrow)"/>`;
+    if (showIndex) {
+      line.forEach((b, k) => {
+        svg += `<text class="hw-index" x="${cx(b.x)}" y="${pad + b.y * cell + 10}">${k * g.pixelsPerBin}</text>`;
+      });
+    }
+    const s = line[0];
+    svg += `<circle class="hw-start${i ? ' b' : ''}" cx="${cx(s.x)}" cy="${cy(s.y)}" r="6"/>`;
+    svg += `<text class="hw-start-label" x="${cx(s.x)}" y="${cy(s.y) + 3}">${i ? 'B' : 'A'}</text>`;
+  });
+  svg += '</svg>';
+  $('#hw-preview').innerHTML = svg;
+}
+
+async function saveGrid() {
+  const g = gridForm();
+  const problem = gridProblem(g);
+  if (problem) return toast(problem, true);
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  Object.assign(cfg.grid, g, {
+    chipset: $('#hw-chipset').value,
+    colorOrder: $('#hw-order').value,
+    voltage: intValue($('#hw-voltage')),
+    currentLimitMa: intValue($('#hw-current')),
+    invertData: $('#hw-invert').checked,
+  });
+  if (g.segments !== 2) cfg.grid.splitRow = Math.min(cfg.grid.splitRow, Math.max(1, g.rows - 1));
+  cfg.fadeMs = intValue($('#hw-fade'));
+  await saveAndRestart(cfg);
+}
+
+// Writes the whole configuration back and waits for the board to restart.
+async function saveAndRestart(cfg) {
+  if (!confirm(t('hw.confirm'))) return;
+  if (await attempt(() => api('/api/config', { json: JSON.stringify(cfg) }))) waitForRestart();
+}
+
+// Work lights: one block per channel. W1-W3 can be white, addressable or,
+// all three together, one analog RGB strip; W4-W5 white only.
+function renderLightFields() {
+  const lights = (state.config && state.config.lights) || [];
+  const rgb = lights.length >= 3 && lights.slice(0, 3).every(l => l.mode === 'rgb');
+  $('#hw-rgb').checked = rgb;
+  const list = $('#hw-light-list');
+  list.replaceChildren();
+  for (let i = 0; i < LIGHT_CHANNELS; i++) {
+    const l = lights[i] || { mode: 'off', maxBrightness: 255, pixels: 60, chipset: 'WS2812B', colorOrder: 'GRB', currentLimitMa: 2000 };
+    const box = document.createElement('div');
+    box.className = 'hw-light';
+    box.dataset.channel = i;
+    const modes = i < 3 ? ['off', 'white', 'addressable'] : ['off', 'white'];
+    box.innerHTML = `
+      <div class="hw-light-head"><b>W${i + 1}</b>
+        <select class="hw-mode" aria-label="W${i + 1}"></select>
+        <span class="muted small hw-rgb-note" hidden>${t('hw.mode.rgb')}</span></div>
+      <div class="hw-fields hw-light-fields">
+        <label class="hw-max"><span>${t('hw.maxBrightness')}</span><input type="number" class="hw-maxb" min="1" max="100" inputmode="numeric"></label>
+        <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="1000" inputmode="numeric"></label>
+        <label class="hw-addr"><span>${t('hw.chipset')}</span><select class="hw-chip"></select></label>
+        <label class="hw-addr"><span>${t('hw.order')}</span><select class="hw-ord"></select></label>
+        <label class="hw-addr"><span>${t('hw.current')}</span><input type="number" class="hw-cur" min="100" max="30000" step="100" inputmode="numeric"></label>
+      </div>
+      <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>`;
+    fillSelect($('.hw-mode', box), modes, modes.includes(l.mode) ? l.mode : (l.mode === 'rgb' ? 'white' : 'off'),
+      m => t(`hw.mode.${m}`));
+    $('.hw-maxb', box).value = Math.max(1, Math.round(l.maxBrightness * 100 / 255));
+    $('.hw-pixels', box).value = l.pixels;
+    fillSelect($('.hw-chip', box), CHIPSETS, l.chipset);
+    fillSelect($('.hw-ord', box), COLOR_ORDERS, l.colorOrder);
+    $('.hw-cur', box).value = l.currentLimitMa;
+    $('.hw-inv', box).checked = !!l.invertData;
+    $('.hw-mode', box).addEventListener('change', updateLightFields);
+    list.append(box);
+  }
+  updateLightFields();
+}
+
+// Shows each channel's fields for its mode; with the RGB group on, W1-W3
+// share W1's maximum brightness and have no mode of their own.
+function updateLightFields() {
+  const rgb = $('#hw-rgb').checked;
+  for (const box of $$('#hw-light-list .hw-light')) {
+    const i = Number(box.dataset.channel);
+    const grouped = rgb && i < 3;
+    const mode = grouped ? 'rgb' : $('.hw-mode', box).value;
+    $('.hw-mode', box).hidden = grouped;
+    $('.hw-rgb-note', box).hidden = !grouped;
+    $('.hw-max', box).hidden = mode === 'off' || (grouped && i > 0);
+    for (const el of $$('.hw-addr', box)) el.hidden = mode !== 'addressable';
+  }
+}
+
+async function saveLights() {
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  const rgb = $('#hw-rgb').checked;
+  cfg.lights = $$('#hw-light-list .hw-light').map(box => {
+    const i = Number(box.dataset.channel);
+    const old = (cfg.lights && cfg.lights[i]) || {};
+    const pct = Math.min(100, Math.max(1, intValue($('.hw-maxb', box))));
+    return {
+      ...old,
+      mode: rgb && i < 3 ? 'rgb' : $('.hw-mode', box).value,
+      maxBrightness: Math.max(1, Math.round(pct * 255 / 100)),
+      pixels: intValue($('.hw-pixels', box)),
+      chipset: $('.hw-chip', box).value,
+      colorOrder: $('.hw-ord', box).value,
+      currentLimitMa: intValue($('.hw-cur', box)),
+      invertData: $('.hw-inv', box).checked,
+    };
+  });
+  await saveAndRestart(cfg);
+}
+
+// Pin map: one choice per function, offering only the GPIOs the board
+// allows for it (outputs can't use the input-only GPIO34-39; the analog
+// microphone needs ADC1, GPIO32-39). The BOOT button is shown but fixed.
+async function loadPins() {
+  const pins = await attempt(() => api('/api/pins'));
+  if (pins) state.pins = pins;
+}
+
+function renderPinFields() {
+  const info = state.pins;
+  const list = $('#hw-pin-list');
+  $('#hw-mic').value = (state.config && state.config.microphone) || 'i2s';
+  if (!info) return list.replaceChildren();
+  list.replaceChildren(...info.pins.map(p => {
+    const row = document.createElement('label');
+    row.className = 'pin-row';
+    row.dataset.pin = p.name;
+    const name = document.createElement('span');
+    name.textContent = t(`pin.${p.name}`);
+    const sel = document.createElement('select');
+    sel.className = 'pin-gpio';
+    sel.disabled = !!p.fixed;
+    let allowed = p.input ? info.inputs : info.outputs;
+    if (p.name === 'mic_analog') allowed = allowed.filter(g => g >= 32);
+    if (p.fixed) allowed = [p.gpio];
+    const values = p.fixed ? allowed : [-1, ...allowed];
+    fillSelect(sel, values, p.gpio, g => {
+      const text = g < 0 ? t('hw.pinNone') : `GPIO${g}`;
+      return g === p.default ? `${text} ${t('hw.pinDefault')}` : text;
+    });
+    sel.dataset.default = p.default;
+    sel.addEventListener('change', checkPins);
+    row.append(name, sel);
+    return row;
+  }));
+  updateMicPins();
+  checkPins();
+}
+
+// Only the pins of the chosen microphone are shown.
+function updateMicPins() {
+  const mic = $('#hw-mic').value;
+  for (const row of $$('#hw-pin-list .pin-row')) {
+    const n = row.dataset.pin;
+    if (n.startsWith('mic_i2s')) row.hidden = mic !== 'i2s';
+    if (n === 'mic_analog') row.hidden = mic !== 'analog';
+  }
+  checkPins();
+}
+
+// Marks GPIOs chosen for two functions (among the shown ones) and returns
+// a message for the first clash, or ''.
+function checkPins() {
+  const used = new Map();
+  let problem = '';
+  for (const row of $$('#hw-pin-list .pin-row')) row.classList.remove('err');
+  for (const row of $$('#hw-pin-list .pin-row')) {
+    if (row.hidden) continue;
+    const g = Number($('.pin-gpio', row).value);
+    if (g < 0) continue;
+    if (used.has(g)) {
+      row.classList.add('err');
+      used.get(g).classList.add('err');
+      if (!problem) problem = t('hw.pinTwice', { gpio: g });
+    } else {
+      used.set(g, row);
+    }
+  }
+  $('#hw-pins-save').disabled = !!problem;
+  return problem;
+}
+
+async function savePins() {
+  const problem = checkPins();
+  if (problem) return toast(problem, true);
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  cfg.microphone = $('#hw-mic').value;
+  cfg.pins = {};
+  for (const row of $$('#hw-pin-list .pin-row')) {
+    const sel = $('.pin-gpio', row);
+    if (sel.disabled) continue;  // the BOOT button
+    // A hidden microphone pin is set free, so it can't clash with anything.
+    cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
+  }
+  await saveAndRestart(cfg);
+}
+
+function defaultPins() {
+  for (const sel of $$('#hw-pin-list .pin-gpio')) sel.value = sel.dataset.default;
+  checkPins();
+}
+
+// ---------------------------------------------------------------------------
+// Firmware update (System page)
+
+function renderFirmwareCard() {
+  $('#firmware-card').hidden = !(state.system && state.system.firmwareUpload);
+}
+
+function pickFirmware() {
+  const file = $('#firmware-file').files[0];
+  $('#firmware-name').textContent = file ? `${file.name}, ${formatBytes(file.size)}` : '';
+  $('#firmware-name').classList.remove('err');
+  $('#firmware-upload').disabled = !file;
+}
+
+// Checks the file looks like an ESP32 app image (it starts with the 0xE9
+// magic byte) before sending 1-2 MB over Wi-Fi; the board checks the whole
+// image again before it switches to it.
+async function installFirmware() {
+  const file = $('#firmware-file').files[0];
+  if (!file) return;
+  const head = new Uint8Array(await file.slice(0, 1).arrayBuffer());
+  const status = $('#firmware-name');
+  if (head[0] !== 0xE9 || file.size < 64 * 1024) {
+    status.textContent = t('firmware.notImage');
+    status.classList.add('err');
+    return;
+  }
+  if (!confirm(t('firmware.confirm', { file: file.name }))) return;
+  const bar = $('#firmware-progress');
+  const button = $('#firmware-upload');
+  bar.hidden = false;
+  button.disabled = true;
+  status.classList.remove('err');
+  const form = new FormData();
+  form.append('firmware', file, file.name);
+  try {
+    const res = await upload('/api/firmware', form, null, f => {
+      bar.value = Math.round(f * 100);
+      status.textContent = t('firmware.uploading', { pct: Math.round(f * 100) });
+    });
+    if (!res.ok) throw new Error((res.body && res.body.error) || `${res.status}`);
+    status.textContent = t('firmware.installed');
+    waitForRestart();
+  } catch (e) {
+    status.textContent = t('firmware.failed', { error: e.message });
+    status.classList.add('err');
+    button.disabled = false;
+  } finally {
+    bar.hidden = true;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // System
 
 const DEFAULT_DEVICE_NAME = 'smartbins';
@@ -1576,12 +1965,14 @@ async function startPhotoJob(path) {
 }
 
 // Uploads with XMLHttpRequest rather than fetch(): only it reports upload
-// progress, and a backup with photos can take a while over Wi-Fi.
+// progress, and a backup with photos (or a firmware image) can take a while
+// over Wi-Fi. `body` is a File, or FormData for a multipart upload.
 function upload(path, file, type, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', path);
-    xhr.setRequestHeader('Content-Type', type);
+    // No type for FormData: the browser sets multipart with its boundary.
+    if (type) xhr.setRequestHeader('Content-Type', type);
     xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
     xhr.onload = () => {
       let body = null;
@@ -1693,6 +2084,7 @@ function formatUptime(s) {
 function renderSystem() {
   const s = state.system;
   if (!s) return;
+  renderFirmwareCard();
   const rows = [
     ['system.firmware', s.firmware],
     ['system.device', s.device],
@@ -1847,8 +2239,8 @@ function bindControls() {
     const res = await attempt(() => api('/api/locate/clear', { method: 'POST' }));
     if (res) updateLitBins(res);
   });
-  // Locate colour: the same hue slider and colour presets as the lights
-  // (presets that set a colour temperature don't apply to a bin and are left out).
+  // Locate color: the same hue slider and color presets as the lights
+  // (presets that set a color temperature don't apply to a bin and are left out).
   locateHue = makeSlider($('#locate-hue'), 0, 359, 1, onLocateHue);
   for (const p of PRESETS.filter(p => p.params.color)) {
     const b = document.createElement('button');
@@ -1900,6 +2292,18 @@ function bindControls() {
   });
   $('#password-remove').addEventListener('click', () => savePassword(''));
   $('#config-save').addEventListener('click', saveConfig);
+  // Hardware sections: the preview follows every change of the grid fields.
+  for (const id of ['hw-cols', 'hw-rows', 'hw-ppb', 'hw-layout', 'hw-start', 'hw-segments', 'hw-split']) {
+    $(`#${id}`).addEventListener('input', renderGridPreview);
+  }
+  $('#hw-grid-save').addEventListener('click', saveGrid);
+  $('#hw-rgb').addEventListener('change', updateLightFields);
+  $('#hw-lights-save').addEventListener('click', saveLights);
+  $('#hw-mic').addEventListener('change', updateMicPins);
+  $('#hw-pins-save').addEventListener('click', savePins);
+  $('#hw-pins-defaults').addEventListener('click', defaultPins);
+  $('#firmware-file').addEventListener('change', pickFirmware);
+  $('#firmware-upload').addEventListener('click', installFirmware);
   $('#restore-file').addEventListener('change', e => {
     const file = e.target.files[0];
     e.target.value = '';  // the same file can be chosen again

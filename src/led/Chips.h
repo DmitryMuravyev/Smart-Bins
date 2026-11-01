@@ -22,7 +22,7 @@ struct ChipInfo {
 // Timings are in nanoseconds (T0H, T0L, T1H, T1L), chosen near the middle of
 // each datasheet's tolerance window rather than at its nominal value, so that
 // clones with slightly different thresholds still decode the bits correctly.
-// Currents are per colour channel at full value, in tenths of a mA:
+// Currents are per color channel at full value, in tenths of a mA:
 //   WS2812/B, SK6812: about 60 mA per pixel at full white (3 x 20 mA), 5 V
 //   WS2811 (12 V):    one IC drives a 3-LED segment in series, ~20 mA per segment
 //   WS2815 (12 V):    ~25 mA per pixel at full white
@@ -38,8 +38,8 @@ inline ChipInfo chipInfo(config::Chipset chip) {
   }
 }
 
-// Turns a colour order such as "GRB" into a byte map: output byte i of a pixel
-// takes colour channel order[i] (0 = R, 1 = G, 2 = B). Invalid letters fall
+// Turns a color order such as "GRB" into a byte map: output byte i of a pixel
+// takes color channel order[i] (0 = R, 1 = G, 2 = B). Invalid letters fall
 // back to B, but config validation rejects them before this is ever called.
 inline void colorOrderMap(const char *order, uint8_t out[3]) {
   for (int i = 0; i < 3; i++) {
@@ -54,7 +54,7 @@ inline void colorOrderMap(const char *order, uint8_t out[3]) {
 // For RGBW chips the part that R, G and B have in common is moved to the white
 // LED: (200, 120, 80) becomes RGB (120, 40, 0) + W 80. The white LED makes that
 // part of the light more efficiently and with a better tint than mixing it from
-// three colours, and the visible colour stays the same.
+// three colors, and the visible color stays the same.
 inline uint8_t *encodePixel(Rgb c, uint8_t channels, const uint8_t order[3], uint8_t *o) {
   uint8_t ch[3] = {c.r, c.g, c.b};
   if (channels == 4) {

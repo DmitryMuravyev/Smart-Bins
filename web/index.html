@@ -108,7 +108,7 @@
       <button class="secondary" id="lights-off" data-i18n="lights.allOff">All off</button>
     </div>
     <div id="lights-list" class="cards"></div>
-    <p class="muted" id="lights-empty" hidden data-i18n="lights.none">No work lights are configured. Set the lights section in Settings, Advanced.</p>
+    <p class="muted" id="lights-empty" hidden data-i18n="lights.none">No work lights are configured. Set them up in Settings, Work lights.</p>
   </section>
 
   <section id="page-grid" class="page">
@@ -266,6 +266,74 @@
       <button id="ip-save" data-i18n="settings.saveRestart">Save and restart</button>
       <p class="muted small" data-i18n="settings.ipHint">If the board can't be reached after a change, hold its BOOT button for 5s: it forgets the Wi-Fi network and goes back to an automatic address.</p>
     </div>
+    <!-- Hardware (Task 14): the grid, the work lights, the microphone and the
+         pin map. Each section is folded until opened; saving any of them
+         writes config.json (the board checks every field again) and
+         restarts, since strips and pins are set up at boot. -->
+    <details class="card hw" id="hw-grid">
+      <summary data-i18n="hw.grid">LED grid</summary>
+      <div class="hw-fields">
+        <label><span data-i18n="hw.cols">Columns</span><input type="number" id="hw-cols" min="1" max="64" inputmode="numeric"></label>
+        <label><span data-i18n="hw.rows">Rows</span><input type="number" id="hw-rows" min="1" max="64" inputmode="numeric"></label>
+        <label><span data-i18n="hw.ppb">Pixels per bin</span>
+          <select id="hw-ppb"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select></label>
+        <label><span data-i18n="hw.layout">Wiring</span>
+          <select id="hw-layout">
+            <option value="serpentine" data-i18n="hw.layout.serpentine">Zigzag</option>
+            <option value="progressive" data-i18n="hw.layout.progressive">Every row from the same side</option>
+          </select></label>
+        <label><span data-i18n="hw.start">First pixel</span>
+          <select id="hw-start">
+            <option value="top-left" data-i18n="hw.corner.top-left">Top left</option>
+            <option value="top-right" data-i18n="hw.corner.top-right">Top right</option>
+            <option value="bottom-left" data-i18n="hw.corner.bottom-left">Bottom left</option>
+            <option value="bottom-right" data-i18n="hw.corner.bottom-right">Bottom right</option>
+          </select></label>
+        <label><span data-i18n="hw.segments">Data lines</span>
+          <select id="hw-segments">
+            <option value="1" data-i18n="hw.segments.1">One (A)</option>
+            <option value="2" data-i18n="hw.segments.2">Two (A and B)</option>
+          </select></label>
+        <label id="hw-split-box"><span data-i18n="hw.splitRow">Rows on line A</span><input type="number" id="hw-split" min="1" inputmode="numeric"></label>
+      </div>
+      <!-- Live preview: the bins as seen from the front, with the strip's
+           path drawn through them and the first pixel of each line marked. -->
+      <div class="hw-preview" id="hw-preview" aria-hidden="true"></div>
+      <p class="muted small" id="hw-grid-summary"></p>
+      <div class="hw-fields">
+        <label><span data-i18n="hw.chipset">LED type</span><select id="hw-chipset" class="chipset"></select></label>
+        <label><span data-i18n="hw.order">Color order</span><select id="hw-order" class="color-order"></select></label>
+        <label><span data-i18n="hw.voltage">Supply</span>
+          <select id="hw-voltage"><option value="5">5V</option><option value="12">12V</option><option value="24">24V</option></select></label>
+        <label><span data-i18n="hw.current">Current limit, mA</span><input type="number" id="hw-current" min="100" max="30000" step="100" inputmode="numeric"></label>
+        <label><span data-i18n="hw.fade">Fade time, ms</span><input type="number" id="hw-fade" min="0" max="5000" step="50" inputmode="numeric"></label>
+      </div>
+      <label class="check"><input type="checkbox" id="hw-invert"><span data-i18n="hw.invert">Inverted data (single-transistor level shifter)</span></label>
+      <button id="hw-grid-save" data-i18n="settings.saveRestart">Save and restart</button>
+    </details>
+    <details class="card hw" id="hw-lights">
+      <summary data-i18n="hw.lights">Work lights</summary>
+      <label class="check"><input type="checkbox" id="hw-rgb"><span data-i18n="hw.rgbGroup">W1, W2 and W3 drive one analog RGB strip</span></label>
+      <div id="hw-light-list"></div>
+      <button id="hw-lights-save" data-i18n="settings.saveRestart">Save and restart</button>
+    </details>
+    <details class="card hw" id="hw-pins">
+      <summary data-i18n="hw.pins">Microphone and pins</summary>
+      <label class="row"><span data-i18n="hw.mic">Microphone</span>
+        <select id="hw-mic">
+          <option value="i2s" data-i18n="hw.mic.i2s">Digital (I2S, e.g. INMP441)</option>
+          <option value="analog" data-i18n="hw.mic.analog">Analog (e.g. MAX9814)</option>
+          <option value="off" data-i18n="hw.mic.off">None</option>
+        </select>
+      </label>
+      <p class="muted small" data-i18n="hw.pinsHint">GPIO for each function. Pins the board can't use for it are left out of each list.</p>
+      <div class="pin-list" id="hw-pin-list"></div>
+      <div class="buttons">
+        <button id="hw-pins-save" data-i18n="settings.saveRestart">Save and restart</button>
+        <button class="secondary" id="hw-pins-defaults" data-i18n="hw.pinsDefaults">Default pins</button>
+      </div>
+      <p class="notice"><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.pinsWarn">If the board stops responding after a pin change, hold its BOOT button for 10s: that restores all settings, including the default pins.</span></p>
+    </details>
     <details class="card">
       <summary data-i18n="settings.advanced">Advanced: configuration file</summary>
       <p class="muted small" data-i18n="settings.advancedHint">Edit config.json directly. Saving checks every field and restarts the device.</p>
@@ -334,6 +402,20 @@
         <button type="button" id="photos-clean" class="secondary" data-i18n="photoTools.clean">Remove unused photos</button>
       </div>
       <p class="small" id="photo-job" aria-live="polite" hidden></p>
+    </div>
+
+    <!-- Firmware update from the browser (Task 14): the .bin goes to the
+         board's second app slot as it uploads; the board checks it and
+         restarts into it. Hidden on 4 MB boards, which have one slot. -->
+    <div class="card" id="firmware-card" hidden>
+      <h2 data-i18n="firmware.title">Firmware update</h2>
+      <p class="muted small" data-i18n="firmware.hint">Choose firmware.bin from a release or your build (.pio/build/esp32-8mb/firmware.bin). Settings, parts and photos stay as they are.</p>
+      <div class="buttons">
+        <label class="button secondary file-pick"><span data-i18n="firmware.choose">Choose file</span><input type="file" id="firmware-file" accept=".bin,application/octet-stream" hidden></label>
+        <button id="firmware-upload" data-i18n="firmware.install" disabled>Install</button>
+      </div>
+      <p class="small" id="firmware-name"></p>
+      <progress id="firmware-progress" max="100" value="0" hidden></progress>
     </div>
 
     <button class="secondary" id="restart" data-i18n="system.restart">Restart device</button>
