@@ -24,6 +24,7 @@
 #include <Arduino.h>
 #include <FS.h>
 
+#include <functional>
 #include <string>
 
 namespace sb {
@@ -75,7 +76,25 @@ class PhotoStore {
   // Finds a photo's file: on the card first, then in flash (photos taken
   // before a card was added stay visible). A missing thumbnail falls back to
   // the photo. False when there is neither.
-  bool find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size) const;
+  // `fallback` false: only the exact file (a backup copies thumbnails only
+  // where they exist).
+  bool find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size,
+            bool fallback = true) const;
+
+  // ---- Maintenance (Task 11) ----
+
+  // Copies a photo's files from flash to the card, checks each copy's size,
+  // then deletes the flash copy. Adds the bytes freed in flash to `moved`.
+  // True when nothing of it is left in flash (also when it never was there).
+  bool moveToCard(const std::string &name, uint64_t &moved, std::string &err);
+  // True when some photo file is still in flash while a card is in use.
+  bool flashHasPhotos() const;
+  // Deletes every photo file (on the card and in flash) whose name `inUse`
+  // doesn't recognise. Returns the number of files removed; `freed` grows by
+  // their size.
+  int removeUnused(const std::function<bool(const std::string &name)> &inUse, uint64_t &freed);
+  // Splits "NAME.jpg" / "NAME-t.jpg" into the photo name and its kind.
+  static bool parseFileName(const String &file, std::string &name, Kind &kind);
 
  private:
   static String pathFor(const std::string &name, Kind kind);

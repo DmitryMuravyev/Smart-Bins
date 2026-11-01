@@ -58,6 +58,7 @@ Open **http://smartbins.local/** (or the board's IP). The pages so far:
 - **Grid:** tap a bin to light it, tap it again to turn it off; **Clear all** turns every bin off. Lit bins are shown on every open page. Below the grid: how a located bin lights up (**steady**, **slow pulse** or **fast pulse**, how long it stays on, its colour and the grid brightness; saved at once, no restart) and the test patterns.
 - **Settings:** language (English, Español, Русский) and theme (automatic, light, dark), both remembered per browser; the device name, which is also its network address (`NAME.local`); the optional password; Wi-Fi, with an automatic (DHCP) or fixed IP address; and the raw `config.json` editor (saving validates every field, stores the file and restarts the board).
 - **System:** firmware, chip, memory, storage and network details, inventory figures (parts and pieces, photos and where they are stored, bins in use, categories, manufacturers, database size), and a restart button.
+- **Backup and restore** (System page): **Download backup** saves one `.tar` file with the parts database, every photo and the settings (any computer opens it: `tar -xf`, 7-Zip). **Restore from file** takes such a file (or a bare `.db`), replaces the parts, adds the photos and, if ticked, restores the settings and restarts. The database it replaces is kept and can be downloaded, so a restore can be undone. **Export CSV / Import CSV** for editing the parts in a spreadsheet (semicolon or comma separated; a row whose `id` matches a part updates it, other rows add parts; bins are written like `A1`). **Photo storage** moves photos from flash to a microSD card and removes photo files no part uses.
 
 **Photo storage.** With a microSD card in the slot at boot (SPI: SCK 18, MISO 19, MOSI 23, CS 5), photos go on the card; without one they go to the flash partition, which keeps 512 KB free for the database. Photos stored in flash stay visible after a card is added.
 
@@ -132,6 +133,14 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `POST /api/part/thumb?id=N&name=NAME` | body: the photo's thumbnail (`image/jpeg`, at most 48 KB); `NAME` is the part's current `photo` |
 | `/api/part/photo/delete?id=N` | removes a part's photo |
 | `GET /photos/NAME.jpg`, `GET /photos/NAME-t.jpg` | a photo and its thumbnail (a missing thumbnail gives the photo); cached by browsers, since a new photo gets a new name |
+| `GET /api/backup` | the full backup as a `.tar` file: `smartbins-backup.json` (format, firmware, schema), `config.json`, `inventory.db`, `photos/*.jpg`. While the database file is being sent (a moment), changes to parts answer 503 |
+| `GET /api/backup/db` | the database file alone (SQLite; opens in DB Browser for SQLite and the like) |
+| `POST /api/backup/restore[?settings=1]` | body: a backup `.tar` or a `.db` file. `curl --data-binary @smartbins-backup.tar ...` Answers `{parts, photos, photosFailed, settings, restarting}` |
+| `GET /api/backup/previous`, `POST /api/backup/previous/delete` | the database kept from before the last restore |
+| `GET /api/backup/info` | database size, the kept database, whether photos are still in flash with a card in, and the photo job's progress |
+| `GET /api/parts.csv[?sep=;]` | every part as CSV (UTF-8 with BOM, `,` or `;`) |
+| `POST /api/parts/import` | body: CSV with a header line (`id`, `part_number`, ..., `quantity`, `bin`, ...); answers `{added, updated, failed, errors: [{line, error}]}` |
+| `POST /api/photos/move-to-card`, `POST /api/photos/clean` | move photos from flash to the microSD card / delete photo files no part uses; run in the background (progress in `/api/backup/info`) |
 | `/api/part/adjust?id=N&delta=-1` | quantity up or down, never below 0 |
 | `GET /api/bins` | every bin with its `label` and number of `parts` (`outside: true` for a bin left outside after the grid shrank) |
 | `/api/bin/label?x=0&y=0&label=Resistors` | names a bin; an empty label goes back to the A1-style name |

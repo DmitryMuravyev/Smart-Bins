@@ -480,6 +480,146 @@ static void test_converts_old_page_size() {
   TEST_ASSERT_EQUAL(2048, rawPageSize());
 }
 
+static void test_hold_writes() {
+  Part p;
+  TEST_ASSERT_TRUE(db.addPart(named("BC547", 5), p, err) == Result::Ok);
+  db.holdWrites(true);
+  Part q;
+  TEST_ASSERT_TRUE(db.adjustQuantity(p.id, 1, q, err) == Result::Busy);
+  TEST_ASSERT_TRUE(db.addPart(named("BC557"), q, err) == Result::Busy);
+  TEST_ASSERT_TRUE(db.getPart(p.id, q, err) == Result::Ok);  // reads go on
+  TEST_ASSERT_EQUAL(5, q.quantity);
+  db.holdWrites(false);
+  TEST_ASSERT_TRUE(db.adjustQuantity(p.id, 1, q, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(6, q.quantity);
+}
+
+static void test_next_photo() {
+  Part a, b, c;
+  std::string prev;
+  db.addPart(named("A"), a, err);
+  db.addPart(named("B"), b, err);
+  db.addPart(named("C"), c, err);
+  db.setPhoto(a.id, "1-aaaaaa", prev, a, err);
+  db.setPhoto(c.id, "3-cccccc", prev, c, err);
+  int64_t id = 0;
+  std::string photo;
+  TEST_ASSERT_TRUE(db.nextPhoto(0, id, photo, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(a.id, id);
+  TEST_ASSERT_EQUAL_STRING("1-aaaaaa", photo.c_str());
+  TEST_ASSERT_TRUE(db.nextPhoto(id, id, photo, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(c.id, id);
+  TEST_ASSERT_TRUE(db.nextPhoto(id, id, photo, err) == Result::NotFound);
+}
+
+static void test_import_parts() {
+  Part existing;
+  TEST_ASSERT_TRUE(db.addPart(named("OLD", 1, {0, 0}), existing, err) == Result::Ok);
+  std::vector<ImportRow> rows(5);
+  rows[0].id = existing.id;  // update: only the given columns change
+  rows[0].fields.quantity = 42;
+  rows[1].fields = named("NEW1", 3, {1, 1});
+  rows[2].id = 999;  // no such part: added as new
+  rows[2].fields = named("NEW2");
+  rows[3].fields.quantity = 1;  // no part number or description: refused
+  rows[4].id = existing.id;     // the same values again: not written
+  rows[4].fields.text[kPartNumber] = std::string("OLD");
+  std::vector<ImportOutcome> outcomes;
+  std::vector<std::string> reasons;
+  TEST_ASSERT_TRUE_MESSAGE(db.importParts(rows, [&](size_t, ImportOutcome o, const std::string &why) {
+    outcomes.push_back(o);
+    reasons.push_back(why);
+  }, err) == Result::Ok, err.c_str());
+  TEST_ASSERT_EQUAL(5, (int)outcomes.size());
+  TEST_ASSERT_TRUE(outcomes[0] == ImportOutcome::Updated);
+  TEST_ASSERT_TRUE(outcomes[1] == ImportOutcome::Added);
+  TEST_ASSERT_TRUE(outcomes[2] == ImportOutcome::Added);
+  TEST_ASSERT_TRUE(outcomes[3] == ImportOutcome::Failed);
+  TEST_ASSERT_TRUE(reasons[3].find("part number") != std::string::npos);
+  TEST_ASSERT_TRUE(outcomes[4] == ImportOutcome::Unchanged);
+  Part q;
+  TEST_ASSERT_TRUE(db.getPart(existing.id, q, err) == Result::Ok);
+  TEST_ASSERT_EQUAL(42, q.quantity);
+  TEST_ASSERT_EQUAL_STRING("OLD", q.text[kPartNumber].c_str());
+  TEST_ASSERT_EQUAL(0, q.bin.x);
+  Stats s;
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(3, s.parts);
+  // A row whose id is free is added under that id, so importing it again
+  // finds it rather than adding a duplicate.
+  TEST_ASSERT_TRUE(db.getPart(999, q, err) == Result::Ok);
+  TEST_ASSERT_EQUAL_STRING("NEW2", q.text[kPartNumber].c_str());
+  std::vector<ImportRow> again(1);
+  again[0].id = 999;
+  again[0].fields = named("NEW2");
+  outcomes.clear();
+  db.importParts(again, [&](size_t, ImportOutcome o, const std::string &) { outcomes.push_back(o); }, err);
+  TEST_ASSERT_TRUE(outcomes[0] == ImportOutcome::Unchanged || outcomes[0] == ImportOutcome::Updated);
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(3, s.parts);
+}
+
+static void test_replace_file() {
+  static const char *kOther = "/tmp/sb_test_other.db";
+  static const char *kPrev = "/tmp/sb_test_prev.db";
+  std::remove(kOther);
+  std::remove(kPrev);
+  Part p;
+  db.addPart(named("KEEP"), p, err);
+  // Another database with one different part: what a restore brings in.
+  {
+    InventoryDb other;
+    TEST_ASSERT_TRUE(other.open(kOther, err));
+    other.syncBins(4, 3, err);
+    other.addPart(named("RESTORED", 7), p, err);
+    other.addPart(named("RESTORED2", 8), p, err);
+  }
+  TEST_ASSERT_TRUE_MESSAGE(db.replaceFile(kPath, kOther, kPrev, err), err.c_str());
+  Stats s;
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(2, s.parts);
+  // The old database was kept aside.
+  {
+    InventoryDb prev;
+    TEST_ASSERT_TRUE(prev.open(kPrev, err));
+    prev.stats(s, err);
+    TEST_ASSERT_EQUAL(1, s.parts);
+  }
+  // A damaged file is refused and the current database stays.
+  FILE *f = std::fopen(kOther, "wb");
+  std::fputs("SQLite format 3", f);
+  for (int i = 0; i < 5000; i++) std::fputc(i & 0xff, f);
+  std::fclose(f);
+  TEST_ASSERT_FALSE(db.replaceFile(kPath, kOther, kPrev, err));
+  TEST_ASSERT_TRUE(db.isOpen());
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(2, s.parts);
+  std::remove(kOther);
+  std::remove(kPrev);
+}
+
+static void test_bin_names() {
+  TEST_ASSERT_EQUAL_STRING("A1", binName({0, 0}).c_str());
+  TEST_ASSERT_EQUAL_STRING("Z12", binName({25, 11}).c_str());
+  TEST_ASSERT_EQUAL_STRING("AA3", binName({26, 2}).c_str());
+  TEST_ASSERT_EQUAL_STRING("", binName(BinRef()).c_str());
+  BinRef b;
+  TEST_ASSERT_TRUE(parseBinName(" b12 ", b));
+  TEST_ASSERT_EQUAL(1, b.x);
+  TEST_ASSERT_EQUAL(11, b.y);
+  TEST_ASSERT_TRUE(parseBinName("AA3", b));
+  TEST_ASSERT_EQUAL(26, b.x);
+  TEST_ASSERT_TRUE(parseBinName("", b));
+  TEST_ASSERT_FALSE(b.valid());
+  TEST_ASSERT_FALSE(parseBinName("12", b));
+  TEST_ASSERT_FALSE(parseBinName("A0", b));
+  TEST_ASSERT_FALSE(parseBinName("A1x", b));
+  for (int x = 0; x < 800; x += 7) {
+    TEST_ASSERT_TRUE(parseBinName(binName({x, 4}), b));
+    TEST_ASSERT_EQUAL(x, b.x);
+  }
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_add_and_get);
@@ -502,5 +642,10 @@ int main() {
   RUN_TEST(test_benchmark_2000);
   RUN_TEST(test_refuses_newer_schema);
   RUN_TEST(test_converts_old_page_size);
+  RUN_TEST(test_hold_writes);
+  RUN_TEST(test_next_photo);
+  RUN_TEST(test_import_parts);
+  RUN_TEST(test_replace_file);
+  RUN_TEST(test_bin_names);
   return UNITY_END();
 }

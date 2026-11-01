@@ -33,6 +33,7 @@ int httpStatus(Result r) {
     case Result::Ok: return 200;
     case Result::NotFound: return 404;
     case Result::Invalid: return 400;
+    case Result::Busy: return 503;  // a backup holds writes for a moment
     default: return 500;
   }
 }

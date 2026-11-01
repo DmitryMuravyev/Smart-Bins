@@ -20,6 +20,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct sqlite3;
 
@@ -142,7 +143,24 @@ struct BinCount {
   int64_t parts = 0;
 };
 
-enum class Result { Ok, NotFound, Invalid, Error };
+// Busy: writes are held for a moment (a backup is copying the database file,
+// see holdWrites()); the caller may try again shortly.
+enum class Result { Ok, NotFound, Invalid, Busy, Error };
+
+// The grid name of a bin as the web page shows it by default: column letters
+// and row number, "A1" for x = 0, y = 0; "AA1" follows "Z1". Empty for no bin.
+std::string binName(BinRef bin);
+// The reverse, regardless of case ("b12" is x = 1, y = 11). An empty name is
+// "no bin". False for anything else.
+bool parseBinName(const std::string &name, BinRef &out);
+
+// One row of a CSV import (see importParts()).
+struct ImportRow {
+  int64_t id = 0;       // > 0: update this part if it exists, else add it under this id
+  PartChanges fields;   // the columns the file has; missing ones stay unset
+};
+
+enum class ImportOutcome { Added, Updated, Unchanged, Failed };
 
 struct WriteHooks {
   std::function<void()> begin;  // before the first write of a transaction
@@ -210,6 +228,35 @@ class InventoryDb {
 
   Result stats(Stats &out, std::string &err);
 
+  // ---- Backup and restore (Task 11) ----
+
+  // While held, every write fails with Result::Busy, so the database file
+  // can be copied byte for byte while the board keeps answering searches:
+  // with the rollback journal SQLite uses here, the file is complete and
+  // consistent whenever no write transaction is open. Reads go on as usual.
+  void holdWrites(bool hold);
+  bool writesHeld() const { return held_; }
+
+  // The next part after `afterId` (in id order) that has a photo, for walking
+  // all photos without holding a list of them in RAM. NotFound after the last.
+  Result nextPhoto(int64_t afterId, int64_t &id, std::string &photo, std::string &err);
+
+  // Adds or updates the rows in one transaction (much faster on flash than a
+  // commit per row). Each row gets its outcome through `each`, with a reason
+  // when it failed; a failed row doesn't stop the others. The call itself
+  // fails only when the transaction does, and then nothing is changed.
+  Result importParts(const std::vector<ImportRow> &rows,
+                     const std::function<void(size_t row, ImportOutcome, const std::string &why)> &each,
+                     std::string &err);
+
+  // Swaps in another database file (a restore): closes this one, keeps it
+  // as `previous` (replacing an older one), moves `incoming` to `path`, and
+  // opens it, which upgrades an older schema. If the new file doesn't open,
+  // everything is put back and the old database is opened again. False with
+  // the reason; the database is open afterwards either way (unless even the
+  // old file can't be opened again).
+  bool replaceFile(const char *path, const char *incoming, const char *previous, std::string &err);
+
   // Inserts `count` generated parts, times a few typical queries, and removes
   // the parts again. The parts are spread over a cols x rows grid.
   Result benchmark(int count, int cols, int rows, BenchResult &out, std::string &err);
@@ -226,6 +273,17 @@ class InventoryDb {
   // Removes the parts benchmark() added (all in kBenchCategory), in batches.
   Result deleteBenchParts(std::string &err);
   Result readPart(int64_t id, Part &out, std::string &err);
+  // The INSERT and UPDATE of addPart()/updatePart(), for use inside a write
+  // transaction the caller holds (they validate, but take no lock).
+  // `id` > 0 on the way in: insert under that id (an import); otherwise the
+  // next free one. Receives the new part's id.
+  Result insertPart(const PartChanges &in, int64_t &id, std::string &err);
+  // `unchanged` (optional): set when the changes match what is stored; the
+  // row is then not written at all (an import of an exported file touches
+  // only the rows that were edited).
+  Result rewritePart(int64_t id, const PartChanges &changes, std::string &err, bool *unchanged = nullptr);
+  // What a failed WriteTxn reports: Busy while writes are held.
+  Result txnFailed(std::string &err);
   static void rowToPart(Stmt &q, Part &out);
   Result binId(BinRef bin, int64_t &id, std::string &err);
   bool validate(const PartChanges &fields, bool creating, std::string &err) const;
@@ -233,6 +291,9 @@ class InventoryDb {
   std::string lastError() const;
 
   sqlite3 *db_ = nullptr;
+  std::string path_;          // the open file, for replaceFile()
+  int cacheKiB_ = 16;
+  volatile bool held_ = false;
   std::recursive_mutex mutex_;
   int64_t tally_ = 0;  // rows sb_tally() accepted in the current findParts() scan
   WriteHooks hooks_;

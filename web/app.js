@@ -101,6 +101,7 @@ async function setLanguage(lang) {
   // Text built by scripts (light types, info labels) is redrawn in the new language.
   renderLights(true);
   renderSystem();
+  renderBackup();
   renderPasswordState();
   renderDeviceName();
   if ($('#page-inventory').classList.contains('active')) {
@@ -117,7 +118,7 @@ const pages = {
   lights: { enter: loadLights },
   grid: { enter: enterGrid },
   settings: { enter: enterSettings },
-  system: { enter: loadSystem },
+  system: { enter: enterSystem },
 };
 
 function showPage() {
@@ -1428,6 +1429,170 @@ async function loadSystem() {
   return sys;
 }
 
+async function enterSystem() {
+  setCsvSeparator();
+  await Promise.all([loadSystem(), loadBackupInfo()]);
+}
+
+// ---------------------------------------------------------------------------
+// Backup and restore, CSV, photo storage (System page)
+
+const backup = { info: null, poll: 0 };
+
+async function loadBackupInfo() {
+  const info = await attempt(() => api('/api/backup/info'));
+  if (!info) return;
+  backup.info = info;
+  renderBackup();
+  // A photo job reports its progress here; ask again while it runs.
+  clearTimeout(backup.poll);
+  if (info.job && info.job.running && $('#page-system').classList.contains('active')) {
+    backup.poll = setTimeout(loadBackupInfo, 1000);
+  }
+}
+
+function renderBackup() {
+  const info = backup.info;
+  if (!info) return;
+  const prev = info.previousBytes !== undefined;
+  $('#previous-db').hidden = !prev;
+  if (prev) $('#previous-db-text').textContent = t('backup.previous', { size: formatBytes(info.previousBytes) });
+
+  $('#photo-tools-text').textContent = t(info.card ? 'photoTools.onCard' : 'photoTools.inFlash');
+  // Moving makes sense only with a card and photos still in flash.
+  $('#photos-move').hidden = !(info.card && info.flashPhotos);
+  const job = info.job || {};
+  const line = $('#photo-job');
+  const running = !!job.running;
+  for (const b of [$('#photos-move'), $('#photos-clean')]) b.disabled = running;
+  if (!job.kind || (!running && !backup.jobShown)) {
+    line.hidden = true;
+    return;
+  }
+  line.hidden = false;
+  line.classList.toggle('err', !running && job.failed > 0);
+  if (job.kind === 'move') {
+    line.textContent = running
+      ? t('photoTools.moving', { done: job.done, total: job.total })
+      : t('photoTools.moved', { done: job.done - job.failed, size: formatBytes(job.bytes) })
+        + (job.failed ? ` ${t('photoTools.moveFailed', { n: job.failed, error: job.error || '' })}` : '');
+  } else {
+    line.textContent = running ? t('photoTools.cleaning')
+      : t('photoTools.cleaned', { n: job.done, size: formatBytes(job.bytes) });
+  }
+}
+
+async function startPhotoJob(path) {
+  const job = await attempt(() => api(path, { method: 'POST' }));
+  if (!job) return;
+  backup.jobShown = true;  // show the result line once this job ends
+  loadBackupInfo();
+}
+
+// Uploads with XMLHttpRequest rather than fetch(): only it reports upload
+// progress, and a backup with photos can take a while over Wi-Fi.
+function upload(path, file, type, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', path);
+    xhr.setRequestHeader('Content-Type', type);
+    xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total); };
+    xhr.onload = () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch (e) { /* not JSON */ }
+      resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, body });
+    };
+    xhr.onerror = () => reject(new Error(t('backup.connectionLost')));
+    xhr.send(file);
+  });
+}
+
+async function restoreBackup(file) {
+  const settings = $('#restore-settings').checked;
+  if (!confirm(t(settings ? 'backup.restoreConfirmSettings' : 'backup.restoreConfirm', { file: file.name }))) return;
+  const status = $('#restore-status');
+  const pick = $('#restore-pick');
+  status.hidden = false;
+  status.classList.remove('err');
+  pick.classList.add('busy');
+  try {
+    const res = await upload(`/api/backup/restore?settings=${settings ? 1 : 0}`, file, 'application/octet-stream',
+      f => { status.textContent = t('backup.uploading', { pct: Math.round(f * 100) }); });
+    if (!res.ok) throw new Error((res.body && res.body.error) || `${res.status}`);
+    const r = res.body;
+    let text = t('backup.restored', { parts: r.parts, photos: r.photos });
+    if (r.photosFailed) text += ` ${t('backup.photosFailed', { n: r.photosFailed, error: r.photoError || '' })}`;
+    if (r.settingsError) text += ` ${t('backup.settingsFailed', { error: r.settingsError })}`;
+    status.textContent = text;
+    status.classList.toggle('err', !!(r.photosFailed || r.settingsError));
+    if (r.restarting) return waitForRestart();
+    // (The inventory page searches afresh whenever it is opened.)
+    loadSystem();
+    loadBackupInfo();
+  } catch (e) {
+    status.textContent = t('backup.restoreFailed', { error: e.message });
+    status.classList.add('err');
+  } finally {
+    pick.classList.remove('busy');
+  }
+}
+
+async function deletePreviousDb() {
+  if (!confirm(t('backup.previousDeleteConfirm'))) return;
+  if (await attempt(() => api('/api/backup/previous/delete', { method: 'POST' }))) loadBackupInfo();
+}
+
+// Semicolon unless this browser chose otherwise: what Excel expects in most
+// European settings (the comma is their decimal mark), and the import
+// accepts either anyway.
+function setCsvSeparator() {
+  let sep = null;
+  try { sep = localStorage.getItem('csvSep'); } catch (e) { /* storage blocked */ }
+  if (sep !== ';' && sep !== ',') sep = ';';
+  $('#csv-sep').value = sep;
+  updateCsvLink();
+}
+
+function updateCsvLink() {
+  $('#csv-export').href = `/api/parts.csv?sep=${encodeURIComponent($('#csv-sep').value)}`;
+}
+
+async function importCsv(file) {
+  const out = $('#csv-result');
+  const pick = $('#csv-pick');
+  out.hidden = false;
+  out.classList.remove('err');
+  out.textContent = t('csv.importing');
+  pick.classList.add('busy');
+  try {
+    const res = await upload('/api/parts/import', file, 'text/csv', f => {
+      out.textContent = `${t('csv.importing')} ${Math.round(f * 100)}%`;
+    });
+    const r = res.body;
+    if (!r) throw new Error(`${res.status}`);
+    const parts = [t('csv.imported', { added: r.added, updated: r.updated, unchanged: r.unchanged || 0 })];
+    if (r.failed) parts.push(t('csv.skipped', { n: r.failed }));
+    if (r.error) parts.push(t('csv.stopped', { error: r.error }));
+    out.replaceChildren(parts.join(' '));
+    if (r.errors && r.errors.length) {
+      const ul = document.createElement('ul');
+      for (const e of r.errors) {
+        const li = document.createElement('li');
+        li.textContent = t('csv.lineError', { line: e.line, error: e.error });
+        ul.append(li);
+      }
+      out.append(ul);
+    }
+    out.classList.toggle('err', !!(r.error || r.failed));
+    loadSystem();
+  } catch (e) {
+    out.textContent = t('csv.failed', { error: e.message });
+    out.classList.add('err');
+  } finally {
+    pick.classList.remove('busy');
+  }
+}
+
 function formatBytes(n) {
   if (n >= 1048576) return `${(n / 1048576).toFixed(1)} MB`;
   if (n >= 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -1624,6 +1789,27 @@ function bindControls() {
   });
   $('#password-remove').addEventListener('click', () => savePassword(''));
   $('#config-save').addEventListener('click', saveConfig);
+  $('#restore-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';  // the same file can be chosen again
+    if (file) restoreBackup(file);
+  });
+  $('#previous-db-delete').addEventListener('click', deletePreviousDb);
+  $('#csv-sep').addEventListener('change', () => {
+    try { localStorage.setItem('csvSep', $('#csv-sep').value); } catch (e) { /* storage blocked */ }
+    updateCsvLink();
+  });
+  $('#csv-file').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) importCsv(file);
+  });
+  $('#photos-move').addEventListener('click', () => {
+    if (confirm(t('photoTools.moveConfirm'))) startPhotoJob('/api/photos/move-to-card');
+  });
+  $('#photos-clean').addEventListener('click', () => {
+    if (confirm(t('photoTools.cleanConfirm'))) startPhotoJob('/api/photos/clean');
+  });
   $('#restart').addEventListener('click', async () => {
     if (confirm(t('system.restartConfirm')) && await attempt(() => api('/api/system/restart', { method: 'POST' }))) {
       waitForRestart();
