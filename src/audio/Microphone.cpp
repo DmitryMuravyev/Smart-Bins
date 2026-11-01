@@ -1,5 +1,10 @@
 #include "audio/Microphone.h"
 
+// Arduino.h first: it routes ESP_LOGx through Arduino's logger, which prints
+// at the build's CORE_DEBUG_LEVEL. Without it these are the IDF's own macros,
+// which the prebuilt core keeps at errors only, and the info lines vanish.
+#include <Arduino.h>
+
 #include <cmath>
 #include <cstdint>
 #include <new>
