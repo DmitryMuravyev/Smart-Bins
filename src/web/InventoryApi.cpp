@@ -362,7 +362,9 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     // network buffers, and several phones searching at once would add up.
     // The search itself also runs only once the gate lets it through.
     sendGate().run(req, [&db, query](AsyncWebServerRequest *req, SendGate::Slot slot) {
-      const uint32_t startMs = millis();
+      // Only read by the debug line below, which the compiler drops below
+      // debug log level: [[maybe_unused]] keeps that build free of warnings.
+      [[maybe_unused]] const uint32_t startMs = millis();
       std::vector<int64_t> ids;
       int64_t total = 0;
       std::string err;
