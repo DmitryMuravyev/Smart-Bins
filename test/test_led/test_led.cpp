@@ -370,6 +370,205 @@ static void test_player_brightness_and_speed_zero() {
   for (const Rgb &c : out) TEST_ASSERT_TRUE(c.isBlack());
 }
 
+// ---- Music (Task 13) ----
+
+// One block of a sine at `hz`, amplitude `amp`, continuing from sample `t`.
+static void sineBlock(float *out, float hz, float amp, long t, uint32_t rate = 16000) {
+  for (int i = 0; i < AudioAnalyzer::kN; i++) out[i] = amp * std::sin(2.0f * 3.14159265f * hz * (t + i) / rate);
+}
+
+static void test_analyzer_finds_the_band() {
+  AudioAnalyzer a;
+  // Bands are in order, every one at least a bin wide, and cover 60 Hz..8 kHz.
+  for (int b = 0; b < AudioFrame::kBands; b++) TEST_ASSERT_TRUE(a.bandEnd(b) > a.bandStart(b));
+  TEST_ASSERT_EQUAL(1, a.bandStart(0));
+  TEST_ASSERT_EQUAL(AudioAnalyzer::kN / 2, a.bandEnd(AudioFrame::kBands - 1));
+  float s[AudioAnalyzer::kN];
+  const float tones[] = {100, 440, 1000, 3000, 7000};
+  for (float hz : tones) {
+    AudioAnalyzer an;
+    const AudioFrame *f = nullptr;
+    for (int blk = 0; blk < 3; blk++) {
+      sineBlock(s, hz, 0.5f, blk * AudioAnalyzer::kN);
+      f = &an.process(s);
+    }
+    // The loudest band is the one holding the tone, and stands well above the rest.
+    const int bin = static_cast<int>(hz * AudioAnalyzer::kN / 16000 + 0.5f);
+    int loudest = 0;
+    for (int b = 1; b < AudioFrame::kBands; b++)
+      if (f->bandDb[b] > f->bandDb[loudest]) loudest = b;
+    TEST_ASSERT_TRUE(bin >= an.bandStart(loudest) - 1 && bin <= an.bandEnd(loudest));
+    // Half scale: about -6 dB, in the band and overall.
+    TEST_ASSERT_FLOAT_WITHIN(2.5f, -6.0f, f->bandDb[loudest]);
+    TEST_ASSERT_FLOAT_WITHIN(0.5f, -6.0f, f->levelDb);
+  }
+}
+
+static void test_analyzer_auto_gain() {
+  AudioAnalyzer a;
+  float s[AudioAnalyzer::kN];
+  long t = 0;
+  // Loud music sets the reference at once...
+  for (int blk = 0; blk < 10; blk++, t += AudioAnalyzer::kN) {
+    sineBlock(s, 1000, 0.5f, t);
+    a.process(s);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(1.0f, a.frame().levelDb, a.frame().levelPeakDb);
+  // ...and after it turns 20 dB quieter the reference follows within ~8 s
+  // (3 dB a second), so the effects fill the grid again.
+  for (int blk = 0; blk < 62 * 3; blk++, t += AudioAnalyzer::kN) {
+    sineBlock(s, 1000, 0.05f, t);
+    a.process(s);
+  }
+  TEST_ASSERT_TRUE(a.frame().levelPeakDb - a.frame().levelDb > 8.0f);  // still sinking
+  for (int blk = 0; blk < 62 * 6; blk++, t += AudioAnalyzer::kN) {
+    sineBlock(s, 1000, 0.05f, t);
+    a.process(s);
+  }
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, a.frame().levelDb, a.frame().levelPeakDb);
+  // Silence reads as silence.
+  for (float &v : s) v = 0;
+  a.process(s);
+  TEST_ASSERT_TRUE(a.frame().levelDb <= -100.0f);
+}
+
+// 120 BPM: a decaying 70 Hz kick every 0.5 s over a steady tone and some noise.
+static int countBeats(bool kicks, float seconds) {
+  AudioAnalyzer a;
+  Random rnd(7);
+  float s[AudioAnalyzer::kN];
+  long t = 0;
+  const long blocks = static_cast<long>(seconds * 16000 / AudioAnalyzer::kN);
+  for (long blk = 0; blk < blocks; blk++) {
+    for (int i = 0; i < AudioAnalyzer::kN; i++, t++) {
+      const float ts = (t % 8000) / 16000.0f;
+      const float kick = kicks && ts < 0.12f ? 0.5f * std::exp(-ts * 25) * std::sin(2 * 3.14159265f * 70 * ts) : 0;
+      const float noise = 0.05f * (rnd.below(2001) / 1000.0f - 1.0f);
+      s[i] = kick + noise + 0.1f * std::sin(2 * 3.14159265f * 440 * t / 16000.0f);
+    }
+    a.process(s);
+  }
+  return static_cast<int>(a.frame().beats);
+}
+
+static void test_analyzer_counts_beats() {
+  TEST_ASSERT_EQUAL(16, countBeats(true, 8.0f));  // kicks at 0, 0.5 .. 7.5 s
+  TEST_ASSERT_EQUAL(0, countBeats(false, 8.0f));  // a tone and hiss are no beat
+}
+
+// A frame with every band, the loudness and the bass at `db`, the auto-gain
+// references at `refDb`.
+static AudioFrame soundAt(float db, float refDb, uint32_t beats = 0) {
+  AudioFrame f;
+  for (float &b : f.bandDb) b = db;
+  f.levelDb = f.bassDb = db;
+  f.peakDb = f.levelPeakDb = f.bassPeakDb = refDb;
+  f.beats = beats;
+  return f;
+}
+
+static int litCells(const Rgb *out, int n) {
+  int lit = 0;
+  for (int i = 0; i < n; i++) lit += level(out[i]) > 30;
+  return lit;
+}
+
+static void test_music_names() {
+  GridEffect e;
+  TEST_ASSERT_TRUE(parseGridEffect("spectrum", e) && e == GridEffect::Spectrum);
+  TEST_ASSERT_TRUE(parseGridEffect("pulse", e) && e == GridEffect::Pulse);
+  TEST_ASSERT_EQUAL_STRING("beat", toString(GridEffect::Beat));
+  TEST_ASSERT_TRUE(isMusicEffect(GridEffect::Beat));
+  TEST_ASSERT_FALSE(isMusicEffect(GridEffect::Demo));
+}
+
+static void test_spectrum_bars() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.start(GridEffect::Spectrum, 0, 1);
+  Rgb out[60];
+  // Loud bass, quiet treble: the left columns stand tall, the right ones stay dark.
+  AudioFrame f = soundAt(-80, -30);
+  for (int b = 0; b < 4; b++) f.bandDb[b] = -30;
+  for (int b = 4; b < 8; b++) f.bandDb[b] = -45;  // half way into the 30 dB window
+  player.setAudio(f);
+  for (uint32_t t = 0; t <= 2000; t += 16) player.render(t, 1, out);
+  for (int y = 0; y < 6; y++) TEST_ASSERT_TRUE(level(out[y * 10 + 0]) > 30);  // full bar
+  TEST_ASSERT_TRUE(level(out[0 * 10 + 4]) == 0 && level(out[5 * 10 + 4]) > 30);  // half bar: bottom only
+  TEST_ASSERT_TRUE(level(out[3 * 10 + 4]) > 30 && level(out[2 * 10 + 4]) == 0);
+  for (int y = 0; y < 6; y++) TEST_ASSERT_EQUAL(0, level(out[y * 10 + 9]));
+  // When the sound stops, the bars sink over a moment rather than vanish.
+  player.setAudio(soundAt(-120, -30));
+  player.render(2016, 1, out);
+  TEST_ASSERT_TRUE(level(out[1 * 10 + 0]) > 30);
+  for (uint32_t t = 2032; t <= 3000; t += 16) player.render(t, 1, out);
+  TEST_ASSERT_EQUAL(0, litCells(out, 60));
+}
+
+static void test_music_gate_follows_intensity() {
+  // Room noise at -70 dB: dark at the default sensitivity, showing at the highest.
+  for (int pass = 0; pass < 2; pass++) {
+    EffectPlayer player;
+    player.configure(10, 6);
+    EffectParams p;
+    p.intensity = pass ? 255 : 128;
+    player.setParams(p, 0);
+    player.start(GridEffect::Pulse, 0, 1);
+    player.setAudio(soundAt(-70, -70));
+    Rgb out[60];
+    for (uint32_t t = 0; t <= 2000; t += 16) player.render(t, 1, out);
+    if (pass) TEST_ASSERT_TRUE(litCells(out, 60) > 0);
+    else TEST_ASSERT_EQUAL(0, litCells(out, 60));
+  }
+}
+
+static void test_pulse_grows_with_loudness() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.start(GridEffect::Pulse, 0, 1);
+  Rgb out[60];
+  int lit[3];
+  const float levels[3] = {-52, -42, -30};  // quiet, medium, loudest
+  uint32_t t = 0;
+  for (int i = 0; i < 3; i++) {
+    player.setAudio(soundAt(levels[i], -30));
+    for (uint32_t end = t + 2000; t <= end; t += 16) player.render(t, 1, out);
+    lit[i] = litCells(out, 60);
+  }
+  TEST_ASSERT_TRUE(lit[0] > 0 && lit[0] < lit[1] && lit[1] < lit[2]);
+  TEST_ASSERT_EQUAL(60, lit[2]);
+  // The middle is lit before the corners.
+  player.setAudio(soundAt(-48, -30));
+  for (uint32_t end = t + 2000; t <= end; t += 16) player.render(t, 1, out);
+  TEST_ASSERT_TRUE(level(out[2 * 10 + 4]) > 30);
+  TEST_ASSERT_EQUAL(0, level(out[0]));
+}
+
+static void test_beat_splashes() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  // A beat counted before the effect started doesn't flash.
+  player.setAudio(soundAt(-30, -30, 5));
+  player.start(GridEffect::Beat, 0, 3);
+  Rgb out[60];
+  for (uint32_t t = 0; t <= 2000; t += 16) player.render(t, 1, out);
+  TEST_ASSERT_EQUAL(0, litCells(out, 60));
+  // A new beat lights a splash, which fades within a second or so.
+  player.setAudio(soundAt(-30, -30, 6));
+  player.render(2016, 1, out);
+  const int splash = litCells(out, 60);
+  TEST_ASSERT_TRUE(splash >= 5);
+  uint32_t t = 2016;
+  for (; t <= 2500; t += 16) player.render(t, 1, out);
+  TEST_ASSERT_TRUE(litCells(out, 60) <= splash);
+  for (; t <= 3600; t += 16) player.render(t, 1, out);
+  TEST_ASSERT_EQUAL(0, litCells(out, 60));
+  // A beat too quiet for the gate doesn't flash.
+  player.setAudio(soundAt(-95, -95, 7));
+  player.render(t, 1, out);
+  TEST_ASSERT_EQUAL(0, litCells(out, 60));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_serpentine_top_left);
@@ -392,5 +591,13 @@ int main(int, char **) {
   RUN_TEST(test_player_fades_in_and_out);
   RUN_TEST(test_player_timer_and_demo);
   RUN_TEST(test_player_brightness_and_speed_zero);
+  RUN_TEST(test_analyzer_finds_the_band);
+  RUN_TEST(test_analyzer_auto_gain);
+  RUN_TEST(test_analyzer_counts_beats);
+  RUN_TEST(test_music_names);
+  RUN_TEST(test_spectrum_bars);
+  RUN_TEST(test_music_gate_follows_intensity);
+  RUN_TEST(test_pulse_grows_with_loudness);
+  RUN_TEST(test_beat_splashes);
   return UNITY_END();
 }

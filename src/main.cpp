@@ -15,6 +15,7 @@
 #include "InventoryDb.h"
 #include "PinMap.h"
 #include "WifiLink.h"
+#include "audio/Microphone.h"
 #include "led/LedEngine.h"
 #include "led/RmtStrip.h"
 #include "led/WorkLights.h"
@@ -46,6 +47,7 @@ constexpr uint32_t kFactoryResetHoldMs = 10000;
 sb::ConfigStore configStore;
 sb::WifiLink network;
 sb::led::LedEngine leds;
+sb::audio::Microphone microphone;
 sb::led::WorkLights workLights;
 sb::Security security;
 sb::LiveUpdates live;
@@ -247,6 +249,10 @@ void setup() {
              sb::board::defaultPin("grid_power"));
   workLights.begin(configStore.get(), lightPins, sb::board::defaultPin("light_power"));
   logHeapStep("LED strips and work lights");
+  // Optional: checks in the background whether a microphone answers, and
+  // feeds the music effects if one does.
+  microphone.begin(sb::board::defaultPin("mic_i2s_sck"), sb::board::defaultPin("mic_i2s_ws"),
+                   sb::board::defaultPin("mic_i2s_sd"), leds);
 
   // Security first: its password check is middleware, and it must be in place
   // before the server starts answering.
@@ -293,7 +299,7 @@ void logHeapLow() {
 // fixed blocks taken from the same heap, so one with lots to spare can be
 // made smaller to free RAM; one near zero is about to overflow.
 void logStacks() {
-  static const char *const kTasks[] = {"loopTask", "async_tcp", "leds", "lights"};
+  static const char *const kTasks[] = {"loopTask", "async_tcp", "leds", "lights", "mic"};
   String line;
   for (const char *name : kTasks) {
     TaskHandle_t task = xTaskGetHandle(name);

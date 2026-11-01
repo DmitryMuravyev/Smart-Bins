@@ -80,6 +80,7 @@ void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::Effec
   doc["palette"] = config::toString(e.palette);
   doc["brightness"] = e.brightness;
   doc["timer"] = e.timerMin;
+  doc["microphone"] = s.microphone;  // the music effects can run
 }
 
 }  // namespace
@@ -144,7 +145,10 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     led::GridEffect effect = led::GridEffect::Off;
     const bool start = hasParam(req, "effect");
     if (start && !led::parseGridEffect(param(req, "effect")->value().c_str(), effect)) {
-      return sendError(req, 400, "effect must be off, fire, sparks, relax or demo");
+      return sendError(req, 400, "effect must be off, fire, sparks, relax, demo, spectrum, beat or pulse");
+    }
+    if (start && led::isMusicEffect(effect) && !engine.status().microphone) {
+      return sendError(req, 409, "no microphone found: music effects can't run");
     }
     config::AppConfig cfg = config.get();
     const config::EffectsConfig before = cfg.effects;

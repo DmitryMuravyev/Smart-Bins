@@ -1240,6 +1240,8 @@ async function enterGrid() {
 
 // `e`: an answer from /api/effects ({effect, remainingS, speed, ...}).
 function showEffects(e) {
+  // The music effects need the microphone; without one they stay hidden.
+  for (const el of $$('#effects-card .music')) el.hidden = !e.microphone;
   showEffectRunning(e.effect, e.remainingS);
   for (const name of ['speed', 'intensity', 'brightness']) {
     const input = $(`#effect-${name}`);

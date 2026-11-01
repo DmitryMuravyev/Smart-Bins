@@ -186,18 +186,32 @@ uint8_t LedEngine::litBins(Bin *out, uint8_t max, uint32_t *version) {
   return n;
 }
 
-void LedEngine::startEffect(GridEffect effect) {
+bool LedEngine::startEffect(GridEffect effect) {
   Lock lock(lock_);
+  if (isMusicEffect(effect) && !microphone_) return false;
   effects_.start(effect, effectMillis(), esp_random());
   shownEffect_ = effects_.selected();
   version_ = version_ + 1;
   ESP_LOGI(TAG, "Effect: %s", toString(effect));
+  return true;
 }
 
 void LedEngine::setEffectParams(const EffectParams &params) {
   Lock lock(lock_);
   effects_.setParams(params, effectMillis());
   version_ = version_ + 1;  // the timer shown in the UI may have changed
+}
+
+void LedEngine::setMicrophone(bool present) {
+  Lock lock(lock_);
+  microphone_ = present;
+}
+
+void LedEngine::setAudio(const AudioFrame &frame) {
+  // A copy of about 90 bytes under the lock; the render task picks it up
+  // with its next frame.
+  Lock lock(lock_);
+  effects_.setAudio(frame);
 }
 
 void LedEngine::startTest(TestPattern pattern) {
@@ -215,7 +229,7 @@ void LedEngine::setBrightness(uint8_t level) {
 LedEngine::Status LedEngine::status() {
   Lock lock(lock_);
   return {powered_,    static_cast<uint8_t>(highlights_.size()), test_, estimateMa_, limitLevel_, fps_,
-          effects_.selected(), effects_.remainingS(effectMillis())};
+          effects_.selected(), effects_.remainingS(effectMillis()), microphone_};
 }
 
 void LedEngine::taskEntry(void *arg) { static_cast<LedEngine *>(arg)->run(); }
