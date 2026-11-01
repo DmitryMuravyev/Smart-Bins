@@ -1,6 +1,9 @@
 # Smart Bins
 
-[English](README.md) · **Español** · [Русский](README.ru.md)
+[![English](https://img.shields.io/badge/English-8A2BE2)](README.md)
+[![Русский](https://img.shields.io/badge/%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-8A2BE2)](README.ru.md)
+[![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
 
 Un almacén de componentes con cajones iluminados para el taller, basado en el ESP32.
 

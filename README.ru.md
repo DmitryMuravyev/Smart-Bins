@@ -1,6 +1,9 @@
 # Smart Bins
 
-[English](README.md) · [Español](README.es.md) · **Русский**
+[![English](https://img.shields.io/badge/English-8A2BE2)](README.md)
+[![Español](https://img.shields.io/badge/Espa%C3%B1ol-8A2BE2)](README.es.md)
+[![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
 
 Хранилище радиодеталей с подсвечиваемыми ячейками для домашней лаборатории на ESP32.
 
