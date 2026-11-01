@@ -112,6 +112,7 @@
   "effects.sparks": "Chispas",
   "effects.relax": "Relax",
   "effects.demo": "Demo",
+  "effects.ownSettings": "Cada efecto recuerda sus propios ajustes.",
   "effects.speed": "Velocidad",
   "effects.intensity": "Intensidad",
   "effects.brightness": "Brillo",

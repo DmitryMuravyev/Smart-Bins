@@ -35,8 +35,8 @@ inline PulseMode pulseMode(config::LocateMode m) {
   }
 }
 
-// Effect parameters as kept in config.json (effects.*).
-inline EffectParams effectParams(const config::EffectsConfig &c) {
+// One effect's settings as kept in config.json (effects.<name>.*).
+inline EffectParams effectParams(const config::EffectSettings &c) {
   EffectParams p;
   p.speed = c.speed;
   p.intensity = c.intensity;
@@ -90,11 +90,12 @@ class LedEngine {
   // Changes the colour, mode and duration used by locate(x, y) from now on.
   void setLocateDefaults(const config::LocateConfig &locate);
 
-  // Starts an effect under the highlights, fading over from whatever showed
-  // before (Off fades the effect out). Its timer, if any, starts now.
-  void startEffect(GridEffect effect);
-  // Speed, intensity, palette and brightness apply at once; a changed timer
-  // counts from now.
+  // Starts an effect under the highlights with its settings, fading over
+  // from whatever showed before (Off fades the effect out; `params` don't
+  // matter then). Its timer, if any, starts now.
+  void startEffect(GridEffect effect, const EffectParams &params);
+  // Changes the running effect's settings: speed, intensity, palette and
+  // brightness apply at once; a changed timer counts from now.
   void setEffectParams(const EffectParams &params);
 
   void startTest(TestPattern pattern);

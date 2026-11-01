@@ -18,6 +18,8 @@ const char *const kLocateModes[] = {"steady", "slow-pulse", "fast-pulse"};
 const char *const kLanguages[] = {"en", "es", "ru"};
 // Same names and order as led::Palette (lib/Led/src/GridEffects.h).
 const char *const kPalettes[] = {"auto", "heat", "ocean", "forest", "lava", "rainbow", "party"};
+// Same names and order as led::GridEffect (without "off").
+const char *const kEffects[kGridEffects] = {"fire", "sparks", "relax", "demo"};
 
 // Field readers: a missing key keeps the current (default) value; a present key
 // of the wrong type or out of range fails with the field name in the message.
@@ -131,6 +133,7 @@ const char *toString(StartCorner v) { return kCorners[static_cast<int>(v)]; }
 const char *toString(LightMode v) { return kLightModes[static_cast<int>(v)]; }
 const char *toString(LocateMode v) { return kLocateModes[static_cast<int>(v)]; }
 const char *toString(EffectPalette v) { return kPalettes[static_cast<int>(v)]; }
+const char *effectName(int index) { return index >= 0 && index < kGridEffects ? kEffects[index] : ""; }
 
 bool isValidHostName(const char *name) {
   size_t len = name ? strlen(name) : 0;
@@ -308,12 +311,18 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.color(locate["color"], "locate.color", cfg.locate.color);
   r.choice(locate["mode"], "locate.mode", kLocateModes, cfg.locate.mode);
 
+  // One object per effect: effects.fire.speed and so on.
   JsonVariantConst effects = doc["effects"];
-  r.integer(effects["speed"], "effects.speed", 1, 255, cfg.effects.speed);
-  r.integer(effects["intensity"], "effects.intensity", 1, 255, cfg.effects.intensity);
-  r.choice(effects["palette"], "effects.palette", kPalettes, cfg.effects.palette);
-  r.integer(effects["brightness"], "effects.brightness", 1, 255, cfg.effects.brightness);
-  r.integer(effects["timerMin"], "effects.timerMin", 0, 1440, cfg.effects.timerMin);
+  for (int i = 0; i < kGridEffects; i++) {
+    JsonVariantConst e = effects[kEffects[i]];
+    EffectSettings &out = cfg.effects[i];
+    const std::string f = std::string("effects.") + kEffects[i] + ".";
+    r.integer(e["speed"], (f + "speed").c_str(), 1, 255, out.speed);
+    r.integer(e["intensity"], (f + "intensity").c_str(), 1, 255, out.intensity);
+    r.choice(e["palette"], (f + "palette").c_str(), kPalettes, out.palette);
+    r.integer(e["brightness"], (f + "brightness").c_str(), 1, 255, out.brightness);
+    r.integer(e["timerMin"], (f + "timerMin").c_str(), 0, 1440, out.timerMin);
+  }
 
   if (!r.ok() || !validate(cfg, error)) return false;
   out = cfg;
@@ -381,11 +390,15 @@ std::string serialize(const AppConfig &cfg) {
   locate["mode"] = toString(cfg.locate.mode);
 
   JsonObject effects = doc["effects"].to<JsonObject>();
-  effects["speed"] = cfg.effects.speed;
-  effects["intensity"] = cfg.effects.intensity;
-  effects["palette"] = toString(cfg.effects.palette);
-  effects["brightness"] = cfg.effects.brightness;
-  effects["timerMin"] = cfg.effects.timerMin;
+  for (int i = 0; i < kGridEffects; i++) {
+    const EffectSettings &s = cfg.effects[i];
+    JsonObject e = effects[kEffects[i]].to<JsonObject>();
+    e["speed"] = s.speed;
+    e["intensity"] = s.intensity;
+    e["palette"] = toString(s.palette);
+    e["brightness"] = s.brightness;
+    e["timerMin"] = s.timerMin;
+  }
 
   std::string out;
   serializeJsonPretty(doc, out);

@@ -112,6 +112,7 @@
   "effects.sparks": "Искры",
   "effects.relax": "Релакс",
   "effects.demo": "Демо",
+  "effects.ownSettings": "Каждый эффект запоминает свои настройки.",
   "effects.speed": "Скорость",
   "effects.intensity": "Интенсивность",
   "effects.brightness": "Яркость",

@@ -394,13 +394,21 @@ class EffectPlayer {
   }
   const EffectParams &params() const { return params_; }
 
-  // Starts `effect` (Off fades the current one out). The timer starts over.
-  void start(GridEffect effect, uint32_t nowMs, uint32_t seed) {
+  // Starts `effect` (Off fades the current one out) with the current
+  // settings. The timer starts over.
+  void start(GridEffect effect, uint32_t nowMs, uint32_t seed) { start(effect, params_, nowMs, seed); }
+
+  // The same with the effect's own settings (each effect remembers its own).
+  // The effect fading out keeps the settings it ran with until it is gone,
+  // so it doesn't jump to the new effect's speed, colours or brightness.
+  void start(GridEffect effect, const EffectParams &p, uint32_t nowMs, uint32_t seed) {
+    const EffectParams old = params_;
+    if (effect != GridEffect::Off) params_ = p;
     selected_ = effect;
     demoIndex_ = 0;
     demoSince_ = nowMs;
     setTimer(params_.timerMin, nowMs);
-    switchTo(effect == GridEffect::Demo ? kDemoOrder[0] : effect, nowMs, seed);
+    if (switchTo(effect == GridEffect::Demo ? kDemoOrder[0] : effect, nowMs, seed)) outgoing_ = old;
   }
 
   // What the user chose (Demo stays Demo while it cycles).
@@ -435,18 +443,23 @@ class EffectPlayer {
       return false;
     }
     current_.render(params_, nowMs, a_.data());
+    for (size_t i = 0; i < cells; i++) a_[i] = scale(a_[i], params_.brightness);
     const uint32_t since = nowMs - changedAt_;
     const bool fading = since < kFadeMs;
     if (fading) {
       const uint8_t t = rampUp(since, kFadeMs);
-      if (previous_.effect() != GridEffect::Off) previous_.render(params_, nowMs, b_.data());
-      else std::fill(b_.begin(), b_.end(), Rgb());
+      if (previous_.effect() != GridEffect::Off) {
+        previous_.render(outgoing_, nowMs, b_.data());
+        for (size_t i = 0; i < cells; i++) b_[i] = scale(b_[i], outgoing_.brightness);
+      } else {
+        std::fill(b_.begin(), b_.end(), Rgb());
+      }
       for (size_t i = 0; i < cells; i++) a_[i] = lerp(b_[i], a_[i], t);
     } else {
       fadingOut_ = false;
       if (previous_.effect() != GridEffect::Off) previous_.begin(GridEffect::Off, cols_, rows_, nowMs, 0);
     }
-    for (size_t i = 0; i < cells; i++) out[i] = scale(a_[i], params_.brightness);
+    std::copy(a_.begin(), a_.end(), out);
     return true;
   }
 
@@ -459,19 +472,23 @@ class EffectPlayer {
     if (stopAt_ == 0 && minutes) stopAt_ = 1;  // 0 means "no timer"
   }
 
-  void switchTo(GridEffect effect, uint32_t nowMs, uint32_t seed) {
-    if (effect == current_.effect()) return;
+  // False when `effect` is already showing (nothing changes).
+  bool switchTo(GridEffect effect, uint32_t nowMs, uint32_t seed) {
+    if (effect == current_.effect()) return false;
     // The outgoing effect keeps running in previous_ during the fade. When a
     // change comes in the middle of a fade, the half-faded picture is not
     // kept: the newer of the two effects becomes the one fading out.
     std::swap(previous_, current_);
+    outgoing_ = params_;  // start() replaces this with the settings from before
     current_.begin(effect, cols_, rows_, nowMs, seed);
     changedAt_ = nowMs;
     fadingOut_ = effect == GridEffect::Off && previous_.effect() != GridEffect::Off;
+    return true;
   }
 
   uint8_t cols_ = 0, rows_ = 0;
   EffectParams params_;
+  EffectParams outgoing_;  // the settings of the effect fading out
   GridEffect selected_ = GridEffect::Off;
   EffectState current_, previous_;
   uint32_t changedAt_ = 0;

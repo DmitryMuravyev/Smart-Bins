@@ -95,7 +95,6 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
   }
 
   effects_.configure(g.cols, g.rows);
-  effects_.setParams(effectParams(cfg.effects), effectMillis());
   effectFrame_.assign(static_cast<size_t>(g.cols) * g.rows, Rgb());
 
   brightness_ = Fader(g.brightness);
@@ -186,9 +185,11 @@ uint8_t LedEngine::litBins(Bin *out, uint8_t max, uint32_t *version) {
   return n;
 }
 
-void LedEngine::startEffect(GridEffect effect) {
+void LedEngine::startEffect(GridEffect effect, const EffectParams &params) {
   Lock lock(lock_);
-  effects_.start(effect, effectMillis(), esp_random());
+  const uint32_t now = effectMillis();
+  if (effect != GridEffect::Off) effects_.setParams(params, now);
+  effects_.start(effect, now, esp_random());
   shownEffect_ = effects_.selected();
   version_ = version_ + 1;
   ESP_LOGI(TAG, "Effect: %s", toString(effect));
