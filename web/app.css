@@ -285,7 +285,16 @@ button.danger { background: var(--err); color: #fff; }
    thin white and orange frame around the photo. The viewer closes on any
    tap or Esc, so the ring tells nobody anything. */
 .photo-viewer:focus, .photo-viewer:focus-visible { outline: none; }
-.photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; }
+.photo-viewer img { display: block; max-width: 100vw; max-height: 100vh; object-fit: contain; transition: opacity .2s; }
+/* While the next photo loads: no image (not the previous one), a spinner instead. */
+.photo-viewer.loading { min-width: 64px; min-height: 64px; overflow: hidden; }
+.photo-viewer.loading img { opacity: 0; }
+.photo-viewer.loading::before {
+  content: ""; position: absolute; top: 50%; left: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px;
+  border: 3px solid rgba(255, 255, 255, .3); border-top-color: #fff; border-radius: 50%;
+  animation: photo-spin .8s linear infinite;
+}
+@keyframes photo-spin { to { transform: rotate(360deg); } }
 #part-title:focus { outline: none; }
 
 /* Backup, CSV and photo tools on the System page. */

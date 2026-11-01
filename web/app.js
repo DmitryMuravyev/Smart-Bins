@@ -1134,9 +1134,18 @@ async function savePhoto(part) {
   }
 }
 
+// Shows a photo full screen. The image stays hidden (with a spinner in its
+// place) until the new photo has loaded: an <img> keeps showing its previous
+// picture while the next one downloads, which over a slow link looked as if
+// the wrong photo had opened. Closing the viewer clears the picture too.
 function openPhoto(src) {
-  $('#photo-viewer-img').src = src;
-  $('#photo-viewer').showModal();
+  const viewer = $('#photo-viewer');
+  const img = $('#photo-viewer-img');
+  viewer.classList.add('loading');
+  img.src = src;
+  // A cached photo may already be complete here, before any load event.
+  if (img.complete && img.naturalWidth) viewer.classList.remove('loading');
+  viewer.showModal();
 }
 
 async function deletePart() {
@@ -1226,6 +1235,13 @@ function bindInventory() {
   });
   // The viewer closes on any tap; a closed form forgets an unsaved photo.
   $('#photo-viewer').addEventListener('click', () => $('#photo-viewer').close());
+  // Loaded (or failed): show the image, fading in. The events only fire for
+  // the current src, as setting a new one cancels the previous download.
+  const viewerImg = $('#photo-viewer-img');
+  const viewerShown = () => $('#photo-viewer').classList.remove('loading');
+  viewerImg.addEventListener('load', viewerShown);
+  viewerImg.addEventListener('error', viewerShown);
+  $('#photo-viewer').addEventListener('close', () => viewerImg.removeAttribute('src'));
   $('#part-dialog').addEventListener('close', resetPhotoEdit);
   $('#part-delete').addEventListener('click', deletePart);
 }
