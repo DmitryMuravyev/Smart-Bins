@@ -295,3 +295,32 @@ button.danger { background: var(--err); color: #fff; }
 .button.busy { opacity: .5; pointer-events: none; }
 #csv-result ul { margin: 4px 0 0; padding-left: 20px; }
 #restore-status.err, #csv-result.err, #photo-job.err { color: var(--err); }
+
+/* ---- Hardware settings (Task 14) ---- */
+details.hw[open] summary { margin-bottom: 8px; }
+.hw-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
+.hw-fields label { font-size: 14px; color: var(--muted); min-width: 0; }
+.hw-fields [hidden] { display: none; }
+.err { color: var(--err); }
+/* The grid preview: bins as seen from the front, the strip's path on top. */
+.hw-preview { margin: 12px 0 4px; overflow-x: auto; }
+.hw-preview svg { display: block; width: 100%; max-height: 360px; }
+.hw-bin { fill: var(--bg); stroke: var(--border); }
+.hw-path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; opacity: .75; }
+.hw-path.b { stroke: var(--warn); stroke-dasharray: 5 3; }
+.hw-arrowhead { fill: var(--text); }
+.hw-index { font-size: 8px; fill: var(--muted); text-anchor: middle; }
+.hw-start { fill: var(--accent); }
+.hw-start.b { fill: var(--warn); }
+.hw-start-label { font-size: 8px; font-weight: 700; fill: var(--accent-text); text-anchor: middle; }
+.hw-light { border-top: 1px solid var(--border); padding: 10px 0; }
+.hw-light-head { display: flex; align-items: center; gap: 12px; }
+.hw-light-head select { flex: 1; }
+.hw-light .check[hidden] { display: none; }
+/* Pin map: function name and GPIO side by side, a clash shown in red. */
+.pin-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 16px; margin: 8px 0 12px; }
+.pin-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
+.pin-row[hidden] { display: none; }
+.pin-row select { width: auto; min-width: 150px; }
+.pin-row.err select { border-color: var(--err); color: var(--err); }
+#firmware-progress { width: 100%; margin-top: 8px; accent-color: var(--accent); }

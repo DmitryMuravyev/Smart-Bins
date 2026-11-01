@@ -172,6 +172,55 @@ static void test_host_names() {
   TEST_ASSERT_FALSE(isValidHostName("a.b"));
 }
 
+static void test_pins() {
+  AppConfig cfg;
+  std::string err;
+  // Defaults: the board's pin map, written out without the BOOT button.
+  TEST_ASSERT_TRUE_MESSAGE(parse("{}", cfg, err), err.c_str());
+  TEST_ASSERT_EQUAL(16, cfg.pins["grid_data_a"]);
+  TEST_ASSERT_EQUAL(35, cfg.pins["mic_analog"]);
+  TEST_ASSERT_EQUAL(-1, cfg.pins["no_such_function"]);
+  const std::string json = serialize(cfg);
+  TEST_ASSERT_TRUE(json.find("\"grid_data_a\": 16") != std::string::npos);
+  TEST_ASSERT_TRUE(json.find("\"button\"") == std::string::npos);
+
+  // Moving a pin, and back through serialize/parse.
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"microphone\":\"off\",\"pins\":{\"light_w4\":14,\"mic_i2s_sd\":-1}}", cfg, err), err.c_str());
+  TEST_ASSERT_EQUAL(14, cfg.pins["light_w4"]);
+  TEST_ASSERT_EQUAL(-1, cfg.pins["mic_i2s_sd"]);
+  AppConfig again;
+  TEST_ASSERT_TRUE_MESSAGE(parse(serialize(cfg).c_str(), again, err), err.c_str());
+  TEST_ASSERT_EQUAL(14, again.pins["light_w4"]);
+
+  // The board's rules, with the function named in the message.
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":16}}", cfg, err));
+  TEST_ASSERT_TRUE_MESSAGE(err.find("light_w4") != std::string::npos && err.find("grid_data_a") != std::string::npos,
+                           err.c_str());
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":7}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":35}}", cfg, err));  // input-only
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":12}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":40}}", cfg, err));
+  // The microphone: I2S needs its three pins, analog an ADC1 pin (32-39).
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"mic_i2s_sd\":-1}}", cfg, err));
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"microphone\":\"analog\",\"pins\":{\"mic_i2s_sd\":-1}}", cfg, err),
+                           err.c_str());
+  TEST_ASSERT_TRUE(cfg.microphone == MicType::Analog);
+  TEST_ASSERT_TRUE(serialize(cfg).find("\"microphone\": \"analog\"") != std::string::npos);
+  TEST_ASSERT_FALSE(parse("{\"microphone\":\"analog\",\"pins\":{\"mic_analog\":-1}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"microphone\":\"analog\",\"pins\":{\"mic_analog\":15}}", cfg, err));  // ADC2
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"microphone\":\"analog\",\"pins\":{\"mic_analog\":36}}", cfg, err),
+                           err.c_str());
+  TEST_ASSERT_FALSE(parse("{\"microphone\":\"usb\"}", cfg, err));
+  // Unknown names, the fixed button and a missing pin for something in use.
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"grid_data_c\":14}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"button\":14}}", cfg, err));
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"pins\":{\"button\":0}}", cfg, err), err.c_str());
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"grid_data_a\":-1}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"grid\":{\"segments\":2},\"pins\":{\"grid_data_b\":-1}}", cfg, err));
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"pins\":{\"light_w5\":-1}}", cfg, err), err.c_str());  // W5 is off
+  TEST_ASSERT_FALSE(parse("{\"lights\":[{},{},{},{},{\"mode\":\"white\"}],\"pins\":{\"light_w5\":-1}}", cfg, err));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_object_gives_defaults);
@@ -182,5 +231,6 @@ int main(int, char **) {
   RUN_TEST(test_addressable_light_rules);
   RUN_TEST(test_host_names);
   RUN_TEST(test_static_ip);
+  RUN_TEST(test_pins);
   return UNITY_END();
 }

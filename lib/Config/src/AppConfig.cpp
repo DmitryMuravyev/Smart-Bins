@@ -15,6 +15,7 @@ const char *const kLayouts[] = {"serpentine", "progressive"};
 const char *const kCorners[] = {"top-left", "top-right", "bottom-left", "bottom-right"};
 const char *const kLightModes[] = {"off", "white", "rgb", "addressable"};
 const char *const kLocateModes[] = {"steady", "slow-pulse", "fast-pulse"};
+const char *const kMicTypes[] = {"off", "i2s", "analog"};
 const char *const kLanguages[] = {"en", "es", "ru"};
 // Same names and order as led::Palette (lib/Led/src/GridEffects.h).
 const char *const kPalettes[] = {"auto", "heat", "ocean", "forest", "lava", "rainbow", "party"};
@@ -132,6 +133,7 @@ const char *toString(Layout v) { return kLayouts[static_cast<int>(v)]; }
 const char *toString(StartCorner v) { return kCorners[static_cast<int>(v)]; }
 const char *toString(LightMode v) { return kLightModes[static_cast<int>(v)]; }
 const char *toString(LocateMode v) { return kLocateModes[static_cast<int>(v)]; }
+const char *toString(MicType v) { return kMicTypes[static_cast<int>(v)]; }
 const char *toString(EffectPalette v) { return kPalettes[static_cast<int>(v)]; }
 const char *effectName(int index) { return index >= 0 && index < kGridEffects ? kEffects[index] : ""; }
 
@@ -219,6 +221,60 @@ bool validate(const AppConfig &cfg, std::string &error) {
   if (rgb != 0 && rgb != kUniversalChannels) {
     error = "rgb mode needs W1, W2 and W3 all set to rgb";
     return false;
+  }
+  return validatePins(cfg, error);
+}
+
+bool validatePins(const AppConfig &cfg, std::string &error) {
+  // The board's rules (flash and console pins, input-only pins as outputs,
+  // GPIO12, one function per GPIO), applied to the configured map.
+  board::PinAssignment map[board::kDefaultPinCount];
+  for (size_t i = 0; i < board::kDefaultPinCount; i++) {
+    map[i] = board::kDefaultPins[i];
+    map[i].gpio = cfg.pins.gpio[i];
+  }
+  const board::PinCheck c = board::validatePinMap(map, board::kDefaultPinCount);
+  if (c.error != board::PinError::None) {
+    error = std::string("pins.") + map[c.index].name + " (GPIO" + std::to_string(map[c.index].gpio) +
+            "): " + board::pinErrorText(c.error);
+    if (c.error == board::PinError::Duplicate) error += std::string(" (") + map[c.other].name + ")";
+    return false;
+  }
+  // Functions the configuration says are in use need a pin.
+  if (cfg.pins["grid_data_a"] == board::kNoPin) {
+    error = "pins.grid_data_a: the grid needs a data pin";
+    return false;
+  }
+  if (cfg.grid.segments == 2 && cfg.pins["grid_data_b"] == board::kNoPin) {
+    error = "pins.grid_data_b: grid.segments is 2, so the second data line needs a pin";
+    return false;
+  }
+  static const char *const kLightPins[kLightChannels] = {"light_w1", "light_w2", "light_w3", "light_w4", "light_w5"};
+  for (int i = 0; i < kLightChannels; i++) {
+    if (cfg.lights[i].mode != LightMode::Off && cfg.pins[kLightPins[i]] == board::kNoPin) {
+      error = std::string("pins.") + kLightPins[i] + ": W" + std::to_string(i + 1) + " is in use, so it needs a pin";
+      return false;
+    }
+  }
+  if (cfg.microphone == MicType::I2s) {
+    for (const char *name : {"mic_i2s_sck", "mic_i2s_ws", "mic_i2s_sd"}) {
+      if (cfg.pins[name] == board::kNoPin) {
+        error = std::string("pins.") + name + ": the I2S microphone needs SCK, WS and SD";
+        return false;
+      }
+    }
+  }
+  if (cfg.microphone == MicType::Analog) {
+    // ADC1 only (GPIO32-39): ADC2 can't be read while Wi-Fi is on.
+    const int g = cfg.pins["mic_analog"];
+    if (g == board::kNoPin) {
+      error = "pins.mic_analog: the analog microphone needs a pin";
+      return false;
+    }
+    if (g < 32) {
+      error = "pins.mic_analog (GPIO" + std::to_string(g) + "): must be GPIO32-39 (ADC1; ADC2 doesn't work with Wi-Fi)";
+      return false;
+    }
   }
   return true;
 }
@@ -324,6 +380,35 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
     r.integer(e["timerMin"], (f + "timerMin").c_str(), 0, 1440, out.timerMin);
   }
 
+  // Pins: an object of function name -> GPIO (-1 = not wired). Names the
+  // firmware doesn't know are an error rather than ignored: a typo would
+  // otherwise silently leave the old pin in place.
+  JsonVariantConst pins = doc["pins"];
+  if (r.ok() && !pins.isNull()) {
+    if (!pins.is<JsonObjectConst>()) {
+      error = "pins must be an object of function name: GPIO";
+      return false;
+    }
+    for (JsonPairConst kv : pins.as<JsonObjectConst>()) {
+      const std::string field = std::string("pins.") + kv.key().c_str();
+      const int i = board::pinIndex(kv.key().c_str());
+      if (i < 0) {
+        error = field + " is not a pin function this firmware knows";
+        return false;
+      }
+      if (board::isFixedPin(kv.key().c_str())) {
+        if (kv.value().as<long>() != board::kDefaultPins[i].gpio || !kv.value().is<long>()) {
+          error = field + " is the BOOT button and stays on GPIO0";
+          return false;
+        }
+        continue;
+      }
+      r.integer(kv.value(), field.c_str(), -1, 39, cfg.pins.gpio[i]);
+    }
+  }
+
+  r.choice(doc["microphone"], "microphone", kMicTypes, cfg.microphone);
+
   if (!r.ok() || !validate(cfg, error)) return false;
   out = cfg;
   return true;
@@ -398,6 +483,14 @@ std::string serialize(const AppConfig &cfg) {
     e["palette"] = toString(s.palette);
     e["brightness"] = s.brightness;
     e["timerMin"] = s.timerMin;
+  }
+
+  doc["microphone"] = toString(cfg.microphone);
+
+  JsonObject pins = doc["pins"].to<JsonObject>();
+  for (size_t i = 0; i < board::kDefaultPinCount; i++) {
+    if (board::isFixedPin(board::kDefaultPins[i].name)) continue;
+    pins[board::kDefaultPins[i].name] = cfg.pins.gpio[i];
   }
 
   std::string out;

@@ -39,7 +39,7 @@ constexpr PinAssignment kDefaultPins[] = {
     {"mic_i2s_sck", 26, PinUse::Output, false},
     {"mic_i2s_ws", 25, PinUse::Output, false},
     {"mic_i2s_sd", 34, PinUse::Input, false},
-    {"mic_analog", kNoPin, PinUse::Input, false},  // GPIO35 for an analog microphone instead of I2S
+    {"mic_analog", 35, PinUse::Input, false},  // analog microphone (MAX9814), used instead of I2S when chosen; ADC1 only
     {"sd_sck", 18, PinUse::Output, false},
     {"sd_miso", 19, PinUse::Input, false},
     {"sd_mosi", 23, PinUse::Output, false},
@@ -65,6 +65,25 @@ constexpr int8_t findPin(const PinAssignment *pins, size_t count, const char *na
 }
 
 constexpr int8_t defaultPin(const char *name) { return findPin(kDefaultPins, kDefaultPinCount, name); }
+
+// Position of a named function in kDefaultPins (and in every pin map, which
+// keeps the same order), or -1.
+constexpr int pinIndex(const char *name) {
+  for (size_t i = 0; i < kDefaultPinCount; i++) {
+    const char *a = kDefaultPins[i].name;
+    const char *b = name;
+    while (*a && *a == *b) {
+      a++;
+      b++;
+    }
+    if (*a == *b) return static_cast<int>(i);
+  }
+  return -1;
+}
+
+// The BOOT button can't be moved: holding it is how a bad pin map (or any
+// other setting) is reset, so it has to work whatever the configuration says.
+constexpr bool isFixedPin(const char *name) { return pinIndex(name) == pinIndex("button"); }
 
 static_assert(defaultPin("grid_data_a") == 16, "findPin works at compile time");
 

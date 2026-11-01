@@ -5,8 +5,15 @@
 namespace sb {
 
 // Drives every LED-related output LOW so power switches stay off and no strip
-// sees random data while the firmware starts. Call first thing in setup().
+// sees random data while the firmware starts. Call first thing in setup()
+// without arguments: the configuration isn't loaded yet, so this uses the
+// default pin map.
 void holdOutputsLow();
+// Once the configuration is loaded: the same for the configured pin map
+// (`gpio` in the order of board::kDefaultPins). A default LED pin that the
+// configuration gave to something else is let go again (input), so the
+// early hold never fights a device on that line for longer than the boot.
+void holdOutputsLow(const int8_t *gpio);
 
 // Logs chip, flash (with a warning if the build env doesn't match), memory,
 // partition table and pin map.

@@ -7,6 +7,11 @@
 //   POST /api/system/restart   restarts the board after the response is sent
 //   GET  /api/config           the active configuration (config.json)
 //   POST /api/config           replaces it with the JSON body, then restarts to apply it
+//   GET  /api/pins             the pin map: each function's GPIO and default, and the
+//                              GPIOs outputs and inputs may use (for the Hardware page)
+//   POST /api/firmware         multipart upload of a firmware .bin (field "firmware");
+//                              installs it and restarts (8 and 16 MB boards only:
+//                              /api/system says firmwareUpload)
 
 #include <ArduinoJson.h>
 
