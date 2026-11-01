@@ -109,13 +109,16 @@ size_t readAt(fs::FS &fs, const String &path, uint64_t offset, uint8_t *buf, siz
   return f.read(buf, len);
 }
 
+// Both read the FAT from flash: the strips pause meanwhile (see FlashGuard).
 uint64_t fileSize(fs::FS &fs, const char *path) {
+  led::FlashGuard guard;
   if (!fs.exists(path)) return 0;
   File f = fs.open(path, FILE_READ);
   return f ? f.size() : 0;
 }
 
 uint64_t flashFree() {
+  led::FlashGuard guard;
   const uint64_t total = FFat.totalBytes(), used = FFat.usedBytes();
   return total > used ? total - used : 0;
 }
@@ -498,9 +501,9 @@ void endRestore(PhotoStore &photos, bool removeIncoming) {
     led::FlashGuard guard;
     job->dbFile.close();
   }
-  if (removeIncoming && FFat.exists(kIncomingFile)) {
-    led::FlashGuard guard;
-    FFat.remove(kIncomingFile);
+  if (removeIncoming) {
+    led::FlashGuard guard;  // exists() reads the FAT too
+    if (FFat.exists(kIncomingFile)) FFat.remove(kIncomingFile);
   }
   delete job;
 }
@@ -1030,9 +1033,9 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   gridCols = cols;
   gridRows = rows;
   // An incoming database left by a restart in the middle of a restore.
-  if (FFat.exists(kIncomingFile)) {
-    led::FlashGuard guard;
-    FFat.remove(kIncomingFile);
+  {
+    led::FlashGuard guard;  // exists() reads the FAT too
+    if (FFat.exists(kIncomingFile)) FFat.remove(kIncomingFile);
   }
 
   server.on(AsyncURIMatcher::exact("/api/backup/info"), HTTP_GET, [&db, &photos](AsyncWebServerRequest *req) {
@@ -1087,7 +1090,9 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   // A database file (the current one, or the one kept from the last restore)
   // with its size known up front.
   auto sendDbFile = [&db](AsyncWebServerRequest *req, const char *file, const char *stem, bool hold) {
-    if (!FFat.exists(file)) return sendError(req, 404, "no such database file");
+    // fileSize() reads the FAT under a FlashGuard; 0 means no such file.
+    const uint64_t size = fileSize(FFat, file);
+    if (!size) return sendError(req, 404, "no such database file");
     // Lives as long as the response: releases the hold when the response
     // is done or dropped.
     struct Source {
@@ -1105,7 +1110,6 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
       holdWrites(db);
       src->hold = true;
     }
-    const uint64_t size = fileSize(FFat, file);
     AsyncWebServerResponse *res = req->beginResponse(
         "application/vnd.sqlite3", size, [src](uint8_t *buf, size_t maxLen, size_t index) -> size_t {
           return readAt(FFat, src->path, index, buf, maxLen);

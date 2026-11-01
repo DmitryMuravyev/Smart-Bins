@@ -63,9 +63,17 @@ fs::FS &PhotoStore::store() const {
   return FFat;
 }
 
-uint64_t PhotoStore::usedBytes() const { return card_ ? SD.usedBytes() : FFat.usedBytes(); }
+// FFat.usedBytes() counts the free clusters by reading the FAT from flash:
+// the strips pause meanwhile (see FlashGuard). Harmless for the card.
+uint64_t PhotoStore::usedBytes() const {
+  led::FlashGuard guard;
+  return card_ ? SD.usedBytes() : FFat.usedBytes();
+}
 
-uint64_t PhotoStore::totalBytes() const { return card_ ? SD.totalBytes() : FFat.totalBytes(); }
+uint64_t PhotoStore::totalBytes() const {
+  led::FlashGuard guard;
+  return card_ ? SD.totalBytes() : FFat.totalBytes();
+}
 
 uint64_t PhotoStore::availableBytes() const {
   const uint64_t total = totalBytes(), used = usedBytes();
@@ -215,6 +223,12 @@ void PhotoStore::remove(const std::string &name) {
 bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size,
                       bool fallback) const {
   if (!validName(name)) return false;
+  // exists() and open() read the FAT's directory from flash, which switches
+  // the flash cache off like a write does: no LED frame may be on the wire
+  // meanwhile (see FlashGuard). Every thumbnail a list of search results asks
+  // for comes through here, so without the guard a long search with photos
+  // lit the far end of the strip now and then. Harmless for the card.
+  led::FlashGuard guard;
   // The thumbnail first, then the photo itself, which the page then scales.
   const Kind second = fallback ? Kind::Photo : kind;
   for (Kind k : {kind, second}) {
@@ -256,9 +270,15 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
   if (!validName(name)) return err = "bad photo name", false;
   for (Kind kind : {Kind::Photo, Kind::Thumb}) {
     const String path = pathFor(name, kind);
-    if (!FFat.exists(path)) continue;
+    {
+      led::FlashGuard guard;  // reads the FAT (see find())
+      if (!FFat.exists(path)) continue;
+    }
     size_t size;
     {
+      // The guard is held for the whole copy: every read of the flash copy
+      // needs it, and so does closing the file at the end of this block.
+      led::FlashGuard guard;
       File src = FFat.open(path, FILE_READ);
       if (!src) return err = "can't read " + std::string(path.c_str()) + " in flash", false;
       size = src.size();
@@ -302,6 +322,7 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
 
 bool PhotoStore::flashHasPhotos() const {
   if (!card_) return false;
+  led::FlashGuard guard;  // walks the FAT directory (see find())
   File dir = FFat.open(kDir);
   if (!dir || !dir.isDirectory()) return false;
   std::string name;
@@ -317,32 +338,51 @@ int PhotoStore::removeUnused(const std::function<bool(const std::string &name)> 
   for (fs::FS *fs : {card_ ? static_cast<fs::FS *>(&SD) : nullptr, static_cast<fs::FS *>(&FFat)}) {
     if (!fs) continue;
     // Deleting while the directory is open can confuse the walk, so each
-    // round collects a few names, closes the directory, then deletes them;
-    // rounds repeat until one finds nothing to delete. Names kept in use
-    // are skipped by remembering where the walk got to.
+    // round reads a few entries, closes the directory, decides which to
+    // delete, then deletes them; rounds repeat until the walk reaches the
+    // end. Entries kept are skipped next round by remembering how many.
+    //
+    // The walk reads the FAT from flash, so it holds a FlashGuard (harmless
+    // on the card), but inUse() asks the database, which takes its own lock
+    // and then the guard: calling it with the guard held could deadlock
+    // against a request doing the same in that order. So the entries are
+    // read under the guard and judged after it is released.
+    struct Entry {
+      String path;
+      std::string name;  // empty: not a photo (upload.tmp, say), kept
+      size_t size;
+    };
     size_t skip = 0;
     for (;;) {
-      std::vector<String> doomed;
-      size_t seen = 0;
+      std::vector<Entry> batch;
       {
+        led::FlashGuard guard;
         File dir = fs->open(kDir);
         if (!dir || !dir.isDirectory()) break;
+        size_t seen = 0;
         std::string name;
         Kind kind;
-        for (File f = dir.openNextFile(); f && doomed.size() < 16; f = dir.openNextFile()) {
+        for (File f = dir.openNextFile(); f && batch.size() < 16; f = dir.openNextFile()) {
           if (f.isDirectory()) continue;
           if (seen++ < skip) continue;
           const String file = f.name();
-          // Kept: anything that isn't a photo (upload.tmp) and photos in use.
-          if (!parseFileName(file, name, kind) || inUse(name)) {
-            skip++;
-            continue;
-          }
-          freed += f.size();
-          doomed.push_back(String(kDir) + "/" + (file.lastIndexOf('/') >= 0 ? file.substring(file.lastIndexOf('/') + 1) : file));
+          const String base = file.lastIndexOf('/') >= 0 ? file.substring(file.lastIndexOf('/') + 1) : file;
+          batch.push_back({String(kDir) + "/" + base, parseFileName(file, name, kind) ? name : std::string(),
+                           static_cast<size_t>(f.size())});
         }
       }
-      if (doomed.empty()) break;
+      if (batch.empty()) break;
+      std::vector<String> doomed;
+      for (const Entry &e : batch) {
+        // Kept: anything that isn't a photo and photos in use.
+        if (e.name.empty() || inUse(e.name)) {
+          skip++;
+        } else {
+          freed += e.size;
+          doomed.push_back(e.path);
+        }
+      }
+      if (doomed.empty()) continue;  // all kept: the next round reads further on
       led::FlashGuard guard;  // harmless on the card, needed in flash
       for (const String &path : doomed) {
         if (fs->remove(path)) removed++;
