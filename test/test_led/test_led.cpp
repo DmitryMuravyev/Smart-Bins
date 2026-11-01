@@ -497,6 +497,10 @@ static void test_spectrum_bars() {
   TEST_ASSERT_TRUE(level(out[0 * 10 + 4]) == 0 && level(out[5 * 10 + 4]) > 30);  // half bar: bottom only
   TEST_ASSERT_TRUE(level(out[3 * 10 + 4]) > 30 && level(out[2 * 10 + 4]) == 0);
   for (int y = 0; y < 6; y++) TEST_ASSERT_EQUAL(0, level(out[y * 10 + 9]));
+  // Colours by height, like a level meter: green at the bottom, red at the top.
+  const Rgb bottom = out[5 * 10 + 0], top = out[0 * 10 + 0];
+  TEST_ASSERT_TRUE(bottom.g > bottom.r && bottom.b == 0);
+  TEST_ASSERT_TRUE(top.r > top.g && top.b == 0);
   // When the sound stops, the bars sink over a moment rather than vanish.
   player.setAudio(soundAt(-120, -30));
   player.render(2016, 1, out);

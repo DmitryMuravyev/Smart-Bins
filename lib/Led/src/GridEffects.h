@@ -159,7 +159,7 @@ inline Palette effectivePalette(GridEffect e, Palette p) {
     case GridEffect::Sparks:
     case GridEffect::Beat: return Palette::Party;
     case GridEffect::Relax: return Palette::Ocean;
-    case GridEffect::Spectrum: return Palette::Rainbow;
+    case GridEffect::Spectrum: return Palette::Rainbow;  // unused: Auto draws a level meter (see renderSpectrum)
     default: return Palette::Heat;
   }
 }
@@ -399,11 +399,21 @@ class EffectState {
     return v < 0 ? 0 : v > 1 ? 1 : v;
   }
 
+  // A level meter's colours: green (0) through yellow (about 60 %) to red
+  // (255).
+  static Rgb meterColor(uint8_t h) {
+    const uint8_t kYellow = 153;
+    if (h <= kYellow) return Rgb(static_cast<uint8_t>(h * 255 / kYellow), 255, 0);
+    return Rgb(255, static_cast<uint8_t>(255 - (h - kYellow) * 255 / (255 - kYellow)), 0);
+  }
+
   // Spectrum: one bar per column, bass on the left, treble on the right,
   // growing from the bottom row; the top cell of a bar lights partly for the
   // part of a row it reaches. Bars jump up at once and sink at a steady rate
   // (speed sets how fast), so they look lively without flickering. Colours
-  // run across the columns through the palette.
+  // go by height, like a level meter: with the effect's own colours green at
+  // the bottom through yellow to red at the top; with a chosen palette from
+  // its low end at the bottom to its high end at the top.
   void renderSpectrum(const EffectParams &p, Palette pal, const AudioFrame &a, Rgb *out) {
     const int bands = AudioFrame::kBands;
     const float fall = frameMs_ / 700.0f;  // full height to nothing in 0.7 s at speed 128
@@ -419,12 +429,12 @@ class EffectState {
       }
       float &bar = bars_[x];
       bar = v > bar ? v : (bar - fall > v ? bar - fall : v);
-      const uint8_t index = static_cast<uint8_t>(cols_ > 1 ? x * 255 / cols_ : 0);
-      const Rgb color = paletteColor(pal, index);
       const float height = bar * rows_;  // in rows
-      for (uint8_t k = 0; k < rows_; k++) {  // k = 0 is the bottom row
+      for (uint8_t k = 0; k < rows_; k++) {  // k = 0 is the bottom row (y = rows - 1)
         float fill = height - k;
         fill = fill < 0 ? 0 : fill > 1 ? 1 : fill;
+        const uint8_t h = static_cast<uint8_t>(rows_ > 1 ? k * 255 / (rows_ - 1) : 0);  // 0 bottom .. 255 top
+        const Rgb color = p.palette == Palette::Auto ? meterColor(h) : paletteColor(pal, h);
         out[at(x, static_cast<uint8_t>(rows_ - 1 - k))] = scale(color, static_cast<uint8_t>(fill * 255));
       }
     }
