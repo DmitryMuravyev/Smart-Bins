@@ -2,11 +2,15 @@
 
 #include <ESPAsyncWebServer.h>
 
+#include <algorithm>
+#include <cstring>
 #include <string>
+#include <vector>
 
 #include "ApiUtil.h"
 #include "BootReport.h"
 #include "InventoryDb.h"
+#include "SendGate.h"
 
 namespace sb {
 
@@ -22,9 +26,9 @@ namespace {
 
 const char *TAG = "inventory";
 
-// Page size limits for /api/parts. The answer is built in RAM before it is
-// sent (AsyncResponseStream), so a page is capped: 100 parts with every field
-// full would still be about 200 KB, but typical parts are a few hundred bytes.
+// Page size limits for /api/parts. The answer is sent part by part (see
+// PartsStream), so the page size no longer costs RAM; the cap only bounds
+// how long one request keeps the database busy.
 constexpr long kDefaultLimit = 50;
 constexpr long kMaxLimit = 100;
 
@@ -57,6 +61,89 @@ void writePartJson(JsonObject out, const Part &p) {
   out["created"] = p.createdAt;
   out["updated"] = p.updatedAt;
 }
+
+// The body of a /api/parts answer, produced as the connection takes it:
+//
+//   {"parts":[{...},{...}],"total":N,"offset":M}
+//
+// The search runs first and leaves only the ids of the page (findPartIds(),
+// a few hundred bytes). Each part is then read from the database and turned
+// into JSON when the previous one has been handed to the network, so only
+// one part's text is in RAM at a time. Before, the whole page was built
+// first: 50 parts are some 15 KB, held until the last byte was sent, and
+// two phones searching at once took two of those on top of the network
+// buffers (the 2.8 KB lows in the log).
+//
+// A part deleted between the search and its turn is left out (the total is
+// then one too high until the next search, which is harmless).
+class PartsStream {
+ public:
+  PartsStream(InventoryDb &db, std::vector<int64_t> ids, int64_t total, int offset)
+      : db_(db), ids_(std::move(ids)), total_(total), offset_(offset) {}
+
+  // The response's filler: copies up to maxLen bytes; 0 ends the answer.
+  size_t fill(uint8_t *buf, size_t maxLen) {
+    size_t n = 0;
+    while (n < maxLen) {
+      if (pos_ == pending_.size()) {
+        pending_.clear();
+        pos_ = 0;
+        if (!next()) break;
+      }
+      const size_t k = std::min(maxLen - n, pending_.size() - pos_);
+      memcpy(buf + n, pending_.data() + pos_, k);
+      pos_ += k;
+      n += k;
+    }
+    return n;
+  }
+
+ private:
+  // Puts the next piece of the answer in pending_; false when it is complete.
+  bool next() {
+    switch (stage_) {
+      case Stage::Head:
+        pending_ = "{\"parts\":[";
+        stage_ = Stage::Parts;
+        return true;
+      case Stage::Parts:
+        while (index_ < ids_.size()) {
+          Part part;
+          std::string err;
+          if (db_.getPart(ids_[index_++], part, err) != Result::Ok) continue;
+          JsonDocument doc;
+          writePartJson(doc.to<JsonObject>(), part);
+          if (!first_) pending_ += ',';
+          first_ = false;
+          std::string json;
+          serializeJson(doc, json);
+          pending_ += json;
+          return true;
+        }
+        {
+          char tail[64];
+          snprintf(tail, sizeof(tail), "],\"total\":%lld,\"offset\":%d}", (long long)total_, offset_);
+          pending_ = tail;
+        }
+        stage_ = Stage::Done;
+        return true;
+      case Stage::Done:
+        return false;
+    }
+    return false;
+  }
+
+  enum class Stage { Head, Parts, Done };
+  InventoryDb &db_;
+  const std::vector<int64_t> ids_;
+  const int64_t total_;
+  const int offset_;
+  Stage stage_ = Stage::Head;
+  size_t index_ = 0;
+  bool first_ = true;
+  std::string pending_;  // the piece being copied out
+  size_t pos_ = 0;       // how much of pending_ has been copied
+};
 
 void sendPart(AsyncWebServerRequest *req, const Part &p) {
   JsonDocument doc;
@@ -263,36 +350,25 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     PartQuery query;
     std::string err;
     if (!readQuery(req, query, err)) return sendError(req, 400, err.c_str());
-    const uint32_t startMs = millis();
-    // Written part by part into 1 KB blocks, so only one part's JSON
-    // document exists at a time (the database hands them over one by one).
-    // See TextChunks for why this isn't an AsyncResponseStream.
-    auto body = std::make_shared<TextChunks>();
-    TextChunks &res = *body;
-    res.print("{\"parts\":[");
-    bool first = true;
-    int64_t total = 0;
-    const Result r = db.findParts(
-        query,
-        [&](const Part &p) {
-          JsonDocument doc;
-          writePartJson(doc.to<JsonObject>(), p);
-          if (!first) res.print(',');
-          first = false;
-          serializeJson(doc, res);
-        },
-        total, err);
-    if (r != Result::Ok) {
-      return sendResult(req, r, err);
-    }
-    res.printf("],\"total\":%lld,\"offset\":%d}", (long long)total, query.offset);
-    // One line per search in the serial log: how long the database and the
-    // JSON took and how much memory was left, to tell a slow query from a
-    // slow connection.
-    ESP_LOGI(TAG, "parts q=\"%s\": %lld found, %u ms, %u bytes, heap %u free (lowest %u)", query.search.c_str(),
-             (long long)total, (unsigned)(millis() - startMs), (unsigned)body->size(), (unsigned)heapFree(),
-             (unsigned)heapMin());
-    sendChunks(req, 200, "application/json", body);
+    // Through the send gate (see SendGate.h): each answer being sent holds
+    // network buffers, and several phones searching at once would add up.
+    // The search itself also runs only once the gate lets it through.
+    sendGate().run(req, [&db, query](AsyncWebServerRequest *req, SendGate::Slot slot) {
+      const uint32_t startMs = millis();
+      std::vector<int64_t> ids;
+      int64_t total = 0;
+      std::string err;
+      const Result r = db.findPartIds(query, ids, total, err);
+      if (r != Result::Ok) return sendResult(req, r, err);
+      // One line per search in the serial log: how long the database took and
+      // how much memory was left, to tell a slow query from a slow connection.
+      ESP_LOGI(TAG, "parts q=\"%s\": %lld found, %u ms, heap %u free (lowest %u)", query.search.c_str(),
+               (long long)total, (unsigned)(millis() - startMs), (unsigned)heapFree(), (unsigned)heapMin());
+      auto stream = std::make_shared<PartsStream>(db, std::move(ids), total, query.offset);
+      AsyncWebServerResponse *res = req->beginChunkedResponse(
+          "application/json", [stream, slot](uint8_t *buf, size_t maxLen, size_t) { return stream->fill(buf, maxLen); });
+      req->send(res);
+    });
   });
 
   // Where the parts matching a search are: the same filters as /api/parts

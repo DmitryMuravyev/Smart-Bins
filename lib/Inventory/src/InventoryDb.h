@@ -214,6 +214,11 @@ class InventoryDb {
   // match, across all pages.
   Result findParts(const PartQuery &query, const std::function<void(const Part &)> &each, int64_t &total,
                    std::string &err);
+  // Step one of findParts() on its own: the ids of the requested page, in
+  // order, and the number of matches. The web API sends the parts behind
+  // these ids one by one as the connection takes them (getPart()), so the
+  // answer never has to be held in RAM whole.
+  Result findPartIds(const PartQuery &query, std::vector<int64_t> &ids, int64_t &total, std::string &err);
   // How the parts matching `query` are spread over the bins: one BinCount per
   // bin that holds at least one of them (sort, offset and limit are ignored).
   // Lets the bin grid show where the search results are.

@@ -1,6 +1,6 @@
 #pragma once
 
-// Limits how many files the web server sends at the same time.
+// Limits how many files and part lists the web server sends at the same time.
 //
 // Why: every response that is being sent holds about 8.6 KB of RAM: the
 // server's 2.9 KB send buffer plus up to 5.7 KB of data handed to TCP and not
@@ -14,6 +14,10 @@
 // and started from loop() as soon as a running one finishes. Files here are
 // small (the UI is a few tens of KB gzipped, a thumbnail a few KB), so the
 // wait is short, and the peak stays at about kMaxActive x 8.6 KB.
+//
+// Part lists (/api/parts) go through the same gate: the search runs when
+// the gate lets the request through, and its answer is streamed part by
+// part, so it costs about what a file does.
 //
 // Usage, in a request handler:
 //

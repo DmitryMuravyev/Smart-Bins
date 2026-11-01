@@ -174,6 +174,18 @@ static std::vector<std::string> find(const PartQuery &q, int64_t *total = nullpt
   TEST_ASSERT_TRUE_MESSAGE(
       db.findParts(q, [&](const Part &x) { out.push_back(x.text[kPartNumber]); }, t, err) == Result::Ok,
       err.c_str());
+  // findPartIds() (what the web API streams from) must name the same parts in
+  // the same order, with the same total.
+  std::vector<int64_t> ids;
+  int64_t idTotal = -1;
+  TEST_ASSERT_TRUE_MESSAGE(db.findPartIds(q, ids, idTotal, err) == Result::Ok, err.c_str());
+  TEST_ASSERT_EQUAL_INT64(t, idTotal);
+  TEST_ASSERT_EQUAL(out.size(), ids.size());
+  for (size_t i = 0; i < ids.size(); i++) {
+    Part p;
+    TEST_ASSERT_TRUE(db.getPart(ids[i], p, err) == Result::Ok);
+    TEST_ASSERT_EQUAL_STRING(out[i].c_str(), p.text[kPartNumber].c_str());
+  }
   if (total) *total = t;
   return out;
 }

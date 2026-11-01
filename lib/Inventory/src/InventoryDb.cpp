@@ -840,6 +840,29 @@ Result InventoryDb::listParts(int offset, int limit, const std::function<void(co
 Result InventoryDb::findParts(const PartQuery &query, const std::function<void(const Part &)> &each,
                               int64_t &total, std::string &err) {
   std::lock_guard<std::recursive_mutex> lock(mutex_);
+  std::vector<int64_t> ids;
+  const Result r = findPartIds(query, ids, total, err);
+  if (r != Result::Ok) return r;
+
+  // Step 2: the parts themselves, one at a time.
+  const std::string sql = std::string(kPartSelect) + " WHERE p.id = ?";
+  Stmt q(db_, sql.c_str());
+  Part part;
+  for (int64_t id : ids) {
+    q.bind(1, id);
+    if (q.step() == SQLITE_ROW) {
+      rowToPart(q, part);
+      each(part);
+    }
+    q.reset();
+  }
+  return Result::Ok;
+}
+
+Result InventoryDb::findPartIds(const PartQuery &query, std::vector<int64_t> &ids, int64_t &total,
+                                std::string &err) {
+  std::lock_guard<std::recursive_mutex> lock(mutex_);
+  ids.clear();
   if (!db_) return err = lastError(), Result::Error;
 
   // The WHERE clause and its parameters, from the filters that are set.
@@ -880,7 +903,6 @@ Result InventoryDb::findParts(const PartQuery &query, const std::function<void(c
   // row and runs the case-folding match on it, which takes a noticeable part
   // of a second on the board with a few thousand parts; a separate
   // count(*) query would do all of that a second time.
-  std::vector<int64_t> ids;
   {
     tally_ = 0;
     const std::string sql = "SELECT p.id FROM parts p LEFT JOIN bins b ON b.id = p.bin_id" +
@@ -901,19 +923,6 @@ Result InventoryDb::findParts(const PartQuery &query, const std::function<void(c
     Stmt q(db_, "SELECT count(*) FROM parts");
     if (q.step() != SQLITE_ROW) return err = lastError(), Result::Error;
     total = q.integer(0);
-  }
-
-  // Step 2: the parts themselves, one at a time.
-  const std::string sql = std::string(kPartSelect) + " WHERE p.id = ?";
-  Stmt q(db_, sql.c_str());
-  Part part;
-  for (int64_t id : ids) {
-    q.bind(1, id);
-    if (q.step() == SQLITE_ROW) {
-      rowToPart(q, part);
-      each(part);
-    }
-    q.reset();
   }
   return Result::Ok;
 }
