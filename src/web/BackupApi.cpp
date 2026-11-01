@@ -374,7 +374,7 @@ bool startDb(RestoreJob &job, uint64_t size) {
     led::FlashGuard guard;
     // The database kept from the last restore makes room for this one: the
     // swap replaces it anyway.
-    FFat.remove(kPreviousFile);
+    if (FFat.exists(kPreviousFile)) FFat.remove(kPreviousFile);  // exists(): remove() logs an error when it is missing
     job.dbFile = FFat.open(kIncomingFile, FILE_WRITE);
   }
   if (!job.dbFile) return restoreFail(job, 500, "can't create the database file");
@@ -1116,7 +1116,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   server.on(AsyncURIMatcher::exact("/api/backup/previous/delete"), HTTP_POST, [](AsyncWebServerRequest *req) {
     {
       led::FlashGuard guard;
-      FFat.remove(kPreviousFile);
+      if (FFat.exists(kPreviousFile)) FFat.remove(kPreviousFile);
     }
     JsonDocument doc;
     doc["ok"] = true;
