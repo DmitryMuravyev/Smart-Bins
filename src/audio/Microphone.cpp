@@ -83,10 +83,12 @@ void Microphone::begin(int sck, int ws, int sd, led::LedEngine &engine) {
   ws_ = ws;
   sd_ = sd;
   engine_ = &engine;
+  // 4 KB of stack: the log lines with floating-point numbers alone take
+  // over 1 KB, and with 3 KB only about 500 bytes were left unused.
   // Core 1 with the LED task, below it in priority: the analysis takes well
   // under a millisecond per 16 ms block, and core 0 can be busy for a long
   // time with a database query in the web server, which would drop audio.
-  xTaskCreatePinnedToCore(taskEntry, "mic", 3072, this, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "mic", 4096, this, 1, nullptr, 1);
 }
 
 void Microphone::taskEntry(void *arg) {
