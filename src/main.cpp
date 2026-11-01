@@ -13,6 +13,7 @@
 #include "BootReport.h"
 #include "ConfigStore.h"
 #include "InventoryDb.h"
+#include "MemoryProfile.h"
 #include "PinMap.h"
 #include "WifiLink.h"
 #include "audio/Microphone.h"
@@ -83,10 +84,11 @@ bool mountFilesystem() {
   // formatOnFail = true: a blank partition (first boot, or after switching
   // from the old LittleFS layout) is formatted. "ffat" is the partition label
   // in partitions/*.csv; FAT runs on ESP-IDF's wear levelling layer there.
-  // 4 files open at once: the database, its journal, config.json and one
-  // spare. Each slot can cost a sector-sized (4 KB) buffer of heap, so the
-  // default of 10 wasted around 24 KB.
-  if (!FFat.begin(true, "/ffat", 4, "ffat")) {
+  // 4 files open at once without PSRAM: the database, its journal,
+  // config.json and one spare. Each slot can cost a sector-sized (4 KB)
+  // buffer of heap, so the default of 10 wasted around 24 KB. With PSRAM 8,
+  // so photo sends and a backup can run beside the database.
+  if (!FFat.begin(true, "/ffat", sb::mem::kMaxOpenFiles, "ffat")) {
     ESP_LOGE(TAG, "FAT partition mount failed");
     return false;
   }
@@ -336,8 +338,13 @@ void loop() {
   static uint32_t lastReport = 0;
   if (millis() - lastReport >= 60000) {
     lastReport = millis();
-    ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
-             sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
+    if (sb::mem::kPsram) {
+      ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s, PSRAM free %s", (unsigned long)(millis() / 1000),
+               sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()), sb::formatBytes(sb::psramFree()));
+    } else {
+      ESP_LOGI(TAG, "Uptime %lus, free heap %s, min %s", (unsigned long)(millis() / 1000),
+               sb::formatBytes(sb::heapFree()), sb::formatBytes(sb::heapMin()));
+    }
     logStacks();
   }
   delay(2);

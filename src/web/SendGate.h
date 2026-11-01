@@ -36,14 +36,17 @@
 #include <memory>
 #include <mutex>
 
+#include "MemoryProfile.h"
+
 namespace sb {
 
 class SendGate {
  public:
-  static constexpr int kMaxActive = 2;
+  // Sends at once: 2 without PSRAM, more with it (MemoryProfile.h).
+  static constexpr int kMaxActive = mem::kSendsActive;
   // Requests waiting beyond this are answered 503 (the browser retries a
   // failed image when it is shown again; the UI files come first anyway).
-  static constexpr size_t kMaxWaiting = 24;
+  static constexpr size_t kMaxWaiting = mem::kSendsWaiting;
 
   struct Token {
     explicit Token(SendGate &g) : gate(g) {}

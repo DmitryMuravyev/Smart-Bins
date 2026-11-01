@@ -333,5 +333,6 @@
   "firmware.confirm": "Install {file}? The device restarts with the new firmware.",
   "firmware.uploading": "Uploading... {pct}%",
   "firmware.installed": "Installed. Restarting...",
-  "firmware.failed": "Update failed: {error}. The current firmware keeps running."
+  "firmware.failed": "Update failed: {error}. The current firmware keeps running.",
+  "system.psram": "PSRAM free"
 }

@@ -16,6 +16,7 @@
 #include <freertos/task.h>
 
 #include "AudioAnalyzer.h"
+#include "MemoryProfile.h"
 #include "led/LedEngine.h"
 
 namespace sb {
@@ -128,11 +129,11 @@ void Microphone::begin(const config::AppConfig &cfg, led::LedEngine &engine) {
     return;
   }
   // 3 KB of stack is enough now the log lines print whole numbers (with
-  // floating point it needed 4 KB).
+  // floating point it needed 4 KB); 4 KB with PSRAM (MemoryProfile.h).
   // Core 1 with the LED task, below it in priority: the analysis takes well
   // under a millisecond per block, and core 0 can be busy for a long time
   // with a database query in the web server, which would drop audio.
-  xTaskCreatePinnedToCore(taskEntry, "mic", 3072, this, 1, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "mic", mem::kMicStack, this, 1, nullptr, 1);
 }
 
 void Microphone::taskEntry(void *arg) {

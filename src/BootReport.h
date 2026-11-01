@@ -24,10 +24,13 @@ void printBootReport();
 // only allows 32-bit accesses and so can't hold buffers, strings or SQLite's
 // pages; with it included the figures read tens of KB higher than what is
 // really available. These are what the boot log, the System tab and the
-// benchmark report.
+// benchmark report. They count internal RAM only: PSRAM, where a board has
+// it, is reported apart (psramFree), since the internal RAM stays the
+// scarce part.
 uint32_t heapFree();     // free now
 uint32_t heapMin();      // lowest free since boot
 uint32_t heapLargest();  // largest single block: the biggest malloc() that can succeed
+uint32_t psramFree();    // free PSRAM, 0 on a board without it
 
 // Human-readable byte count from a small rotating buffer (valid for a few calls).
 const char *formatBytes(uint64_t bytes);

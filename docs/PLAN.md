@@ -11,7 +11,7 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 | # | Topic | Decision |
 |---|---|---|
 | 1 | Repository | Private GitHub repo `smart-bins` for now (MIT), made public later. Dmitry creates it empty; Claude fills it. |
-| 2 | Board | ESP32-DevKitC replica (ESP32-WROOM-32, no PSRAM). Flash size to be confirmed in Task 1 (`esptool.py flash_id`): many DevKitC clones ship with 4 MB, so a 4 MB partition table is added as a fallback (photos would then need the optional microSD). |
+| 2 | Board | **Updated 2026-11-01:** ESP32-WROOM-32E/UE-N16R2 (16 MB flash, 2 MB PSRAM), firmware env `esp32-16mb-psram`; grid data moved to GPIO14/15 and PS-ON to GPIO2 to free GPIO16/17 for the PSRAM. Originally: ESP32-DevKitC replica (ESP32-WROOM-32, no PSRAM), still supported by the other envs. Flash size to be confirmed in Task 1 (`esptool.py flash_id`): many DevKitC clones ship with 4 MB, so a 4 MB partition table is added as a fallback (photos would then need the optional microSD). |
 | 3 | LED architecture | See "LED and power architecture" below. |
 | 4 | Work lights | Two options (updated 2026-10-29): **1.** an analog RGB strip on W1–W3 plus white strips on W4–W5; **2.** W1–W3 each set to addressable data or white PWM, plus white strips on W4–W5. See "Work-light channels" below. |
 | 5 | Pin priority | Main addressable grid → workspace illumination → auxiliary lights and/or microphone. |
@@ -49,21 +49,21 @@ W1–W3 are **universal**: each GPIO is wired to both a low-side N-MOSFET (white
 - **Addressable:** the same GPIO through the 74HCT245, powered via the work-light P-MOSFET switch. Any mix is allowed in option 2, e.g. W1 addressable + W2, W3 white.
 - The microphone has its own pins, so it never competes with the work lights.
 
-### Pin map (ESP32-DevKitC, WROOM-32)
+### Pin map (ESP32-DevKitC, WROOM-32E/UE-N16R2 or WROOM-32)
 
 | Priority | Function | GPIO | Notes |
 |---|---|---|---|
-| 1 | Grid data A / B | 16, 17 | via 74HCT245 |
+| 1 | Grid data A / B | 14, 15 | via 74HCT245; GPIO16/17 are left to the PSRAM |
 | 1 | Grid power enable | 32 | P-MOSFET high-side switch |
 | 2 | Work-light channels W1, W2, W3 | 27, 13, 4 | universal (PWM or addressable) |
 | 2 | Work-light addressable power enable | 33 | P-MOSFET, only needed for addressable work strips |
-| 2 | Supply on/off (PS-ON), power good (PG) | 14, 39 | optional, for supplies with remote control such as the EPP-300-12 |
+| 2 | Supply on/off (PS-ON), power good (PG) | 2, 39 | optional, for supplies with remote control such as the EPP-300-12 |
 | 3 | White channels W4, W5 | 21, 22 | PWM only |
 | 3 | I2S microphone (INMP441) SCK, WS, SD | 26, 25, 34 | GPIO34 is input-only, fine for data in |
 | 3 | Analog microphone (MAX9814) alternative | 35 | ADC1, replaces I2S mic |
 | – | Optional microSD (photos on 4 MB boards) | 18, 19, 23, 5 | VSPI |
 | – | Button (clear highlight / factory reset) | 0 | on-board BOOT button |
-| – | Status LED | 2 | on-board LED on most DevKitC boards |
+| – | Status LED | 2 | on-board LED on most DevKitC boards; off when PS-ON uses GPIO2 |
 | – | Spare | 15, 36 (input-only) | 12 is a strapping pin, never used |
 
 Final map is confirmed with the schematic in Task 2.
@@ -75,10 +75,10 @@ Final map is confirmed with the schematic in Task 2.
 | Area | Default | Why / alternatives |
 |---|---|---|
 | Build | **PlatformIO in VS Code**, Arduino framework on ESP32 | Best VS Code workflow. Uses the `pioarduino` platform to get Arduino-ESP32 core 3.x (the official PlatformIO platform is stuck on core 2.x). Alternative: ESP-IDF + Arduino as component. |
-| MCU | ESP32-DevKitC (WROOM-32), **no PSRAM**, 4/8/16 MB flash | All memory budgets assume ~300 KB usable heap. |
+| MCU | ESP32-DevKitC with WROOM-32E/UE-N16R2 (**2 MB PSRAM**, 16 MB flash); plain WROOM-32 (no PSRAM, 4/8/16 MB) still supported | One `SB_PSRAM` switch (`lib/Board/src/MemoryProfile.h`, set by the `-psram` envs) picks the memory limits: without PSRAM they assume ~300 KB usable heap; with it, caches, buffers and parallel requests are larger. |
 | Flash layout | Custom partition tables. 8 MB and 16 MB: 2 × 2.25 MB OTA app slots + rest FAT (≈3.4 MB / ≈11.4 MB). 4 MB fallback: one 2.25 MB app slot + ≈1.6 MB FAT (config and database only, photos on microSD); updated over USB. | OTA updates over Wi-Fi from day one. The firmware is ~1.7 MB with SQLite (v0.5.0), so two copies plus storage no longer fit in 4 MB; the slots were sized with room for the remaining tasks. |
 | Filesystem | **FAT on ESP-IDF wear levelling** for everything (changed in Task 7, was: LittleFS) | LittleFS copies the rest of a file whenever its middle changes, which every SQLite commit does: seconds per edit and extra wear on a large database. FAT rewrites only the changed sectors. One partition for config, database and photos means no fixed split, and the same code serves the optional microSD (also FAT). Power-loss safety: SQLite's journal for the database, write-then-rename with recovery for `config.json`. |
-| Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on the FAT partition | 2 KB pages, 16 KB page cache, 4 KB journal write buffer (tuned for no PSRAM: 4 KB pages made write peaks too large). Schema version in `PRAGMA user_version`. Search with `LIKE` across all text fields; FTS5 only if needed. |
+| Database | **SQLite 3** via `siara-cc/esp32_arduino_sqlite3_lib`, DB file on the FAT partition | Without PSRAM: 2 KB pages, 16 KB page cache, 4 KB journal write buffer (4 KB pages made write peaks too large). With PSRAM: 4 KB pages, 512 KB cache, 8 KB write buffer. Schema version in `PRAGMA user_version`. Search with `LIKE` across all text fields; FTS5 only if needed. |
 | LEDs | **Own RMT output driver** (ESP-IDF `rmt_tx`), WS2812/WS2812B/SK6812/SK6812 RGBW (5 V), WS2811/WS2815 (12/24 V) | Pin, chipset timing, color order and inverted output are chosen at runtime from `config.json`, which FastLED's compile-time controllers can't do. FastLED's color math may still be used for effects (Task 12). |
 | Web server | **ESPAsyncWebServer** (maintained `ESP32Async` fork) + WebSocket for live updates | Streams files without buffering in RAM. |
 | Web UI | Vanilla JS + small CSS, no framework; strings in per-language JSON files (en, es, ru). Gzipped at build time by `tools/embed_web.py` and **embedded in the firmware** (changed in Task 6, was: files on LittleFS) | Small and fast on ESP32. One firmware image (also over the air) always carries the matching UI, no separate filesystem upload, and the data partition stays free for the inventory and photos. |

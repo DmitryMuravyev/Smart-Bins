@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "MemoryProfile.h"
+
 struct sqlite3;
 
 namespace sb {
@@ -176,11 +178,13 @@ class InventoryDb {
 
   // Opens (or creates) the database file and brings its schema up to date.
   // `cacheKiB` is SQLite's page cache size: the main RAM cost of the database.
+  // The default follows the memory profile (MemoryProfile.h). Without PSRAM,
   // 16 KiB (eight 2 KB pages) holds the top of both tables' B-trees, which
-  // is what lookups touch most. A board without PSRAM has only some 40 KB of
-  // heap left once Wi-Fi and the web server run, and a large write (the
-  // benchmark, a restore) briefly needs tens of KB more on top of the cache.
-  bool open(const char *path, std::string &err, int cacheKiB = 16);
+  // is what lookups touch most: such a board has only some 40 KB of heap left
+  // once Wi-Fi and the web server run, and a large write (the benchmark, a
+  // restore) briefly needs tens of KB more on top of the cache. With PSRAM,
+  // 512 KiB holds a whole inventory of a few thousand parts.
+  bool open(const char *path, std::string &err, int cacheKiB = mem::kDbCacheKiB);
   void close();
   bool isOpen() const { return db_ != nullptr; }
 
