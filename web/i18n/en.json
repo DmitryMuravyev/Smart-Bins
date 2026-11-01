@@ -347,5 +347,6 @@
   "inv.count.one": "1 part",
   "inv.binTitle.one": "{bin}: 1 part",
   "inv.binHitTitle.one": "{bin}: 1 matching part",
-  "inv.binHits.one": "1 matching part in {bins} bin"
+  "inv.binHits.one": "1 matching part in {bins} bin",
+  "system.project": "Source code, documentation and new versions:"
 }

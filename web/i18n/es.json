@@ -347,5 +347,6 @@
   "inv.count.one": "1 pieza",
   "inv.binTitle.one": "{bin}: 1 pieza",
   "inv.binHitTitle.one": "{bin}: 1 pieza coincide",
-  "inv.binHits.one": "1 pieza coincide, en {bins} cajón"
+  "inv.binHits.one": "1 pieza coincide, en {bins} cajón",
+  "system.project": "Código fuente, documentación y nuevas versiones:"
 }

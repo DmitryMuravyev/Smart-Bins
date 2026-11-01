@@ -343,5 +343,6 @@
   "restart.hang": "Основной цикл перестал отвечать",
   "restart.brownout": "Просадка напряжения питания (brown-out)",
   "restart.reset-pin": "Кнопка сброса",
-  "restart.other": "Другое"
+  "restart.other": "Другое",
+  "system.project": "Исходный код, документация и новые версии:"
 }
