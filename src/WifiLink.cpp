@@ -118,9 +118,29 @@ void WifiLink::onConnected() {
     // ArduinoOTA.begin() also starts mDNS under the same host name.
     ArduinoOTA.setHostname(host_);
     if (otaHash_.length()) ArduinoOTA.setPasswordHash(otaHash_.c_str());
-    ArduinoOTA.onStart([]() { ESP_LOGW(TAG, "OTA update started"); });
-    ArduinoOTA.onEnd([]() { ESP_LOGW(TAG, "OTA update finished, restarting"); });
-    ArduinoOTA.onError([](ota_error_t e) { ESP_LOGE(TAG, "OTA error %u", (unsigned)e); });
+    // An upload over ArduinoOTA writes the flash for its whole length: the
+    // strips pause from start to end (see FlashGuard). All three callbacks
+    // run on the loop task, inside ArduinoOTA.handle(), so the lock and its
+    // unlock are on the same task as the gate requires. onError also comes
+    // without an onStart (a wrong password), hence the flag.
+    static bool otaPaused = false;
+    ArduinoOTA.onStart([]() {
+      if (!otaPaused) led::FlashGuard::lock();
+      otaPaused = true;
+      ESP_LOGW(TAG, "OTA update started");
+    });
+    auto resume = []() {
+      if (otaPaused) led::FlashGuard::unlock();
+      otaPaused = false;
+    };
+    ArduinoOTA.onEnd([resume]() {
+      resume();
+      ESP_LOGW(TAG, "OTA update finished, restarting");
+    });
+    ArduinoOTA.onError([resume](ota_error_t e) {
+      resume();
+      ESP_LOGE(TAG, "OTA error %u", (unsigned)e);
+    });
     ArduinoOTA.begin();
     // 4 MB boards have a single app slot (partitions/4mb.csv), so a Wi-Fi
     // upload would have nowhere to go and fail; ArduinoOTA still runs because
@@ -144,10 +164,13 @@ void WifiLink::setOtaPasswordHash(const String &md5) {
 }
 
 void WifiLink::forgetCredentials() {
-  Preferences prefs;
-  prefs.begin(kPrefsNamespace, false);
-  prefs.clear();
-  prefs.end();
+  {
+    led::FlashGuard guard;  // LED strips pause during the flash write
+    Preferences prefs;
+    prefs.begin(kPrefsNamespace, false);
+    prefs.clear();
+    prefs.end();
+  }
   ssid_ = pass_ = "";
   WiFi.disconnect(false, true);
   state_ = State::Idle;

@@ -111,6 +111,7 @@ void Security::setPassword(const String &password) {
 }
 
 void Security::erase() {
+  led::FlashGuard guard;  // LED strips pause during the flash write
   Preferences prefs;
   if (prefs.begin(kPrefsNamespace, false)) {
     prefs.clear();
