@@ -59,6 +59,8 @@ a { color: var(--accent); }
   color: var(--muted); text-decoration: none; font-size: 12px; min-width: 0; }
 .tabs a span:last-child { overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .tabs .ico { font-size: 20px; line-height: 1; }
+/* An SVG icon (Inventory's books) sits like the text glyphs of the other tabs. */
+.tabs .ico svg { display: block; }
 .tabs a.active { color: var(--accent); background: var(--tab-active); }
 main { max-width: 760px; margin: 0 auto; padding: 16px 16px calc(var(--tabbar) + 24px + env(safe-area-inset-bottom)); }
 @media (min-width: 760px) {
