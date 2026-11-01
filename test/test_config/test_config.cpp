@@ -95,7 +95,7 @@ static void test_rejects_bad_values() {
   expectError("not json", "invalid JSON");
   expectError("[]", "JSON object");
   expectError("{\"grid\":{\"cols\":0}}", "grid.cols");
-  expectError("{\"grid\":{\"pixelsPerBin\":4}}", "grid.pixelsPerBin");
+  expectError("{\"grid\":{\"pixelsPerBin\":9}}", "grid.pixelsPerBin");
   expectError("{\"grid\":{\"chipset\":\"APA102\"}}", "grid.chipset must be one of");
   expectError("{\"grid\":{\"voltage\":9}}", "grid.voltage");
   expectError("{\"grid\":{\"colorOrder\":\"RRB\"}}", "grid.colorOrder");

@@ -2,13 +2,13 @@
 
 An addressable parts library for the home lab, built on the ESP32.
 
-Smart Bins is a grid of plastic storage bins, each one lit by 1–3 addressable LEDs. A web interface keeps an inventory of your components in a SQLite database on the ESP32's flash. Search for a part (for example `STM32`), and the bin where it's stored lights up.
+Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable LEDs. A web interface keeps an inventory of your components in a SQLite database on the ESP32's flash. Search for a part (for example `STM32`), and the bin where it's stored lights up.
 
 > **Status:** early development. See [docs/PLAN.md](docs/PLAN.md) for the implementation plan and progress.
 
 ## Features (planned)
 
-- Configurable bin grid of any size (X × Y), 1–3 pixels per bin, flexible strip wiring
+- Configurable bin grid of any size (X × Y), 1–8 pixels per bin, flexible strip wiring
 - Inventory in SQLite on the board's flash, with instant global search and sorting by manufacturer, category and part number
 - Component photos (JPG)
 - Database backup (download) and restore from the browser

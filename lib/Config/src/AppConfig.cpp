@@ -310,7 +310,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   GridConfig &g = cfg.grid;
   r.integer(grid["cols"], "grid.cols", 1, 64, g.cols);
   r.integer(grid["rows"], "grid.rows", 1, 64, g.rows);
-  r.integer(grid["pixelsPerBin"], "grid.pixelsPerBin", 1, 3, g.pixelsPerBin);
+  r.integer(grid["pixelsPerBin"], "grid.pixelsPerBin", 1, 8, g.pixelsPerBin);
   r.choice(grid["chipset"], "grid.chipset", kChipsets, g.chipset);
   r.text(grid["colorOrder"], "grid.colorOrder", g.colorOrder, sizeof(g.colorOrder));
   r.integer(grid["voltage"], "grid.voltage", 5, 24, g.voltage);
