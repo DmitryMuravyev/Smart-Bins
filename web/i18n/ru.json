@@ -326,7 +326,7 @@
   "pin.button": "Кнопка BOOT",
   "pin.status_led": "Светодиод состояния",
   "firmware.title": "Обновление прошивки",
-  "firmware.hint": "Выберите firmware.bin из релиза или своей сборки (.pio/build/esp32-8mb/firmware.bin). Настройки, детали и фото сохранятся.",
+  "firmware.hint": "Выберите файл …-update.bin из релиза для вашей платы или firmware.bin из своей сборки (.pio/build/ENV/firmware.bin). Настройки, детали и фото сохранятся.",
   "firmware.choose": "Выбрать файл",
   "firmware.install": "Установить",
   "firmware.notImage": "Это не файл прошивки ESP32.",

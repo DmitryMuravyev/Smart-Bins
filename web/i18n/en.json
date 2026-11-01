@@ -326,7 +326,7 @@
   "pin.button": "BOOT button",
   "pin.status_led": "Status LED",
   "firmware.title": "Firmware update",
-  "firmware.hint": "Choose firmware.bin from a release or your build (.pio/build/esp32-8mb/firmware.bin). Settings, parts and photos stay as they are.",
+  "firmware.hint": "Choose the …-update.bin file of a release for your board, or firmware.bin from your own build (.pio/build/ENV/firmware.bin). Settings, parts and photos stay as they are.",
   "firmware.choose": "Choose file",
   "firmware.install": "Install",
   "firmware.notImage": "This is not an ESP32 firmware file.",
@@ -343,5 +343,9 @@
   "restart.hang": "Main loop stopped responding",
   "restart.brownout": "Supply voltage dropped (brown-out)",
   "restart.reset-pin": "Reset button",
-  "restart.other": "Other"
+  "restart.other": "Other",
+  "inv.count.one": "1 part",
+  "inv.binTitle.one": "{bin}: 1 part",
+  "inv.binHitTitle.one": "{bin}: 1 matching part",
+  "inv.binHits.one": "1 matching part in {bins} bin"
 }

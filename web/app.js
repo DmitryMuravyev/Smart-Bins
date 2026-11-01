@@ -74,8 +74,11 @@ function toast(text, isError = false) {
 // ---------------------------------------------------------------------------
 // Translations
 
+// A string with {n} may have a singular form under "<key>.one" ("1 part"
+// rather than "1 parts"). Russian phrases its strings so no form is needed.
 function t(key, vars) {
-  let s = state.strings[key] ?? state.fallback[key] ?? key;
+  const one = vars && Number(vars.n) === 1 ? state.strings[`${key}.one`] : undefined;
+  let s = one ?? state.strings[key] ?? state.fallback[key] ?? key;
   if (vars) for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, v);
   return s;
 }
