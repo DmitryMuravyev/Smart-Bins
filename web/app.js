@@ -1227,6 +1227,51 @@ async function enterGrid() {
   $('#grid-brightness-out').textContent = percent($('#grid-brightness').value);
   const defaults = await attempt(() => api('/api/locate/defaults'));
   if (defaults) showLocateDefaults(defaults);
+  const effects = await attempt(() => api('/api/effects'));
+  if (effects) showEffects(effects);
+}
+
+// ---------------------------------------------------------------------------
+// Grid effects (Task 12)
+//
+// The board runs one effect at a time under the located bins. Starting one
+// and changing its parameters are separate calls; parameters are saved on
+// the board (config.json effects.*), the running effect is not.
+
+// `e`: an answer from /api/effects ({effect, remainingS, speed, ...}).
+function showEffects(e) {
+  showEffectRunning(e.effect, e.remainingS);
+  for (const name of ['speed', 'intensity', 'brightness']) {
+    const input = $(`#effect-${name}`);
+    setIfIdle(input, e[name]);
+    $(`#effect-${name}-out`).textContent = percent(input.value);
+  }
+  setIfIdle($('#effect-palette'), e.palette);
+  const timer = $('#effect-timer');
+  // A timer set through the API that isn't in the list gets its own entry.
+  if (![...timer.options].some(o => Number(o.value) === e.timer)) {
+    timer.add(new Option(t('effects.minutes', { n: e.timer }), e.timer));
+  }
+  setIfIdle(timer, String(e.timer));
+}
+
+// Marks the running effect and shows how long its timer has left. Also
+// called with the grid status pushed over the WebSocket.
+function showEffectRunning(effect, remainingS) {
+  for (const b of $$('#effect-pick button')) b.classList.toggle('on', b.dataset.effect === (effect || 'off'));
+  const left = $('#effect-timer-left');
+  left.hidden = !remainingS;
+  if (remainingS) {
+    const time = remainingS >= 60
+      ? t('effects.minutes', { n: Math.ceil(remainingS / 60) })
+      : t('effects.seconds', { n: remainingS });
+    left.textContent = t('effects.timerLeft', { time });
+  }
+}
+
+async function saveEffects(params) {
+  const e = await attempt(() => api('/api/effects', { form: params }));
+  if (e) showEffects(e);
 }
 
 // Locate defaults: how a bin lights up when it is located from anywhere (this
@@ -1723,6 +1768,7 @@ async function connectLive() {
       renderSystem();
     } else if (msg.type === 'leds') {
       updateLitBins(msg);
+      if (msg.effect !== undefined) showEffectRunning(msg.effect, msg.effectRemainingS);
       $('#grid-status').textContent = t('grid.status', { ma: msg.estimateMa, fps: msg.fps })
         + (msg.currentLimited ? ` ${t('grid.limited')}` : '');
     }
@@ -1771,6 +1817,22 @@ function bindControls() {
     b.addEventListener('click', () => saveLocateDefaults({ mode: b.dataset.mode }));
   }
   $('#locate-duration').addEventListener('change', e => saveLocateDefaults({ s: e.target.value }));
+  for (const b of $$('#effect-pick button')) {
+    b.addEventListener('click', () => {
+      // Marked at once; the answer (and the push after it) confirm.
+      showEffectRunning(b.dataset.effect, 0);
+      saveEffects({ effect: b.dataset.effect });
+    });
+  }
+  // Sliders send on release (each change is saved in the board's flash),
+  // and show their value while they move.
+  for (const name of ['speed', 'intensity', 'brightness']) {
+    const input = $(`#effect-${name}`);
+    input.addEventListener('input', () => { $(`#effect-${name}-out`).textContent = percent(input.value); });
+    input.addEventListener('change', () => saveEffects({ [name]: input.value }));
+  }
+  $('#effect-palette').addEventListener('change', e => saveEffects({ palette: e.target.value }));
+  $('#effect-timer').addEventListener('change', e => saveEffects({ timer: e.target.value }));
   const brightness = $('#grid-brightness');
   brightness.addEventListener('input', () => { $('#grid-brightness-out').textContent = percent(brightness.value); });
   brightness.addEventListener('change', async () => {

@@ -16,6 +16,8 @@ const char *const kCorners[] = {"top-left", "top-right", "bottom-left", "bottom-
 const char *const kLightModes[] = {"off", "white", "rgb", "addressable"};
 const char *const kLocateModes[] = {"steady", "slow-pulse", "fast-pulse"};
 const char *const kLanguages[] = {"en", "es", "ru"};
+// Same names and order as led::Palette (lib/Led/src/GridEffects.h).
+const char *const kPalettes[] = {"auto", "heat", "ocean", "forest", "lava", "rainbow", "party"};
 
 // Field readers: a missing key keeps the current (default) value; a present key
 // of the wrong type or out of range fails with the field name in the message.
@@ -128,6 +130,7 @@ const char *toString(Layout v) { return kLayouts[static_cast<int>(v)]; }
 const char *toString(StartCorner v) { return kCorners[static_cast<int>(v)]; }
 const char *toString(LightMode v) { return kLightModes[static_cast<int>(v)]; }
 const char *toString(LocateMode v) { return kLocateModes[static_cast<int>(v)]; }
+const char *toString(EffectPalette v) { return kPalettes[static_cast<int>(v)]; }
 
 bool isValidHostName(const char *name) {
   size_t len = name ? strlen(name) : 0;
@@ -305,6 +308,13 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.color(locate["color"], "locate.color", cfg.locate.color);
   r.choice(locate["mode"], "locate.mode", kLocateModes, cfg.locate.mode);
 
+  JsonVariantConst effects = doc["effects"];
+  r.integer(effects["speed"], "effects.speed", 1, 255, cfg.effects.speed);
+  r.integer(effects["intensity"], "effects.intensity", 1, 255, cfg.effects.intensity);
+  r.choice(effects["palette"], "effects.palette", kPalettes, cfg.effects.palette);
+  r.integer(effects["brightness"], "effects.brightness", 1, 255, cfg.effects.brightness);
+  r.integer(effects["timerMin"], "effects.timerMin", 0, 1440, cfg.effects.timerMin);
+
   if (!r.ok() || !validate(cfg, error)) return false;
   out = cfg;
   return true;
@@ -369,6 +379,13 @@ std::string serialize(const AppConfig &cfg) {
   snprintf(color, sizeof(color), "#%06X", static_cast<unsigned>(cfg.locate.color & 0xFFFFFF));
   locate["color"] = color;
   locate["mode"] = toString(cfg.locate.mode);
+
+  JsonObject effects = doc["effects"].to<JsonObject>();
+  effects["speed"] = cfg.effects.speed;
+  effects["intensity"] = cfg.effects.intensity;
+  effects["palette"] = toString(cfg.effects.palette);
+  effects["brightness"] = cfg.effects.brightness;
+  effects["timerMin"] = cfg.effects.timerMin;
 
   std::string out;
   serializeJsonPretty(doc, out);

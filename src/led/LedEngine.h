@@ -2,9 +2,11 @@
 
 // Renders the bin grid on its own FreeRTOS task (core 1, ~60 fps).
 //
-// Layers, top first: test pattern (when running), locate highlights. Every
-// highlight fades in and out (config fadeMs) and can pulse; brightness changes
-// fade too. The grid's power switch turns on before anything is shown and off
+// Layers, top first: test pattern (when running, replaces the rest), locate
+// highlights, effects (fire, sparks, relax, demo; see GridEffects.h). Every
+// highlight fades in and out (config fadeMs) and can pulse, and is drawn over
+// the effect: a located bin always shows its highlight colour. Brightness
+// changes fade too. The grid's power switch turns on before anything is shown and off
 // a moment after the last pixel went dark; while off, the data lines rest low.
 
 #include <cstdint>
@@ -16,6 +18,7 @@
 #include "AppConfig.h"
 #include "Color.h"
 #include "Envelope.h"
+#include "GridEffects.h"
 #include "GridMapper.h"
 #include "PowerLimit.h"
 #include "RmtStrip.h"
@@ -32,6 +35,17 @@ inline PulseMode pulseMode(config::LocateMode m) {
   }
 }
 
+// Effect parameters as kept in config.json (effects.*).
+inline EffectParams effectParams(const config::EffectsConfig &c) {
+  EffectParams p;
+  p.speed = c.speed;
+  p.intensity = c.intensity;
+  p.palette = static_cast<Palette>(c.palette);
+  p.brightness = c.brightness;
+  p.timerMin = c.timerMin;
+  return p;
+}
+
 enum class TestPattern : uint8_t { None, Walk, Chain, Rows, Columns, Colors };
 
 const char *toString(TestPattern p);
@@ -46,6 +60,8 @@ class LedEngine {
     uint32_t estimateMa;
     uint8_t limitLevel;  // 255 = within the current limit
     uint16_t fps;
+    GridEffect effect;    // what was started (demo stays demo while it cycles)
+    uint32_t remainingS;  // until the effect's timer stops it; 0 = no timer
   };
 
   static constexpr uint8_t kMaxHighlights = 32;
@@ -73,6 +89,13 @@ class LedEngine {
   uint32_t version() const { return version_; }
   // Changes the colour, mode and duration used by locate(x, y) from now on.
   void setLocateDefaults(const config::LocateConfig &locate);
+
+  // Starts an effect under the highlights, fading over from whatever showed
+  // before (Off fades the effect out). Its timer, if any, starts now.
+  void startEffect(GridEffect effect);
+  // Speed, intensity, palette and brightness apply at once; a changed timer
+  // counts from now.
+  void setEffectParams(const EffectParams &params);
 
   void startTest(TestPattern pattern);
   void setBrightness(uint8_t level);
@@ -102,6 +125,7 @@ class LedEngine {
   void renderLayers(uint32_t now);
   void renderTest(uint32_t now);
   void lightBin(uint8_t x, uint8_t y, Rgb color);
+  void overlayBin(uint8_t x, uint8_t y, Rgb color, uint8_t level);
   bool anyLit() const;
   void encodeAndSend(uint32_t now);
   void setPower(bool on);
@@ -120,6 +144,9 @@ class LedEngine {
   std::vector<Highlight> highlights_;
   // Written under the lock, read without it (a 32-bit load is atomic).
   volatile uint32_t version_ = 0;
+  EffectPlayer effects_;
+  std::vector<Rgb> effectFrame_;  // one colour per bin, row by row
+  GridEffect shownEffect_ = GridEffect::Off;  // last effect reported through version_
   TestPattern test_ = TestPattern::None;
   uint32_t testStart_ = 0;
 

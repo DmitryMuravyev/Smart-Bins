@@ -1,6 +1,7 @@
 #include "LedEngine.h"
 
 #include <Arduino.h>
+#include <esp_random.h>
 
 #include <algorithm>
 #include <cstring>
@@ -93,6 +94,10 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
     if (started && seg.strip.write(seg.out.data(), seg.out.size())) seg.strip.waitDone(50);
   }
 
+  effects_.configure(g.cols, g.rows);
+  effects_.setParams(effectParams(cfg.effects), effectMillis());
+  effectFrame_.assign(static_cast<size_t>(g.cols) * g.rows, Rgb());
+
   brightness_ = Fader(g.brightness);
   lock_ = xSemaphoreCreateMutex();
   highlights_.reserve(kMaxHighlights);
@@ -181,6 +186,20 @@ uint8_t LedEngine::litBins(Bin *out, uint8_t max, uint32_t *version) {
   return n;
 }
 
+void LedEngine::startEffect(GridEffect effect) {
+  Lock lock(lock_);
+  effects_.start(effect, effectMillis(), esp_random());
+  shownEffect_ = effects_.selected();
+  version_ = version_ + 1;
+  ESP_LOGI(TAG, "Effect: %s", toString(effect));
+}
+
+void LedEngine::setEffectParams(const EffectParams &params) {
+  Lock lock(lock_);
+  effects_.setParams(params, effectMillis());
+  version_ = version_ + 1;  // the timer shown in the UI may have changed
+}
+
 void LedEngine::startTest(TestPattern pattern) {
   Lock lock(lock_);
   test_ = pattern;
@@ -195,7 +214,8 @@ void LedEngine::setBrightness(uint8_t level) {
 
 LedEngine::Status LedEngine::status() {
   Lock lock(lock_);
-  return {powered_, static_cast<uint8_t>(highlights_.size()), test_, estimateMa_, limitLevel_, fps_};
+  return {powered_,    static_cast<uint8_t>(highlights_.size()), test_, estimateMa_, limitLevel_, fps_,
+          effects_.selected(), effects_.remainingS(effectMillis())};
 }
 
 void LedEngine::taskEntry(void *arg) { static_cast<LedEngine *>(arg)->run(); }
@@ -223,7 +243,7 @@ void LedEngine::run() {
       // unsigned `now - stamp` could wrap around and skip a fade entirely.
       now = effectMillis();
       renderLayers(now);
-      wantPower = test_ != TestPattern::None || !highlights_.empty();
+      wantPower = test_ != TestPattern::None || !highlights_.empty() || effects_.active();
     }
     const bool lit = anyLit();
     if (lit) lastLit_ = now;
@@ -275,6 +295,17 @@ void LedEngine::lightBin(uint8_t x, uint8_t y, Rgb color) {
   for (uint8_t i = 0; i < span.count; i++) px[span.first + i] = blendMax(px[span.first + i], color);
 }
 
+// Draws a highlight over what is already in the bin (an effect, or dark):
+// at level 255 the bin shows `color` alone, below that the two are blended.
+// So a highlight fades in out of the effect and back into it, and a located
+// bin is never lost in the fire or the sparks around it.
+void LedEngine::overlayBin(uint8_t x, uint8_t y, Rgb color, uint8_t level) {
+  PixelSpan span;
+  if (!mapper_.binSpan(x, y, span)) return;
+  std::vector<Rgb> &px = segments_[span.segment].pixels;
+  for (uint8_t i = 0; i < span.count; i++) px[span.first + i] = lerp(px[span.first + i], color, level);
+}
+
 bool LedEngine::anyLit() const {
   for (const Segment &seg : segments_) {
     for (const Rgb &c : seg.pixels) {
@@ -297,6 +328,19 @@ void LedEngine::renderLayers(uint32_t now) {
       renderTest(now);
       return;
     }
+  }
+
+  // The effect, one colour per bin, under everything else.
+  if (effects_.render(now, esp_random(), effectFrame_.data())) {
+    const uint8_t cols = mapper_.geometry().cols, rows = mapper_.geometry().rows;
+    for (uint8_t y = 0; y < rows; y++) {
+      for (uint8_t x = 0; x < cols; x++) lightBin(x, y, effectFrame_[static_cast<size_t>(y) * cols + x]);
+    }
+  }
+  // The timer stopped it: tell the pages (the WebSocket pushes on version_).
+  if (effects_.selected() != shownEffect_) {
+    shownEffect_ = effects_.selected();
+    version_ = version_ + 1;
   }
 
   const uint32_t fade = cfg_.fadeMs;
@@ -324,7 +368,7 @@ void LedEngine::renderLayers(uint32_t now) {
       }
       level = level * rampDown(since, fade) / 255;
     }
-    lightBin(h.x, h.y, scale(h.color, static_cast<uint8_t>(level)));
+    overlayBin(h.x, h.y, h.color, static_cast<uint8_t>(level));
     ++it;
   }
 }

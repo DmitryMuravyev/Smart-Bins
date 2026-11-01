@@ -71,6 +71,19 @@ struct LocateConfig {
   LocateMode mode = LocateMode::Steady;
 };
 
+// Grid effects (Task 12): the parameters used when an effect is started
+// from the UI or the API. Which effect runs is not saved: after a restart
+// the grid comes back dark, as with located bins.
+enum class EffectPalette : uint8_t { Auto, Heat, Ocean, Forest, Lava, Rainbow, Party };  // = led::Palette
+
+struct EffectsConfig {
+  uint8_t speed = 128;       // 1..255, 128 = each effect's natural pace
+  uint8_t intensity = 128;   // 1..255
+  EffectPalette palette = EffectPalette::Auto;
+  uint8_t brightness = 255;  // 1..255, on top of grid.brightness
+  uint16_t timerMin = 0;     // stop after this many minutes, 0 = keep running
+};
+
 // IPv4 address as four bytes, most significant first (192.168.1.50 = {192, 168, 1, 50}).
 using Ipv4 = uint8_t[4];
 
@@ -93,6 +106,7 @@ struct AppConfig {
   LightConfig lights[kLightChannels];
   uint16_t fadeMs = 400;
   LocateConfig locate;
+  EffectsConfig effects;
 };
 
 // Parses JSON into `out`, starting from defaults. On failure returns false,
@@ -125,6 +139,7 @@ const char *toString(Layout v);
 const char *toString(StartCorner v);
 const char *toString(LightMode v);
 const char *toString(LocateMode v);
+const char *toString(EffectPalette v);
 
 }  // namespace config
 }  // namespace sb
