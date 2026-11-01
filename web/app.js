@@ -2092,6 +2092,8 @@ function renderSystem() {
     ['system.flash', formatBytes(s.flashBytes)],
     ['system.uptime', formatUptime(s.uptimeS)],
     ['system.heap', `${formatBytes(s.heapFree)} (${t('system.minimum')} ${formatBytes(s.heapMin)})`],
+    // Only on a board with PSRAM.
+    ...(s.psramTotal ? [['system.psram', `${formatBytes(s.psramFree)} / ${formatBytes(s.psramTotal)}`]] : []),
     ['system.storage', `${formatBytes(s.fsUsed)} / ${formatBytes(s.fsTotal)}`],
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [

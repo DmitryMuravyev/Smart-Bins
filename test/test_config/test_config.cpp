@@ -177,23 +177,26 @@ static void test_pins() {
   std::string err;
   // Defaults: the board's pin map, written out without the BOOT button.
   TEST_ASSERT_TRUE_MESSAGE(parse("{}", cfg, err), err.c_str());
-  TEST_ASSERT_EQUAL(16, cfg.pins["grid_data_a"]);
+  TEST_ASSERT_EQUAL(14, cfg.pins["grid_data_a"]);
   TEST_ASSERT_EQUAL(35, cfg.pins["mic_analog"]);
   TEST_ASSERT_EQUAL(-1, cfg.pins["no_such_function"]);
   const std::string json = serialize(cfg);
-  TEST_ASSERT_TRUE(json.find("\"grid_data_a\": 16") != std::string::npos);
+  TEST_ASSERT_TRUE(json.find("\"grid_data_a\": 14") != std::string::npos);
   TEST_ASSERT_TRUE(json.find("\"button\"") == std::string::npos);
 
-  // Moving a pin, and back through serialize/parse.
-  TEST_ASSERT_TRUE_MESSAGE(parse("{\"microphone\":\"off\",\"pins\":{\"light_w4\":14,\"mic_i2s_sd\":-1}}", cfg, err), err.c_str());
-  TEST_ASSERT_EQUAL(14, cfg.pins["light_w4"]);
+  // Moving a pin (to the status LED's, which is freed), and back through
+  // serialize/parse.
+  TEST_ASSERT_TRUE_MESSAGE(
+      parse("{\"microphone\":\"off\",\"pins\":{\"light_w4\":2,\"status_led\":-1,\"mic_i2s_sd\":-1}}", cfg, err),
+      err.c_str());
+  TEST_ASSERT_EQUAL(2, cfg.pins["light_w4"]);
   TEST_ASSERT_EQUAL(-1, cfg.pins["mic_i2s_sd"]);
   AppConfig again;
   TEST_ASSERT_TRUE_MESSAGE(parse(serialize(cfg).c_str(), again, err), err.c_str());
-  TEST_ASSERT_EQUAL(14, again.pins["light_w4"]);
+  TEST_ASSERT_EQUAL(2, again.pins["light_w4"]);
 
   // The board's rules, with the function named in the message.
-  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":16}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":14}}", cfg, err));
   TEST_ASSERT_TRUE_MESSAGE(err.find("light_w4") != std::string::npos && err.find("grid_data_a") != std::string::npos,
                            err.c_str());
   TEST_ASSERT_FALSE(parse("{\"pins\":{\"light_w4\":7}}", cfg, err));

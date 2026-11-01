@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [esp32-4mb, esp32-8mb, esp32-16mb]
+        env: [esp32-4mb, esp32-8mb, esp32-16mb, esp32-16mb-psram]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -47,6 +47,11 @@ void writeSystemStatus(JsonObject out, WifiLink &network) {
   out["uptimeS"] = millis() / 1000;
   out["heapFree"] = heapFree();
   out["heapMin"] = heapMin();
+  // PSRAM, on a board that has it (the System tab shows a row for it).
+  if (ESP.getPsramSize() > 0) {
+    out["psramFree"] = psramFree();
+    out["psramTotal"] = ESP.getPsramSize();
+  }
   JsonObject wifi = out["wifi"].to<JsonObject>();
   const String ssid = network.ssid();  // empty while not connected
   wifi["ssid"] = ssid;

@@ -56,12 +56,13 @@ constexpr uint64_t kRestoreMargin = 64 * 1024;
 // Largest manifest and config.json read from an archive.
 constexpr size_t kMaxSmallFile = 8192;
 // The restored database is written to flash in steps of this size.
-constexpr size_t kWriteBuffer = 4096;
+constexpr size_t kWriteBuffer = mem::kRestoreWriteBuffer;  // 4 KB, 16 KB with PSRAM
 // Rows of a CSV import written per transaction. Each changed row dirties a
 // page or two of the database, and SQLite keeps a transaction's dirty pages
 // in RAM until the commit: 20 rows spread over the whole file needed more
 // heap than a board without PSRAM has (out of memory on a 112-row import).
-constexpr size_t kImportBatch = 5;
+// 5 rows without PSRAM, 50 with it (MemoryProfile.h).
+constexpr size_t kImportBatch = mem::kImportBatch;
 // Errors listed in an import's answer (the counts cover all of them).
 constexpr size_t kMaxImportErrors = 20;
 // An unfinished restore or import that has received nothing for this long

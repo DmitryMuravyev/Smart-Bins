@@ -8,6 +8,8 @@
 #include <memory>
 #include <vector>
 
+#include "MemoryProfile.h"
+
 namespace sb {
 namespace inventory {
 
@@ -23,14 +25,15 @@ const TextFieldInfo kTextFields[kTextFieldCount] = {
 
 constexpr size_t kMaxBinLabel = 32;
 constexpr int32_t kMaxQuantity = 1000000000;
-// Database page size. 2 KB rather than the flash sector's 4 KB: SQLite holds
-// several pages at once while it splits or merges B-tree pages during a
-// write, and with 4 KB pages that peak (40 KB and more on top of the page
-// cache) didn't fit in the heap a board without PSRAM has left. The cost is
-// that writing one page makes the FAT layer rewrite a whole 4 KB sector, so
-// a commit can erase twice as many sectors; at an inventory's rate of
-// changes that is far from mattering for flash wear.
-constexpr int kPageSize = 2048;
+// Database page size: 2 KB without PSRAM, the flash sector's 4 KB with it
+// (see MemoryProfile.h). SQLite holds several pages at once while it splits
+// or merges B-tree pages during a write, and with 4 KB pages that peak (40 KB
+// and more on top of the page cache) didn't fit in the heap a board without
+// PSRAM has left. The cost of 2 KB is that writing one page makes the FAT
+// layer rewrite a whole 4 KB sector, so a commit can erase twice as many
+// sectors; at an inventory's rate of changes that is far from mattering for
+// flash wear.
+constexpr int kPageSize = mem::kDbPageSize;
 
 // Category of the parts benchmark() creates, so they can be told apart (and
 // removed) even if the board restarts half way through.
@@ -498,12 +501,15 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   return true;
 }
 
-// Files made by firmware 0.5.0 before this change use 4 KB pages. VACUUM
-// rewrites the file with the page_size set above, but it builds the new copy
-// in RAM (temp_store = MEMORY), so it only runs while the file is still
-// small: an empty or nearly empty inventory, which is what any board has at
-// this stage of the project. A bigger file keeps its pages and works as
-// before, only with the higher RAM peaks of 4 KB pages.
+// A file whose page size differs from kPageSize (one made by firmware 0.5.0,
+// which used 4 KB pages, or a database moved between a board with PSRAM and
+// one without, e.g. through a backup) is converted. VACUUM rewrites the file
+// with the page_size set above, but it builds the new copy in RAM
+// (temp_store = MEMORY), so it only runs while the file is small enough for
+// the memory profile (mem::kDbMaxConvertBytes: 64 KB without PSRAM, 1 MB
+// with it). A bigger file keeps its pages and works as before; without
+// PSRAM, a file with 4 KB pages has the higher RAM peaks described at
+// kPageSize.
 bool InventoryDb::convertPageSize(std::string &err) {
   int64_t pageSize = 0, pages = 0;
   {
@@ -514,8 +520,7 @@ bool InventoryDb::convertPageSize(std::string &err) {
     pages = count.integer(0);
   }
   if (pageSize == kPageSize) return true;
-  constexpr int64_t kMaxConvertBytes = 64 * 1024;
-  if (pageSize * pages > kMaxConvertBytes) return true;
+  if (pageSize * pages > mem::kDbMaxConvertBytes) return true;
   return exec("VACUUM", err);
 }
 
