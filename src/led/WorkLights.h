@@ -110,7 +110,7 @@ class WorkLights {
 
     // Addressable strip.
     RmtStrip strip;
-    std::vector<uint8_t> out;  // encoded bytes; read by the RMT in the background
+    FrameBytes out;  // encoded bytes; read by the RMT in the background, so in internal RAM
     ChipInfo chip{};
     uint8_t order[3] = {1, 0, 2};
     uint16_t pixels = 0;

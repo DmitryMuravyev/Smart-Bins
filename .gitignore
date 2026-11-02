@@ -2,6 +2,11 @@
 .pio/
 .pioenvs/
 .piolibdeps/
+# Written by pioarduino when it builds the Arduino libraries from source
+# (custom_sdkconfig in platformio.ini)
+sdkconfig.*
+managed_components/
+dependencies.lock
 
 # VS Code: PlatformIO regenerates these files on every start
 .vscode/

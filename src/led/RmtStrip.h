@@ -7,13 +7,45 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 #include <driver/rmt_tx.h>
+#include <esp_heap_caps.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
 namespace sb {
 namespace led {
+
+// Allocates from internal RAM. The RMT's refill interrupt reads a frame's
+// bytes while it is on the wire, and since the transmit interrupt is built to
+// run while the flash cache is off (CONFIG_RMT_TX_ISR_CACHE_SAFE in
+// platformio.ini), the bytes must be where the CPU can read them without the
+// cache: internal RAM, never PSRAM (which goes through the same cache).
+// Without PSRAM every allocation is internal anyway.
+template <typename T>
+struct InternalAllocator {
+  using value_type = T;
+  InternalAllocator() = default;
+  template <typename U>
+  InternalAllocator(const InternalAllocator<U> &) {}
+  T *allocate(size_t n) {
+    void *p = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    // Out of internal RAM: any RAM rather than none. The strip still works;
+    // only a flash access by the system (outside a FlashGuard) could then
+    // cut a frame short, as before the interrupt was made cache-safe.
+    if (!p) p = heap_caps_malloc(n * sizeof(T), MALLOC_CAP_8BIT);
+    return static_cast<T *>(p);
+  }
+  void deallocate(T *p, size_t) { heap_caps_free(p); }
+  template <typename U>
+  bool operator==(const InternalAllocator<U> &) const { return true; }
+  template <typename U>
+  bool operator!=(const InternalAllocator<U> &) const { return false; }
+};
+
+// The encoded bytes of one frame, as handed to RmtStrip::write().
+using FrameBytes = std::vector<uint8_t, InternalAllocator<uint8_t>>;
 
 // Bit timing in nanoseconds: high and low time for a 0 bit and a 1 bit.
 struct BitTiming {
@@ -72,6 +104,13 @@ class RmtStrip {
 // the pixels take the next bits as a new frame, which shows as a flash on the
 // far end of a long strip (seen about 3 s after every light change, when the
 // light state was saved).
+//
+// Since the transmit interrupt is cache-safe (CONFIG_RMT_TX_ISR_CACHE_SAFE in
+// platformio.ini), a frame on the wire no longer stops during a flash access,
+// so this guard is no longer what keeps frames whole. It stays as a second
+// line of defence (a frame buffer that had to go to PSRAM, a build without
+// the option) and for the effect clock below, which keeps effects from
+// jumping ahead after a long write.
 //
 // While a FlashGuard exists, write() waits instead of starting a frame, and
 // the constructor returns only once frames already on the wire have finished:

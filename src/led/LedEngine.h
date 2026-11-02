@@ -126,7 +126,7 @@ class LedEngine {
   struct Segment {
     RmtStrip strip;
     std::vector<Rgb> pixels;
-    std::vector<uint8_t> out;
+    FrameBytes out;  // internal RAM: the RMT interrupt reads it (see RmtStrip.h)
   };
 
   static void taskEntry(void *arg);
