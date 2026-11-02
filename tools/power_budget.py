@@ -40,7 +40,9 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--cols", type=int, required=True, help="bins per row (X)")
     p.add_argument("--rows", type=int, required=True, help="rows of bins (Y)")
-    p.add_argument("--pixels-per-bin", type=int, default=2, choices=(1, 2, 3))
+    # 1-8, the same range the firmware accepts (grid.pixelsPerBin in config.json).
+    p.add_argument("--pixels-per-bin", type=int, default=2, choices=range(1, 9), metavar="1-8",
+                   help="pixels (addressable units) per bin, 1-8")
     p.add_argument("--chip", choices=sorted(CHIPS), default="ws2812b", help="LED chipset of the grid")
     p.add_argument("--work-pixels", type=int, default=0,
                    help="pixels on addressable work-light strips (same chipset and supply)")
