@@ -17,6 +17,11 @@ namespace {
 [[maybe_unused]] const char *TAG = "live";
 // How often the slowly changing values (LED current, memory, signal) are pushed.
 constexpr uint32_t kStatusPeriodMs = 2000;
+// Shortest gap between two pushes of the lights made only because their
+// current estimate moved (see WorkLights::powerVersion()). A fade sends a
+// couple of in-between figures and then the final one; a running rainbow
+// updates the figure once a second instead of 60 times.
+constexpr uint32_t kLightsPowerPeriodMs = 1000;
 // cleanupClients() closes the oldest connections beyond the library's limit;
 // once a second is plenty, as a page opens at most one socket.
 constexpr uint32_t kCleanupPeriodMs = 1000;
@@ -28,6 +33,7 @@ void LiveUpdates::begin(AsyncWebServer &server, Security &security, led::WorkLig
   leds_ = &leds;
   network_ = &network;
   sentVersion_ = lights.version();
+  sentPowerVersion_ = lights.powerVersion();
   sentLedsVersion_ = leds.version();
 
   // The password check exempts /ws (a browser can't answer a digest challenge
@@ -65,6 +71,7 @@ void LiveUpdates::loop() {
   // on, and a client that connects later gets a snapshot anyway.
   if (ws_.count() == 0) {
     sentVersion_ = lights_->version();
+    sentPowerVersion_ = lights_->powerVersion();
     sentLedsVersion_ = leds_->version();
     return;
   }
@@ -73,8 +80,14 @@ void LiveUpdates::loop() {
   // from web requests on another task, and several in quick succession (a
   // slider being dragged) collapse into one message per loop pass.
   const uint32_t version = lights_->version();
-  if (version != sentVersion_) {
+  const uint32_t powerVersion = lights_->powerVersion();
+  if (version != sentVersion_ ||
+      (powerVersion != sentPowerVersion_ && now - lastLightsPower_ >= kLightsPowerPeriodMs)) {
     sentVersion_ = version;
+    // Read before building the message: a figure that changes while it is
+    // built is pushed again next time instead of being lost.
+    sentPowerVersion_ = powerVersion;
+    lastLightsPower_ = now;
     ws_.textAll(lightsMessage());
   }
 

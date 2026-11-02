@@ -1279,8 +1279,9 @@ async function enterGrid() {
   $('#grid-brightness-out').textContent = percent($('#grid-brightness').value);
   const defaults = await attempt(() => api('/api/locate/defaults'));
   if (defaults) showLocateDefaults(defaults);
+  const seq = effectSaves;  // a save started meanwhile has the newer settings
   const effects = await attempt(() => api('/api/effects'));
-  if (effects) showEffects(effects);
+  if (effects && seq === effectSaves) showEffects(effects);
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,9 +1332,21 @@ function showEffectRunning(effect, remainingS) {
   }
 }
 
+// Like the locate defaults (see saveLocateDefaults()), only the answer to the
+// newest save is shown. Two settings changed in quick succession (speed, then
+// intensity) each send a save, and the first answer still carries the old
+// intensity: shown, it would put the slider back for a moment until the
+// second answer arrives. `effectSavesOpen` counts saves not yet answered, so
+// a refresh the WebSocket asks for meanwhile is skipped too (the last answer
+// brings the board's settings anyway).
+let effectSaves = 0;
+let effectSavesOpen = 0;
 async function saveEffects(params) {
+  const seq = ++effectSaves;
+  effectSavesOpen++;
   const e = await attempt(() => api('/api/effects', { form: params }));
-  if (e) showEffects(e);
+  effectSavesOpen--;
+  if (e && seq === effectSaves) showEffects(e);
 }
 
 // Locate defaults: how a bin lights up when it is located from anywhere (this
@@ -2230,9 +2243,13 @@ async function connectLive() {
         showEffectRunning(msg.effect, msg.effectRemainingS);
         // Another effect now (its timer ran out, another page or the API
         // started one): fetch its settings.
-        if (msg.effect !== state.effect && state.effect !== undefined) {
+        // Not while a save of ours is on its way: its answer is newer, and
+        // this list could still show the settings from before it. A save
+        // started while the list is loading makes it outdated as well.
+        if (msg.effect !== state.effect && state.effect !== undefined && effectSavesOpen === 0) {
           state.effect = msg.effect;
-          attempt(() => api('/api/effects')).then(e => { if (e) showEffects(e); });
+          const seq = effectSaves;
+          attempt(() => api('/api/effects')).then(e => { if (e && seq === effectSaves) showEffects(e); });
         }
       }
       $('#grid-status').textContent = t('grid.status', { ma: msg.estimateMa, fps: msg.fps })

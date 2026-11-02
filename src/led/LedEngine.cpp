@@ -95,6 +95,8 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
   }
 
   effects_.configure(g.cols, g.rows);
+  // Effect settings changes fade like everything else on the grid.
+  effects_.setParamFadeMs(cfg.fadeMs);
   effectFrame_.assign(static_cast<size_t>(g.cols) * g.rows, Rgb());
 
   brightness_ = Fader(g.brightness);
@@ -334,11 +336,22 @@ bool LedEngine::anyLit() const {
 void LedEngine::renderLayers(uint32_t now) {
   for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), Rgb());
 
+  // The grid brightness (the "Bin brightness" slider under "How a bin lights up")
+  // is the brightness of located bins and of the test patterns. Effects have
+  // their own brightness setting and are not dimmed by it: the two sliders
+  // are independent, and turning the bins down doesn't darken the fire.
+  const uint8_t binLevel = brightness_.value(now);
+
   if (test_ != TestPattern::None) {
     if (now - testStart_ > kTestTimeoutMs) {
       test_ = TestPattern::None;
     } else {
       renderTest(now);
+      if (binLevel < 255) {
+        for (Segment &seg : segments_) {
+          for (Rgb &c : seg.pixels) c = scale(c, binLevel);
+        }
+      }
       return;
     }
   }
@@ -381,7 +394,7 @@ void LedEngine::renderLayers(uint32_t now) {
       }
       level = level * rampDown(since, fade) / 255;
     }
-    overlayBin(h.x, h.y, h.color, static_cast<uint8_t>(level));
+    overlayBin(h.x, h.y, scale(h.color, binLevel), static_cast<uint8_t>(level));
     ++it;
   }
 }
@@ -424,22 +437,17 @@ void LedEngine::renderTest(uint32_t now) {
   }
 }
 
-// Turns pixels into the byte stream: brightness first, then gamma (gamma must
-// come last so dimming stays perceptually even), then color order. The current
-// limit is applied after the estimate, as one factor across both segments,
-// because both run from the same supply.
-void LedEngine::encodeAndSend(uint32_t now) {
-  uint8_t level;
-  {
-    Lock lock(lock_);
-    level = brightness_.value(now);
-  }
+// Turns pixels into the byte stream: gamma (after every brightness, which
+// renderLayers() has applied, so dimming stays perceptually even), then color
+// order. The current limit is applied after the estimate, as one factor across
+// both segments, because both run from the same supply.
+void LedEngine::encodeAndSend(uint32_t) {
   uint32_t estimate = 0;
   for (uint8_t s = 0; s < mapper_.segmentCount(); s++) {
     Segment &seg = segments_[s];
     seg.strip.waitDone(50);  // the previous frame must be out before its buffer changes
     uint8_t *o = seg.out.data();
-    for (const Rgb &px : seg.pixels) o = encodePixel(gamma_(scale(px, level)), channels_, order_, o);
+    for (const Rgb &px : seg.pixels) o = encodePixel(gamma_(px), channels_, order_, o);
     estimate += estimateMilliamps(seg.out.data(), seg.pixels.size(), channels_, current_);
   }
 

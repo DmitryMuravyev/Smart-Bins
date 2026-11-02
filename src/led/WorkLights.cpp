@@ -189,9 +189,10 @@ void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
     case Change::Power::Off: on = false; break;
     case Change::Power::Toggle: on = !on; break;
     case Change::Power::Keep:
-      // Picking a level, color or effect means "I want to see it", like on
-      // most smart lights, so it also switches the light on.
-      if (c.hasLevel || c.hasColor || c.hasEffect) on = true;
+      // Only the switch turns a light on. A level, color or effect picked
+      // while the light is off (or still fading out after "off") is kept for
+      // the next "on" and doesn't bring the light back: the page's switch
+      // shows "off", and the light must agree with it.
       break;
   }
   if (c.hasLevel) {
@@ -277,8 +278,13 @@ void WorkLights::renderStrip(Light &l, uint32_t now) {
     const Rgb c = uniform ? same : effectColor(l, i, now);
     o = encodePixel(gamma_(scale(c, level)), l.chip.channels, l.order, o);
   }
-  l.estimateMa = estimateMilliamps(l.out.data(), l.pixels, l.chip.channels, l.chip.current);
-  l.limitLevel = limitLevel(l.estimateMa, l.currentLimitMa);
+  const uint32_t estimate = estimateMilliamps(l.out.data(), l.pixels, l.chip.channels, l.chip.current);
+  const uint8_t limit = limitLevel(estimate, l.currentLimitMa);
+  // Only a change the page would show counts: the figure in mA, or the
+  // "limited" note appearing or going away.
+  if (estimate != l.estimateMa || (limit < 255) != (l.limitLevel < 255)) powerVersion_ = powerVersion_ + 1;
+  l.estimateMa = estimate;
+  l.limitLevel = limit;
   if (l.limitLevel < 255) {
     for (uint8_t &b : l.out) b = scale8(b, l.limitLevel);
   }

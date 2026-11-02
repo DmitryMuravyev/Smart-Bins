@@ -35,13 +35,13 @@ The page works on phones and computers, in English, Spanish and Russian, with a 
 
 ### Lights
 
-Every work light: on/off, brightness, and for color lights a color slider, a white-tone slider and 12 presets. Effects: **solid**, **breathe** and, for addressable strips, **rainbow**. Every change fades. The state is saved a few seconds after the last change and comes back, with a fade-in, after a restart. **All off** turns every light off.
+Every work light: on/off, brightness, and for color lights a color slider, a white-tone slider and 12 presets. Effects: **solid**, **breathe** and, for addressable strips, **rainbow**. Every change fades. Only the switch turns a light on or off: a brightness, color or effect picked while a light is off is used when it is switched on. The addressable strips show their estimated current, which follows the picture. The state is saved a few seconds after the last change and comes back, with a fade-in, after a restart. **All off** turns every light off.
 
 ### Grid
 
 - Tap a bin to light it, tap it again to turn it off; **Clear all** turns every bin off.
-- **How a bin lights up:** steady, slow pulse or fast pulse; how long it stays on; its color; the grid brightness. Saved at once.
-- **Effects** on the whole grid: **fire**, **sparks**, **relax** (slow, soft color fields) and **demo** (each in turn, 30s apart). With a microphone there are three music effects: **spectrum** (a bar per column, bass on the left), **beat** (a splash of color on every beat) and **pulse** (a glow from the middle that swells with the loudness). They adjust to the music's loudness by themselves; for them, intensity is the sensitivity. Speed, intensity, brightness and colors can be changed while an effect runs, and a timer stops it after 15 minutes to 4 hours. Every effect remembers its settings. Located bins always show on top of an effect. After a restart the grid comes back dark.
+- **How a bin lights up:** steady, slow pulse or fast pulse; how long it stays on; its color; the bin brightness (located bins only: effects have their own brightness). Saved at once.
+- **Effects** on the whole grid: **fire**, **sparks**, **relax** (slow, soft color fields) and **demo** (each in turn, 30s apart). With a microphone there are three music effects: **spectrum** (a bar per column, bass on the left), **beat** (a splash of color on every beat) and **pulse** (a glow from the middle that swells with the loudness). They adjust to the music's loudness by themselves; for them, intensity is the sensitivity. Speed, intensity, brightness and colors can be changed while an effect runs (every change fades in), and a timer stops it after 15 minutes to 4 hours. Every effect remembers its settings. Located bins always show on top of an effect. After a restart the grid comes back dark.
 - **Test patterns** for checking the wiring (see [Setting up the grid](#setting-up-the-grid)).
 
 ### Settings

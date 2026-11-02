@@ -13,11 +13,11 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `/api/locate/clear[?x=3&y=2]` | fades every located bin out, or just the one given |
 | `/api/locate/defaults` | without parameters: reads the defaults; with `color`, `mode`, `s`: changes and saves them |
 | `/api/led/test?pattern=walk\|chain\|rows\|columns\|colors\|off` | grid test patterns |
-| `/api/led/brightness?value=1..255` | grid brightness, applied and saved |
+| `/api/led/brightness?value=1..255` | brightness of located bins and test patterns (not of effects, which have their own), applied with a fade and saved |
 | `/api/effects` | without parameters: the running `effect` (`remainingS` until its timer stops it), `microphone` (whether one was found) and the running effect's settings. `effect=off\|fire\|sparks\|relax\|demo\|spectrum\|beat\|pulse` starts one with its own saved settings (the music effects answer 409 when `microphone` is false); `speed`, `intensity`, `brightness` (1..255), `palette=auto\|heat\|ocean\|forest\|lava\|rainbow\|party` and `timer` (minutes, 0 = keep running) change and save the settings of the effect named with them, or else of the running one (`effects.<name>` in `config.json`) |
 | `GET /api/led/status` | estimated grid current, frame rate, current limit active, the running `effect` and `effectRemainingS`, lit bins (`lit: [[x, y], ...]`) and their `version`; `/api/locate` and `/api/locate/clear` answer with the same status |
 | `GET /api/lights` | the work lights (`id`, name, type, state) |
-| `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow` |
+| `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow`. Without `on`, a change leaves the light on or off as it is (an off light uses the new setting when switched on) |
 | `/api/lights/off` | every light off |
 | `POST /api/security` | `password=...` sets the password (4–64 characters), empty removes it |
 | `GET /api/parts` | parts, 50 at a time, with the `total` number of matches. All parameters are optional: `q=stm32 lqfp` (every word must appear in some text field, any case, also Cyrillic and accented letters), `category=MCU` and `manufacturer=TI` (exact, any case), `x=3&y=2` (parts in that bin; `x=-1` for parts in no bin), `sort=id\|partNumber\|manufacturer\|category\|description\|package\|value\|quantity\|bin\|updated` with `order=asc\|desc` (empty text values always last), `offset=0&limit=50` (`limit` up to 100) |

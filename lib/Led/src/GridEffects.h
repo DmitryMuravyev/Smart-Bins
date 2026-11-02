@@ -148,7 +148,7 @@ struct EffectParams {
   uint8_t intensity = 128;   // 1..255; fire: how high the flames reach, sparks: how many, relax: contrast,
                              // music effects: sensitivity (how quiet a sound still shows)
   Palette palette = Palette::Auto;
-  uint8_t brightness = 255;  // 1..255, on top of the grid brightness
+  uint8_t brightness = 255;  // 1..255; the effect's own, independent of the bins' brightness
   uint16_t timerMin = 0;     // stop after this many minutes; 0 = keep running
 };
 
@@ -533,13 +533,31 @@ class EffectPlayer {
     const size_t cells = static_cast<size_t>(cols) * rows;
     a_.assign(cells, Rgb());
     b_.assign(cells, Rgb());
+    c_.assign(cells, Rgb());
   }
 
+  // How long a settings change takes to show in full (the grid's fade time,
+  // config fadeMs). 0 applies changes at once.
+  void setParamFadeMs(uint32_t ms) { paramFadeMs_ = ms; }
+
+  // Changes the running effect's settings. They don't jump: speed, intensity
+  // and brightness move from the values showing right now to the new ones
+  // over the fade time, and a new palette cross-fades from the old colors, so
+  // a slider let go or a palette picked looks like every other change on the
+  // grid. A change that arrives in the middle of such a fade starts from where
+  // that fade had got to.
   void setParams(const EffectParams &p, uint32_t nowMs) {
     // A new timer counts from now; an unchanged one keeps running.
     if (p.timerMin != params_.timerMin) setTimer(p.timerMin, nowMs);
+    const uint8_t t = paramProgress(nowMs);
+    from_ = shownParams(t);
+    // The palette can't be half-way between two: the one that dominates the
+    // picture at this moment is the starting point.
+    fromPalette_ = t < 128 ? fromPalette_ : params_.palette;
     params_ = p;
+    paramsAt_ = nowMs;
   }
+  // The settings as set (where a fade in progress is heading).
   const EffectParams &params() const { return params_; }
 
   // The latest sound analysis, for the music effects.
@@ -553,8 +571,17 @@ class EffectPlayer {
   // The effect fading out keeps the settings it ran with until it is gone,
   // so it doesn't jump to the new effect's speed, colors or brightness.
   void start(GridEffect effect, const EffectParams &p, uint32_t nowMs, uint32_t seed) {
-    const EffectParams old = params_;
+    // The outgoing effect fades out with the settings it shows right now
+    // (a settings fade may be in progress), in the palette that dominates.
+    const uint8_t t = paramProgress(nowMs);
+    EffectParams old = shownParams(t);
+    old.palette = t < 128 ? fromPalette_ : params_.palette;
     if (effect != GridEffect::Off) params_ = p;
+    // The new effect starts with its own settings as they are: the cross-fade
+    // between the two effects already covers the change.
+    from_ = params_;
+    fromPalette_ = params_.palette;
+    paramsAt_ = nowMs - paramFadeMs_;
     selected_ = effect;
     demoIndex_ = 0;
     demoSince_ = nowMs;
@@ -593,8 +620,22 @@ class EffectPlayer {
       std::fill(out, out + cells, Rgb());
       return false;
     }
-    current_.render(params_, nowMs, audio_, a_.data());
-    for (size_t i = 0; i < cells; i++) a_[i] = scale(a_[i], params_.brightness);
+    // The settings of this frame, part way through a settings fade.
+    const uint8_t pt = paramProgress(nowMs);
+    const EffectParams shown = shownParams(pt);
+    current_.render(shown, nowMs, audio_, a_.data());
+    if (pt < 255 && fromPalette_ != params_.palette) {
+      // A new palette: the same picture in the old colors, blended into the
+      // new ones. Rendering the effect a second time for the same moment
+      // changes nothing in it: no effect time has passed, so no simulation
+      // step runs and nothing new appears (no spark, no beat); only the
+      // colors are looked up again.
+      EffectParams old = shown;
+      old.palette = fromPalette_;
+      current_.render(old, nowMs, audio_, c_.data());
+      for (size_t i = 0; i < cells; i++) a_[i] = lerp(c_[i], a_[i], pt);
+    }
+    for (size_t i = 0; i < cells; i++) a_[i] = scale(a_[i], shown.brightness);
     const uint32_t since = nowMs - changedAt_;
     const bool fading = since < kFadeMs;
     if (fading) {
@@ -618,6 +659,26 @@ class EffectPlayer {
   static constexpr GridEffect kDemoOrder[] = {GridEffect::Fire, GridEffect::Sparks, GridEffect::Relax};
   static constexpr uint8_t kDemoCount = 3;
 
+  // 0..255: how far the settings fade has got (255 = the new settings in full).
+  uint8_t paramProgress(uint32_t nowMs) const {
+    // Signed: a time from just before the change (another task's clock
+    // reading) counts as "not started", not as long finished.
+    const int32_t since = static_cast<int32_t>(nowMs - paramsAt_);
+    if (since < 0) return 0;
+    return rampUp(static_cast<uint32_t>(since), paramFadeMs_);
+  }
+
+  // The settings showing at fade progress `t`: speed, intensity and
+  // brightness between the old and the new values; the palette and the timer
+  // as set (the palette is cross-faded in render()).
+  EffectParams shownParams(uint8_t t) const {
+    EffectParams p = params_;
+    p.speed = lerp8(from_.speed, params_.speed, t);
+    p.intensity = lerp8(from_.intensity, params_.intensity, t);
+    p.brightness = lerp8(from_.brightness, params_.brightness, t);
+    return p;
+  }
+
   void setTimer(uint16_t minutes, uint32_t nowMs) {
     stopAt_ = minutes ? nowMs + minutes * 60000u : 0;
     if (stopAt_ == 0 && minutes) stopAt_ = 1;  // 0 means "no timer"
@@ -640,6 +701,12 @@ class EffectPlayer {
   uint8_t cols_ = 0, rows_ = 0;
   EffectParams params_;
   EffectParams outgoing_;  // the settings of the effect fading out
+  // Settings fade: from_ is where speed, intensity and brightness started,
+  // fromPalette_ the palette being faded out, paramsAt_ when the change came.
+  EffectParams from_;
+  Palette fromPalette_ = Palette::Auto;
+  uint32_t paramsAt_ = 0;
+  uint32_t paramFadeMs_ = 400;
   GridEffect selected_ = GridEffect::Off;
   EffectState current_, previous_;
   uint32_t changedAt_ = 0;
@@ -648,6 +715,7 @@ class EffectPlayer {
   uint8_t demoIndex_ = 0;
   uint32_t demoSince_ = 0;
   std::vector<Rgb> a_, b_;  // the current and the outgoing effect's frame
+  std::vector<Rgb> c_;      // the current effect in the old palette, during a palette fade
   AudioFrame audio_;
 };
 
