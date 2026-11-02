@@ -98,7 +98,8 @@ class LedEngine {
   // changes) for a music effect without a microphone.
   bool startEffect(GridEffect effect, const EffectParams &params);
   // Changes the running effect's settings: speed, intensity, palette and
-  // brightness apply at once; a changed timer counts from now.
+  // brightness fade over to the new values (fadeMs); a changed timer counts
+  // from now.
   void setEffectParams(const EffectParams &params);
 
   // From the microphone task: a microphone was found, and the latest sound
@@ -107,6 +108,8 @@ class LedEngine {
   void setAudio(const AudioFrame &frame);
 
   void startTest(TestPattern pattern);
+  // Brightness of located bins and test patterns (grid.brightness), with a
+  // fade. Effects have their own brightness and don't follow this one.
   void setBrightness(uint8_t level);
 
   Status status();

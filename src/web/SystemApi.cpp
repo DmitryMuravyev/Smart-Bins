@@ -84,7 +84,15 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     doc["language"] = String(config.get().language);
     doc["chip"] = ESP.getChipModel();
     doc["cpuMhz"] = ESP.getCpuFreqMHz();
-    doc["flashBytes"] = ESP.getFlashChipSize();
+    // ESP.getFlashChipSize() reads the image header straight from flash
+    // (esp_flash_read), which switches the cache off like any file access:
+    // with no guard, a frame on the wire at that moment was cut short. The
+    // size never changes, so it is read once, under the guard, and kept.
+    static const uint32_t flashBytes = [] {
+      led::FlashGuard guard;
+      return static_cast<uint32_t>(ESP.getFlashChipSize());
+    }();
+    doc["flashBytes"] = flashBytes;
     {
       // The file system figures read the FAT from flash, which switches the
       // cache off: the strips pause meanwhile (see FlashGuard), or a frame

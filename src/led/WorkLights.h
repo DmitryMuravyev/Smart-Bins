@@ -82,6 +82,12 @@ class WorkLights {
   bool stripPower();
   // Increases with every state change; the WebSocket pushes the lights when it moves.
   uint32_t version() const { return version_; }
+  // Increases whenever an addressable light's current estimate (or whether
+  // it is being limited) changes. The estimate follows the picture, which
+  // keeps changing after the request that started it (a fade runs for the
+  // fade time, rainbow and breathe never stop), so the WebSocket polls this
+  // too and pushes the lights now and then while it moves.
+  uint32_t powerVersion() const { return powerVersion_; }
 
  private:
   struct Light {
@@ -150,6 +156,7 @@ class WorkLights {
   // Written under the lock, read without it: a 32-bit load is atomic on the ESP32,
   // and a reader that sees the old value just picks up the change one poll later.
   volatile uint32_t version_ = 0;
+  volatile uint32_t powerVersion_ = 0;  // the same, for the current estimates
   SemaphoreHandle_t lock_ = nullptr;
 };
 

@@ -603,6 +603,83 @@ static void test_player_settings_per_effect() {
   TEST_ASSERT_EQUAL(20, player.params().brightness);
 }
 
+// Settings changes fade (issue: a slider let go made the picture jump).
+static void test_player_settings_fade() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.setParamFadeMs(400);
+  EffectParams p;
+  p.brightness = 255;
+  player.start(GridEffect::Relax, p, 0, 1);
+  Rgb out[60];
+  for (uint32_t t = 0; t <= 3000; t += 16) player.render(t, 1, out);
+  int full = 0;
+  for (const Rgb &c : out) full += level(c);
+  p.brightness = 25;
+  player.setParams(p, 3000);
+  TEST_ASSERT_EQUAL(25, player.params().brightness);  // the target, at once
+  // Relax changes slowly, so frames a few ms apart compare fairly.
+  player.render(3000, 1, out);
+  int start = 0;
+  for (const Rgb &c : out) start += level(c);
+  player.render(3200, 1, out);
+  int half = 0;
+  for (const Rgb &c : out) half += level(c);
+  player.render(3400, 1, out);
+  int end = 0;
+  for (const Rgb &c : out) end += level(c);
+  TEST_ASSERT_TRUE(start > full * 9 / 10);           // no jump at the change
+  TEST_ASSERT_TRUE(half < start * 8 / 10 && half > end * 2);  // part way
+  TEST_ASSERT_TRUE(end < full * 15 / 100);           // there after the fade
+  // A change during a fade starts from where it had got to.
+  p.brightness = 255;
+  player.setParams(p, 3500);
+  player.render(3500, 1, out);
+  int again = 0;
+  for (const Rgb &c : out) again += level(c);
+  TEST_ASSERT_TRUE(again < full * 15 / 100);
+  // With no fade time, changes apply at once.
+  player.setParamFadeMs(0);
+  p.brightness = 25;
+  player.setParams(p, 4000);
+  player.render(4000, 1, out);
+  int instant = 0;
+  for (const Rgb &c : out) instant += level(c);
+  TEST_ASSERT_TRUE(instant < full * 15 / 100);
+}
+
+// A new palette cross-fades, and rendering the old colors along the way
+// doesn't disturb the effect: once the fade is over, the picture is exactly
+// the one of an effect that had the new palette all along.
+static void test_player_palette_fade() {
+  EffectParams party, ocean;
+  party.palette = Palette::Party;
+  ocean.palette = Palette::Ocean;
+  EffectPlayer a, b;
+  a.configure(10, 6);
+  b.configure(10, 6);
+  a.start(GridEffect::Sparks, party, 0, 42);
+  b.start(GridEffect::Sparks, ocean, 0, 42);
+  Rgb oa[60], ob[60];
+  for (uint32_t t = 0; t <= 2000; t += 16) {
+    a.render(t, 5, oa);
+    b.render(t, 5, ob);
+  }
+  a.setParams(ocean, 2000);
+  int differ = 0;
+  for (uint32_t t = 2016; t <= 2400; t += 16) {
+    a.render(t, 5, oa);
+    b.render(t, 5, ob);
+    differ += memcmp(oa, ob, sizeof(oa)) != 0;
+  }
+  TEST_ASSERT_TRUE(differ > 0);  // the old colors were still mixed in
+  for (uint32_t t = 2416; t <= 4000; t += 16) {
+    a.render(t, 5, oa);
+    b.render(t, 5, ob);
+  }
+  TEST_ASSERT_EQUAL_MEMORY(ob, oa, sizeof(oa));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_serpentine_top_left);
@@ -634,5 +711,7 @@ int main(int, char **) {
   RUN_TEST(test_pulse_grows_with_loudness);
   RUN_TEST(test_beat_splashes);
   RUN_TEST(test_player_settings_per_effect);
+  RUN_TEST(test_player_settings_fade);
+  RUN_TEST(test_player_palette_fade);
   return UNITY_END();
 }
