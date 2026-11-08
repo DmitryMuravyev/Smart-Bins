@@ -44,8 +44,10 @@ constexpr int kDbPageSize = kPsram ? 4096 : 2048;
 constexpr int64_t kDbMaxConvertBytes = kPsram ? 1024 * 1024 : 64 * 1024;
 // RAM the page cache may use, in KiB: the more of the file it holds, the
 // fewer flash reads a search does (and the fewer pauses of the LED strips,
-// see FlashGuard).
-constexpr int kDbCacheKiB = kPsram ? 512 : 16;
+// see FlashGuard). 8 KB without PSRAM (16 until 0.16.0): a page load with a
+// microSD card in ran the heap out, and a search reads a few more pages from
+// flash instead.
+constexpr int kDbCacheKiB = kPsram ? 512 : 8;
 
 // ---- Web server ----
 
@@ -64,8 +66,6 @@ constexpr size_t kImportBatch = kPsram ? 50 : 5;
 constexpr size_t kRestoreWriteBuffer = kPsram ? 16384 : 4096;
 // Files the FAT partition may have open at once (each holds a sector buffer).
 constexpr int kMaxOpenFiles = kPsram ? 8 : 4;
-// Files the microSD card may have open at once (see PhotoStore.cpp).
-constexpr int kCardMaxFiles = kPsram ? 6 : 3;
 
 // ---- Tasks (stacks are always in internal RAM) ----
 //
