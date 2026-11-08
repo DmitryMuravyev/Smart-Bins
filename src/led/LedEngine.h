@@ -25,6 +25,7 @@
 #include "RmtStrip.h"
 
 namespace sb {
+class PowerSupply;
 namespace led {
 
 // The pulse of a highlight for a locate.mode value from the config.
@@ -111,6 +112,14 @@ class LedEngine {
   // Brightness of located bins and test patterns (grid.brightness), with a
   // fade. Effects have their own brightness and don't follow this one.
   void setBrightness(uint8_t level);
+  // The LED supply's PS-ON control (see PowerSupply.h); nullptr: none. Set
+  // before begin().
+  void setSupply(PowerSupply *supply) { supply_ = supply; }
+  // The motion sensor's master switch (see MotionSensor.h): off fades the
+  // running effect to dark without stopping or changing it, on brings it
+  // back. Located bins and test patterns are not affected: they are asked
+  // for by someone at a page, who is there.
+  void setMaster(bool on);
 
   Status status();
   const GridMapper &mapper() const { return mapper_; }
@@ -150,6 +159,8 @@ class LedEngine {
   ChipCurrent current_ = {200, 10};
   Gamma gamma_;
   Fader brightness_;
+  Fader master_{255};  // the effect layer's level under the master switch
+  PowerSupply *supply_ = nullptr;
   int powerPin_ = -1;
 
   SemaphoreHandle_t lock_ = nullptr;

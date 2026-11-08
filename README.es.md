@@ -22,7 +22,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 - Inventario en SQLite en la placa: búsqueda mientras escribe en todos los campos, filtros, orden, botones **+ / −** para la cantidad y una vista de cajones con los resultados
 - Una foto por pieza, hecha con la cámara del móvil, guardada en la flash o en una tarjeta microSD
 - Copia de seguridad y restauración de todo (piezas, fotos, ajustes) en un solo archivo; exportación e importación CSV
-- Luces de trabajo: una tira RGB analógica, o hasta 3 tiras direccionables o blancas regulables, más 2 tiras blancas; cada cambio es gradual
+- Luces de trabajo: una tira RGB analógica, o hasta 3 tiras direccionables o blancas regulables, más 2 tiras blancas; cada cambio es gradual; con un sensor de movimiento opcional, se encienden solas
 - Efectos de luz en la cuadrícula (fuego, chispas, relax, demo) y efectos musicales con un micrófono I2S o analógico (placas con PSRAM)
 - Página de configuración Wi-Fi, dirección `smartbins.local`, actualización del firmware desde el navegador, contraseña opcional
 - Inglés, español y ruso; tema claro y oscuro
@@ -32,7 +32,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 - Una ESP32-DevKitC con un módulo **ESP32-WROOM-32E/UE-N16R2** (16 MB de flash, 2 MB de PSRAM), o un ESP32-WROOM-32 normal con 4, 8 o 16 MB de flash
 - Tiras LED direccionables: WS2812 / WS2812B / SK6812 (5 V) o WS2811 / WS2815 (12/24 V)
 - Un adaptador de nivel 74HCT245, interruptores MOSFET, una fuente para los LED (5, 12 o 24 V)
-- Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD
+- Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD, sensor de movimiento LD2410C o PIR
 
 Esquemas, cableado, lista de componentes y consumo: [docs/hardware/README.md](docs/hardware/README.md) (en inglés).
 

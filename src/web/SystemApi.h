@@ -21,6 +21,7 @@ namespace sb {
 
 class ConfigStore;
 class PhotoStore;
+class PowerSupply;
 class Security;
 class WifiLink;
 namespace inventory {
@@ -32,8 +33,11 @@ class InventoryDb;
 void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &network, Security &security,
                        inventory::InventoryDb &inventory, PhotoStore &photos, void (*scheduleRestart)());
 
+// The LED supply whose PS-ON state writeSystemStatus() adds (nullptr: none).
+void setPowerSupply(PowerSupply *supply);
+
 // The values of /api/system that change while the board runs (uptime, memory,
-// signal strength). The WebSocket pushes these every few seconds.
+// signal strength, the LED supply). The WebSocket pushes these every few seconds.
 void writeSystemStatus(JsonObject out, WifiLink &network);
 
 }  // namespace sb

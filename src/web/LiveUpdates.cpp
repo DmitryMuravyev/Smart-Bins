@@ -73,6 +73,7 @@ void LiveUpdates::loop() {
     sentVersion_ = lights_->version();
     sentPowerVersion_ = lights_->powerVersion();
     sentLedsVersion_ = leds_->version();
+    sentMotionVersion_ = motionVersion();
     return;
   }
 
@@ -81,9 +82,12 @@ void LiveUpdates::loop() {
   // slider being dragged) collapse into one message per loop pass.
   const uint32_t version = lights_->version();
   const uint32_t powerVersion = lights_->powerVersion();
-  if (version != sentVersion_ ||
+  // The motion sensor's state travels with the lights (the Lights page shows it).
+  const uint32_t motion = motionVersion();
+  if (version != sentVersion_ || motion != sentMotionVersion_ ||
       (powerVersion != sentPowerVersion_ && now - lastLightsPower_ >= kLightsPowerPeriodMs)) {
     sentVersion_ = version;
+    sentMotionVersion_ = motion;
     // Read before building the message: a figure that changes while it is
     // built is pushed again next time instead of being lost.
     sentPowerVersion_ = powerVersion;

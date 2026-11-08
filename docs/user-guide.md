@@ -102,6 +102,25 @@ Under Settings → **Work lights**, each of the five channels is one of:
 
 **Maximum brightness** caps a channel that is too bright for the room. Addressable channels also take the number of pixels, LED type, color order and current limit.
 
+### LED supply on/off (PS-ON)
+
+With a supply that has remote on/off and a standby output, such as the Mean Well EPP-300-12 ([hardware guide, section 7](hardware/README.md)), set the **LED supply on/off (PS-ON)** pin in Settings, Pins (GPIO2 in the guide, with the status LED set to –), and **LED supply power good (PG)** if it is wired (GPIO39). There is no switch for it: the supply's main output goes on as soon as any light needs it (a located bin, an effect, a test pattern or a work light) and off once every light has been dark for about 2.5 seconds. The LEDs get data only once the output is up: when PG goes high, or 500 ms after switching on without PG. The System page shows whether the supply is on.
+
+### Motion sensor
+
+A motion sensor on the analog microphone's pin (GPIO35 by default) works as a master switch: when nobody has been at the bench for a while, every work light and the grid's effect fade to dark, and when someone stays, they come back as they were. Wiring and suitable modules: [hardware guide, section 8](hardware/README.md#8-microphone-and-motion-sensor-optional).
+
+- **Lights on after** (1–60s, 5 by default): the sensor has to see someone for this whole time. A person walking past or stopping for a moment doesn't keep it up, so the lights stay dark.
+- **Lights off after** (1–240 min, 5 by default): the lights go dark once the sensor has seen nobody for this long. With a PIR sensor, which only notices movement, make it longer.
+- The sensor never changes the lights' own settings. Which lights are on, their levels, colors and effects stay as you set them on the Lights page; a light you switched off stays off when you come back.
+- While the sensor has everything dark, the Lights page and the Grid page's Effects show a notice with a **Turn back on** button.
+- Located bins and test patterns still light up while nobody is sensed: you asked for them from a page.
+- Switching a light or a grid effect on from a page (or **Turn back on**) brings everything back at once, and it stays on, with nobody sensed, until someone arrives and leaves again (or you switch it off): you may be switching it on from elsewhere.
+- After a restart, the lights come on as they were and go dark after the off delay unless someone is sensed.
+- With the LED supply switched by PS-ON (below), dark lights also mean the supply's main output is off.
+- The Lights page shows whether someone counts as being at the bench and the sensor's output right now, which helps while aiming it.
+- The sensor and the analog microphone share the pin, so turning the sensor on switches an analog microphone off.
+
 ### Microphone and pins
 
 - **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden. The microphone and the music effects need a board with PSRAM (the 16 MB PSRAM build): on a board without it they are off and the choice is greyed out, so that the web server keeps enough memory, above all with a microSD card in the slot.

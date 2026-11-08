@@ -30,6 +30,7 @@
 #include "WorkEffects.h"
 
 namespace sb {
+class PowerSupply;
 namespace led {
 
 class WorkLights {
@@ -80,6 +81,15 @@ class WorkLights {
   const char *set(uint8_t id, const Change &change);
   void allOff();
   bool stripPower();
+  // The LED supply's PS-ON control (see PowerSupply.h); nullptr: none. Set
+  // before begin().
+  void setSupply(PowerSupply *supply) { supply_ = supply; }
+  // The motion sensor's master switch (see MotionSensor.h). Off fades every
+  // light to dark; on fades back the ones that are on. The lights' own
+  // states (on/off, level, color, effect) are not touched, so the Lights
+  // page keeps showing (and saving) what the user set.
+  void setMaster(bool on);
+  bool master();
   // Increases with every state change; the WebSocket pushes the lights when it moves.
   uint32_t version() const { return version_; }
   // Increases whenever an addressable light's current estimate (or whether
@@ -146,6 +156,8 @@ class WorkLights {
   Gamma gamma_;
 
   int powerPin_ = -1;
+  PowerSupply *supply_ = nullptr;
+  bool master_ = true;
   bool hasStrips_ = false;
   bool powered_ = false;
   uint32_t poweredAt_ = 0;

@@ -110,6 +110,22 @@ struct NetworkConfig {
   Ipv4 dns = {0, 0, 0, 0};  // 0.0.0.0 = use the gateway
 };
 
+// Motion sensor (Task 16): switches the work lights on when someone stays at
+// the bench and off once nobody has been there for a while. Any sensor with
+// a digital "someone is here" output works: a 24 GHz radar such as the
+// LD2410C (it also notices a person sitting still) or a PIR module such as
+// the HC-SR501 or AM312 (in repeat-trigger mode). Its output goes to the
+// analog microphone's pin (pins.mic_analog, GPIO35 by default), so the
+// analog microphone and the sensor can't be used together.
+struct MotionConfig {
+  bool enabled = false;
+  // The output must stay on this long before the lights come on: someone
+  // walking past or stopping for a moment doesn't switch them on.
+  uint8_t onDelayS = 5;
+  // The lights go off once the output has been off this long.
+  uint16_t offDelayMin = 5;
+};
+
 // Which GPIO each function uses (Task 14), in the order of board::kDefaultPins;
 // -1 = not wired. Starts as the default pin map. Changes apply after a
 // restart. The BOOT button (GPIO0) is fixed and not part of config.json.
@@ -136,6 +152,7 @@ struct AppConfig {
   EffectSettings effects[kGridEffects];  // indexed as effectName()
   PinsConfig pins;
   MicType microphone = MicType::I2s;
+  MotionConfig motion;
 };
 
 // Parses JSON into `out`, starting from defaults. On failure returns false,

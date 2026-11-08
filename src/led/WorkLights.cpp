@@ -1,5 +1,7 @@
 #include "WorkLights.h"
 
+#include "PowerSupply.h"
+
 #include <Arduino.h>
 #include <Preferences.h>
 
@@ -180,6 +182,22 @@ bool WorkLights::stripPower() {
   return powered_;
 }
 
+void WorkLights::setMaster(bool on) {
+  Lock lock(lock_);
+  if (on == master_) return;
+  master_ = on;
+  const uint32_t now = effectMillis();
+  for (uint8_t i = 0; i < count_; i++) lights_[i].level.set(targetLevel(lights_[i]), now, fadeMs_);
+  // Not a change of the lights' states (nothing to save), but the pages show
+  // whether the master switch has them dark.
+  version_ = version_ + 1;
+}
+
+bool WorkLights::master() {
+  Lock lock(lock_);
+  return master_;
+}
+
 // Called with the lock held. Updates the user state, then starts the fades
 // from wherever the output is right now.
 void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
@@ -220,7 +238,7 @@ void WorkLights::applyChange(Light &l, const Change &c, uint32_t now) {
 // Output level for the current state: level x maxBrightness, scaled from
 // 255 x 255 to the 0..65535 range of the fader.
 uint16_t WorkLights::targetLevel(const Light &l) const {
-  if (!l.state.on) return 0;
+  if (!l.state.on || !master_) return 0;
   return static_cast<uint16_t>(static_cast<uint32_t>(l.state.level) * l.maxBrightness * 65535u / (255u * 255u));
 }
 
@@ -329,12 +347,14 @@ void WorkLights::run() {
       Lock lock(lock_);
       bool wantStrips = false;
       bool stripsLit = false;
+      bool plainLit = false;  // a PWM light is (or is heading) on
       for (uint8_t i = 0; i < count_; i++) {
         Light &l = lights_[i];
         const bool m = moving(l, now);
         anyMoving |= m;
         if (l.type != config::LightMode::Addressable) {
           writePwm(l, now);
+          plainLit |= l.level.target() > 0 || l.level.value(now) > 0;
           continue;
         }
         wantStrips |= l.level.target() > 0;
@@ -356,8 +376,15 @@ void WorkLights::run() {
         }
       }
       if (stripsLit) lastLit_ = now;
+      // The LED supply (PS-ON): the plain lights need it while any of them
+      // is lit (their MOSFETs have nothing to switch without it), the strips
+      // from the first request until their own switch has opened again,
+      // which happens only once the supply's output is up. The plain lights
+      // don't wait for it: their fade-in simply starts a moment early.
+      if (supply_) supply_->want(PowerSupply::Plain, plainLit);
+      const bool supplyUp = !supply_ || supply_->want(PowerSupply::Strips, hasStrips_ && (wantStrips || stripsLit || powered_));
       if (hasStrips_) {
-        if ((wantStrips || stripsLit) && !powered_) setStripPower(true);
+        if ((wantStrips || stripsLit) && !powered_ && supplyUp) setStripPower(true);
         if (powered_ && !wantStrips && !stripsLit && now - lastLit_ > kPowerOffDelayMs) setStripPower(false);
       }
       saveNow = dirtySince_ && now - dirtySince_ >= kSaveDelayMs;

@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 
 #include "ApiUtil.h"
+#include "MotionSensor.h"
 #include "led/WorkLights.h"
 
 namespace sb {
@@ -36,6 +37,18 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
 
 }  // namespace
 
+namespace {
+MotionSensor *motionSensor = nullptr;
+}  // namespace
+
+void setMotionSensor(MotionSensor *sensor) { motionSensor = sensor; }
+
+void holdMotionSensor() {
+  if (motionSensor && motionSensor->enabled()) motionSensor->hold();
+}
+
+uint32_t motionVersion() { return motionSensor && motionSensor->enabled() ? motionSensor->version() : 0; }
+
 void writeLights(JsonDocument &doc, led::WorkLights &lights) {
   // The change counter, read before the lights themselves: a change made in
   // between then shows up in the list under the older number, which is safe
@@ -51,6 +64,11 @@ void writeLights(JsonDocument &doc, led::WorkLights &lights) {
     if (lights.info(i, info)) addLight(arr, info);
   }
   doc["stripPower"] = lights.stripPower();
+  if (motionSensor && motionSensor->enabled()) {
+    JsonObject m = doc["motion"].to<JsonObject>();
+    m["present"] = motionSensor->present();
+    m["signal"] = motionSensor->signal();
+  }
 }
 
 namespace {
@@ -72,6 +90,11 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
 
   server.on("/api/lights/off", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
     lights.allOff();
+    sendLights(req, lights);
+  });
+
+  server.on("/api/lights/master-on", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
+    holdMotionSensor();
     sendLights(req, lights);
   });
 
@@ -118,6 +141,9 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     }
 
     if (const char *err = lights.set(static_cast<uint8_t>(id), c)) return sendError(req, 400, err);
+    // Switched on (or left on with a new setting) by someone at a page.
+    led::WorkLights::Info info;
+    if (lights.info(static_cast<uint8_t>(id), info) && info.state.on) holdMotionSensor();
     sendLights(req, lights);
   });
 }

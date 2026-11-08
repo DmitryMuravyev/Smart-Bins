@@ -53,7 +53,7 @@ All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near
 | 3 | White channel W4 | 21 | out | N-MOSFET only |
 | 3 | White channel W5 | 22 | out | N-MOSFET only |
 | 3 | Microphone I2S SCK / WS / SD | 26 / 25 / 34 | out / out / in | INMP441 |
-| 3 | Analog microphone (instead of I2S) | 35 | in (ADC1) | MAX9814 |
+| 3 | Analog microphone (instead of I2S), or motion sensor | 35 | in (ADC1) | MAX9814; LD2410C, HC-SR501, AM312 (section 8) |
 | – | microSD SCK / MISO / MOSI / CS | 18 / 19 / 23 / 5 | SPI | optional |
 | – | Button (clear highlight, factory reset) | 0 | in | on-board BOOT button |
 | – | Status LED | 2 | out | on-board LED; set to – in Settings when PS-ON is wired to GPIO2 |
@@ -232,8 +232,8 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 - **Cooling:** without a fan the EPP-300-12 delivers 200 W (16.7 A), far more than the reference grid needs (about 36 W at full white), so no fan is required. The AUX output can drive a small 12 V fan for the enclosure.
 - **Mains:** the EPP-300 is an open-frame supply with exposed mains. Mount it in a closed enclosure and feed it through an IEC inlet with a fuse and a switch. AC goes in on CN1 (JST VH): pin 1 N, pin 3 L, pin 5 protective earth (FG), which the datasheet requires to be connected. Also earth the mounting holes marked for grounding if the enclosure is metal.
 - **Fuses:** the main output can deliver 25 A into a short, so fuses F1–F3 are essential.
-- **Breadboard shortcut:** until the firmware drives PS-ON (see below), wire PS-ON to 5VSB to keep the main output on.
-- PS-ON and PG are on the firmware's list: the pins are reserved here, and the supply control (on before any light needs power, off after the last fade-out, PG checks) comes with the power-switch work in a later task.
+- **Breadboard shortcut:** without the firmware driving PS-ON (its pin not set), wire PS-ON to 5VSB to keep the main output on.
+- **Firmware:** set the pins in Settings, Pins: **LED supply on/off (PS-ON)** to GPIO2 (and the status LED to –), **LED supply power good (PG)** to GPIO39. The main output then goes on as soon as any light needs power and off once every light has been dark for about 2.5 seconds; the grid and work-strip switches close, and LED data goes out, only once PG is high (500 ms after PS-ON without PG). PG dropping while the output is on is logged as a supply fault; a PG that doesn't come up within 2 s is logged too, and the lights go on anyway.
 
 ### Option B: any other supply
 
@@ -254,7 +254,7 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 
 ---
 
-## 8. Microphone (optional)
+## 8. Microphone and motion sensor (optional)
 
 **INMP441 (I2S, recommended)**
 
@@ -270,6 +270,16 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 Keep the wires under 20 cm. Digital I2S is immune to the ESP32 ADC's noise, which is why it is preferred.
 
 **MAX9814 (analog, alternative):** VDD to 3V3, OUT to GPIO35, GAIN floating (60 dB) or to GND (50 dB). Use one microphone type or the other, not both.
+
+**Motion sensor (optional, instead of the analog microphone):** a master switch over the lights: they fade to dark when nobody has been at the bench for a while and come back as they were when someone stays (Settings, Motion sensor; user guide, Motion sensor). Its digital output goes to GPIO35, the analog microphone's pin, so the two can't be used together; the I2S microphone can.
+
+| Module | Supply | Notes |
+|---|---|---|
+| **LD2410C** (24 GHz radar, recommended) | 5 V | OUT is 3.3 V, straight to GPIO35. Also senses someone sitting still, which a PIR doesn't. Limit its range in the HLKRadarTool phone app (the gates past your chair off) so people elsewhere in the room don't count. |
+| HC-SR501 (PIR) | 5–20 V (the 12 V rail works) | OUT is 3.3 V. Set the jumper to repeat trigger (H) and the time pot to the minimum (about 3 s); turn the sensitivity pot down to shorten its range. Its output goes low between movements, so give the lights a longer off delay. |
+| AM312 (small PIR) | 2.7–12 V | OUT is 3.3 V; fixed range of a few meters and a 2 s hold. |
+
+Point the sensor at the chair rather than the room. The lights come on only once the output has stayed on for the whole on delay (5s by default), which a person walking past doesn't keep up.
 
 ---
 

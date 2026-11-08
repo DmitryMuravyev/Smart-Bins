@@ -187,6 +187,24 @@ function isStale(kind, version) {
 function updateLights(data) {
   if (!isStale('lights', data.version)) state.lights = data.lights;
   renderLights(false);
+  renderMotion(data.motion);
+}
+
+// The motion sensor's line on the Lights page: whether someone counts as at
+// the bench, and the sensor's output right now (handy while aiming it).
+function renderMotion(m) {
+  const line = $('#lights-motion');
+  line.hidden = !m;
+  // Nobody there: the sensor's master switch has everything dark, whatever
+  // the cards and the effect chips say.
+  state.motionDark = !!m && !m.present;
+  $('#lights-dark').hidden = !state.motionDark;
+  renderEffectsDark();
+  if (!m) return;
+  line.textContent = t('lights.motion', {
+    state: t(m.present ? 'lights.motionPresent' : 'lights.motionAbsent'),
+    signal: t(m.signal ? 'lights.motionSignalOn' : 'lights.motionSignalOff'),
+  });
 }
 
 // A light with a change still on its way (being sent, or waiting to be sent
@@ -1358,6 +1376,9 @@ function bindInventory() {
 // Grid
 
 async function enterGrid() {
+  // The lights carry the motion sensor's state, which the effects card
+  // shows (see renderMotion()).
+  loadLights();
   if (!state.config) state.config = await attempt(() => api('/api/config'));
   if (!state.config) return;
   const g = state.config.grid;
@@ -1425,8 +1446,17 @@ function showEffects(e) {
 
 // Marks the running effect and shows how long its timer has left. Also
 // called with the grid status pushed over the WebSocket.
+// The motion sensor's notice in the effects card: only while it keeps a
+// running effect dark. The effect runs on meanwhile, so its timer still
+// stops it on time.
+function renderEffectsDark() {
+  $('#effects-dark').hidden = !(state.motionDark && state.effectRunning);
+}
+
 function showEffectRunning(effect, remainingS) {
   for (const b of $$('#effect-pick button')) b.classList.toggle('on', b.dataset.effect === (effect || 'off'));
+  state.effectRunning = !!effect && effect !== 'off';
+  renderEffectsDark();
   const left = $('#effect-timer-left');
   left.hidden = !remainingS;
   if (remainingS) {
@@ -1681,6 +1711,7 @@ function renderHardware() {
   renderGridPreview();
   renderLightFields();
   renderPinFields();
+  renderMotionFields();
 }
 
 // The grid as the form describes it now (not yet saved).
@@ -1921,14 +1952,20 @@ function renderPinFields() {
   checkPins();
 }
 
+// The motion sensor is on in the saved configuration: it reads the analog
+// microphone's pin, which then stays in the pin list.
+function motionOn() {
+  return !!(state.config && state.config.motion && state.config.motion.enabled);
+}
+
 // Only the pins of the chosen microphone are shown (none when the board
-// runs no microphone at all).
+// runs no microphone at all), and the analog one while the motion sensor uses it.
 function updateMicPins() {
   const mic = $('#hw-mic').disabled ? 'none' : $('#hw-mic').value;
   for (const row of $$('#hw-pin-list .pin-row')) {
     const n = row.dataset.pin;
     if (n.startsWith('mic_i2s')) row.hidden = mic !== 'i2s';
-    if (n === 'mic_analog') row.hidden = mic !== 'analog';
+    if (n === 'mic_analog') row.hidden = mic !== 'analog' && !motionOn();
   }
   checkPins();
 }
@@ -1968,8 +2005,48 @@ async function savePins() {
     // A board without a microphone keeps its microphone pins as they were,
     // for the day the configuration moves to a board with PSRAM.
     if (row.hidden && $('#hw-mic').disabled) continue;
+    // The motion sensor's pin is kept even with no analog microphone.
+    if (row.dataset.pin === 'mic_analog' && motionOn()) {
+      cfg.pins.mic_analog = Number(sel.value);
+      continue;
+    }
     // A hidden microphone pin is set free, so it can't clash with anything.
     cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
+  }
+  await saveAndRestart(cfg);
+}
+
+// Motion sensor (Settings): on/off and the two delays. Its output is read on
+// the analog microphone's pin, so turning it on with the analog microphone
+// chosen warns that the microphone goes.
+function renderMotionFields() {
+  const m = (state.config && state.config.motion) || { enabled: false, onDelayS: 5, offDelayMin: 5 };
+  $('#hw-motion-on').checked = !!m.enabled;
+  $('#hw-motion-delay-on').value = m.onDelayS;
+  $('#hw-motion-delay-off').value = m.offDelayMin;
+  updateMotionFields();
+}
+
+function updateMotionFields() {
+  const on = $('#hw-motion-on').checked;
+  for (const el of [$('#hw-motion-delay-on'), $('#hw-motion-delay-off')]) el.disabled = !on;
+  const analogMic = state.config && state.config.microphone === 'analog';
+  $('#hw-motion-mic').hidden = !(on && analogMic);
+}
+
+async function saveMotion() {
+  const onS = Number($('#hw-motion-delay-on').value), offMin = Number($('#hw-motion-delay-off').value);
+  if (!(onS >= 1 && onS <= 60) || !(offMin >= 1 && offMin <= 240)) return toast(t('hw.motionRange'), true);
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  const on = $('#hw-motion-on').checked;
+  cfg.motion = { enabled: on, onDelayS: Math.round(onS), offDelayMin: Math.round(offMin) };
+  // The sensor takes the analog microphone's pin.
+  if (on && cfg.microphone === 'analog') cfg.microphone = 'off';
+  // A pin for the sensor: the default one if the microphone had freed it.
+  if (on && cfg.pins && cfg.pins.mic_analog === -1) {
+    const def = state.pins && state.pins.pins.find(p => p.name === 'mic_analog');
+    if (def) cfg.pins.mic_analog = def.default;
   }
   await saveAndRestart(cfg);
 }
@@ -2415,6 +2492,8 @@ function renderSystem() {
     // Only on a board with PSRAM.
     ...(s.psramTotal ? [['system.psram', `${formatBytes(s.psramFree)} / ${formatBytes(s.psramTotal)}`]] : []),
     ['system.storage', `${formatBytes(s.fsUsed)} / ${formatBytes(s.fsTotal)}`],
+    // Only with the LED supply under PS-ON control.
+    ...(s.supply ? [['system.supply', t(!s.supply.on ? 'system.supplyOff' : s.supply.ready ? 'system.supplyOn' : 'system.supplyStarting')]] : []),
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
       ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],
@@ -2556,6 +2635,16 @@ function bindControls() {
     if (state.system && name === state.system.device) return;
     if (confirm(t('settings.deviceNameConfirm', { name }))) saveDeviceName(name);
   });
+  // "Turn back on" in the motion sensor's notices: the lights and the effect
+  // come back until someone has come and gone.
+  for (const b of document.querySelectorAll('[data-master-on]')) {
+    b.addEventListener('click', async () => {
+      if (await attempt(() => api('/api/lights/master-on', { method: 'POST' }))) {
+        // The board applies it on its next pass; ask again a moment later.
+        setTimeout(loadLights, 300);
+      }
+    });
+  }
   $('#lights-off').addEventListener('click', async () => {
     const res = await attempt(() => api('/api/lights/off', { method: 'POST' }));
     if (res) updateLights(res);
@@ -2626,6 +2715,8 @@ function bindControls() {
   $('#hw-lights-save').addEventListener('click', saveLights);
   $('#hw-mic').addEventListener('change', updateMicPins);
   $('#hw-pins-save').addEventListener('click', savePins);
+  $('#hw-motion-on').addEventListener('change', updateMotionFields);
+  $('#hw-motion-save').addEventListener('click', saveMotion);
   $('#hw-pins-defaults').addEventListener('click', defaultPins);
   $('#firmware-file').addEventListener('change', pickFirmware);
   $('#firmware-upload').addEventListener('click', installFirmware);

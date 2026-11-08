@@ -107,6 +107,14 @@
       <h1 data-i18n="nav.lights">Lights</h1>
       <button class="secondary" id="lights-off" data-i18n="lights.allOff">All off</button>
     </div>
+    <!-- The motion sensor's state, when one is in use (Settings, Motion sensor). -->
+    <p class="muted small" id="lights-motion" hidden></p>
+    <!-- Shown while the motion sensor has everything dark (its master switch):
+         the cards below keep showing the lights' own settings. -->
+    <div class="dark-notice" id="lights-dark" hidden>
+      <p data-i18n="lights.darkNotice">Nobody is at the bench, so the motion sensor has turned the lights off. Your settings below are kept, and everything comes back when someone is sensed.</p>
+      <button type="button" class="small" data-master-on data-i18n="lights.masterOn">Turn back on</button>
+    </div>
     <div id="lights-list" class="cards"></div>
     <p class="muted" id="lights-empty" hidden data-i18n="lights.none">No work lights are configured. Set them up in Settings, Work lights.</p>
   </section>
@@ -143,6 +151,10 @@
     <!-- Effects (Task 12): run under the located bins, which always show on top. -->
     <div class="card" id="effects-card">
       <h2 data-i18n="effects.title">Effects</h2>
+      <div class="dark-notice" id="effects-dark" hidden>
+        <p data-i18n="effects.darkNotice">Nobody is at the bench, so the motion sensor has turned the effect off. It comes back when someone is sensed.</p>
+        <button type="button" class="small" data-master-on data-i18n="lights.masterOn">Turn back on</button>
+      </div>
       <div class="chips" id="effect-pick">
         <button data-effect="off" data-i18n="effects.off">Off</button>
         <button data-effect="fire" data-i18n="effects.fire">Fire</button>
@@ -334,6 +346,22 @@
         <button class="secondary" id="hw-pins-defaults" data-i18n="hw.pinsDefaults">Default pins</button>
       </div>
       <p class="notice"><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.pinsWarn">If the board stops responding after a pin change, hold its BOOT button for 10s: that restores all settings, including the default pins.</span></p>
+    </details>
+    <!-- Motion sensor (Task 16) on the analog microphone's pin: switches the
+         work lights on when someone stays and off when everyone has left. -->
+    <details class="card hw" id="hw-motion">
+      <summary data-i18n="hw.motion">Motion sensor</summary>
+      <p class="muted small" data-i18n="hw.motionHint">Switches the work lights on when someone stays at the bench and off when nobody has been there for a while. Wire the sensor's output to the analog microphone pin (GPIO35 by default, set in Microphone and pins). An LD2410C radar also notices someone sitting still; a PIR module (HC-SR501, AM312) only notices movement.</p>
+      <label class="check"><input type="checkbox" id="hw-motion-on"><span data-i18n="hw.motionOn">Use a motion sensor</span></label>
+      <div class="hw-fields">
+        <label><span data-i18n="hw.motionOnDelay">Lights on after (s)</span><input type="number" id="hw-motion-delay-on" min="1" max="60" inputmode="numeric"></label>
+        <label><span data-i18n="hw.motionOffDelay">Lights off after (min)</span><input type="number" id="hw-motion-delay-off" min="1" max="240" inputmode="numeric"></label>
+      </div>
+      <p class="muted small" data-i18n="hw.motionDelays">The sensor has to see someone for the whole on delay, so passing by doesn't switch the lights on. Lights switched by hand stay as they are until the next arrival or departure.</p>
+      <p class="notice" id="hw-motion-mic" hidden><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.motionMic">The analog microphone uses the same pin. Saving switches the microphone to none.</span></p>
+      <div class="buttons">
+        <button id="hw-motion-save" data-i18n="settings.saveRestart">Save and restart</button>
+      </div>
     </details>
     <details class="card">
       <summary data-i18n="settings.advanced">Advanced: configuration file</summary>

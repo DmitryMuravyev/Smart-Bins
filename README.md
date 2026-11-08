@@ -22,7 +22,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable 
 - Inventory in SQLite on the board: search as you type across every field, filters, sorting, **+ / −** quantity buttons, a bin view of the search results
 - A photo per part, taken with the phone's camera, stored in flash or on a microSD card
 - Backup and restore of everything (parts, photos, settings) as one file, CSV export and import
-- Workspace lights: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus 2 white strips; every change fades
+- Workspace lights: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus 2 white strips; every change fades; an optional motion sensor switches them
 - Lighting effects on the grid (fire, sparks, relax, demo) and music effects with an I2S or analog microphone (boards with PSRAM)
 - Wi-Fi setup page, `smartbins.local` address, firmware updates from the browser, optional password
 - English, Spanish and Russian; light and dark theme
@@ -32,7 +32,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable 
 - An ESP32-DevKitC with an **ESP32-WROOM-32E/UE-N16R2** (16 MB flash, 2 MB PSRAM), or a plain ESP32-WROOM-32 with 4, 8 or 16 MB flash
 - Addressable LED strips: WS2812 / WS2812B / SK6812 (5 V) or WS2811 / WS2815 (12/24 V)
 - A 74HCT245 level shifter, MOSFET power switches, an LED power supply (5, 12 or 24 V)
-- Optional: INMP441 (I2S) or MAX9814 (analog) microphone, microSD card
+- Optional: INMP441 (I2S) or MAX9814 (analog) microphone, microSD card, LD2410C or PIR motion sensor
 
 Schematics, wiring, parts list and power budget: [docs/hardware/README.md](docs/hardware/README.md).
 
