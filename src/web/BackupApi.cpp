@@ -1004,6 +1004,15 @@ struct PhotoJob {
 
 bool backgroundBusy() { return photoJob.running; }
 
+
+// Database backups on the card: /backups/inventory-2026-11-08-1530.db.
+const char *kCardDir = "/backups";
+const char *kCardTemp = "/backups/save.tmp";
+// The copy runs in steps of this size, on the task's stack (see startJob()).
+constexpr size_t kCopyStep = 2048;
+// Backups listed on the System page, newest first.
+constexpr int kCardListMax = 20;
+
 // Set by registerBackupApi(): the settings a card copy saves and restores,
 // and the restart that applies restored settings.
 ConfigStore *jobConfig = nullptr;
@@ -1013,14 +1022,6 @@ void (*jobRestart)() = nullptr;
 String settingsPathFor(const String &dbName) {
   return String(kCardDir) + "/" + dbName.substring(0, dbName.length() - 3) + ".json";
 }
-
-// Database backups on the card: /backups/inventory-2026-11-08-1530.db.
-const char *kCardDir = "/backups";
-const char *kCardTemp = "/backups/save.tmp";
-// The copy runs in steps of this size, on the task's stack (see startJob()).
-constexpr size_t kCopyStep = 2048;
-// Backups listed on the System page, newest first.
-constexpr int kCardListMax = 20;
 
 // A file name the page may ask to restore: letters, digits, '-', '_' and
 // '.', ending in ".db". Keeps a request from naming a file outside /backups.
