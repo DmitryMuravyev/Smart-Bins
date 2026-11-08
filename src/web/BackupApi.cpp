@@ -1218,6 +1218,9 @@ void cardRestore(PhotoJob &job) {
     }
     job.bytes = job.bytes + n;
   }
+  // The card file is closed before the swap: open, it holds a sector buffer
+  // (about 4 KB of heap) that the new database's first queries need.
+  src.close();
   {
     led::FlashGuard guard;
     dst.close();
@@ -1232,18 +1235,19 @@ void cardRestore(PhotoJob &job) {
     return jobError(job, err);
   }
   if (job.db->syncBins(gridCols, gridRows, err) != Result::Ok) ESP_LOGW(TAG, "Bins not synced after the restore: %s", err.c_str());
-  // The part count for the status line. Right after the swap the heap can be
-  // nearly empty (the new database's first reads, and the page polling for
-  // progress), and the count then failed now and then: a few tries, a moment
-  // apart.
+  // The part count for the status line, from a plain count(*). The full
+  // statistics (stats()) build temporary tables for their distinct counts,
+  // and right after the swap the heap is too fragmented for them: they
+  // failed with "out of memory" every time on a board without PSRAM. A few
+  // tries, a moment apart, in case even this meets a busy moment.
   for (int i = 0; i < 4; i++) {
-    inventory::Stats st;
-    if (job.db->stats(st, err) == Result::Ok) {
-      job.parts = st.parts;
+    int64_t total = 0;
+    if (job.db->listParts(0, 0, [](const Part &) {}, total, err) == Result::Ok) {
+      job.parts = total;
       break;
     }
     ESP_LOGW(TAG, "Counting the restored parts failed: %s", err.c_str());
-    vTaskDelay(pdMS_TO_TICKS(250));
+    vTaskDelay(pdMS_TO_TICKS(500));
   }
   ESP_LOGI(TAG, "Database restored from the card: %s, %lld parts", source.c_str(), (long long)job.parts);
   if (!job.settingsWanted || !jobConfig) return;
