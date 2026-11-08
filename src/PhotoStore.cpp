@@ -38,6 +38,50 @@ constexpr uint8_t kCardMaxFiles = 2;
 // Mount attempts at boot, and the pause between them (see begin()).
 constexpr int kCardTries = 3;
 constexpr uint32_t kCardRetryMs = 25;
+
+// Brings a card back to listening for commands, whatever it was doing when
+// the ESP32 restarted without cutting its power (flashing over USB, the
+// reset button, a crash). A card that was in the middle of a multi-block
+// read keeps sending data for as long as it is clocked and selected: the
+// wake-up command (CMD0) then gets data back instead of an answer ("token
+// error [0] 0x71", "GO_IDLE_STATE failed"), on every try and after every
+// reset, until the power is cut. So:
+//   1. end a multi-block write (stop token), then clock out whatever block
+//      is in flight (a block is 512 bytes plus its CRC; 600 bytes covers it
+//      and the gap before it),
+//   2. send STOP_TRANSMISSION (CMD12), which ends a multi-block read,
+//   3. wait until the card stops signalling busy.
+// A card that was idle ignores all of this (CMD12 then just answers "illegal
+// command"), and without a card it is a few dummy bytes. It runs at 400 kHz,
+// the speed a card must accept before it is set up: about 15 ms.
+void wakeCard(SPIClass &spi, int cs) {
+  pinMode(cs, OUTPUT);
+  digitalWrite(cs, HIGH);
+  spi.beginTransaction(SPISettings(400000, MSBFIRST, SPI_MODE0));
+  for (int i = 0; i < 10; i++) spi.transfer(0xFF);
+  digitalWrite(cs, LOW);
+  // The stop token ends a multi-block write, should the card be in one. To
+  // a card waiting for a command it reads as the start of a garbage one,
+  // which the 0xFF bytes below complete and the card rejects.
+  spi.transfer(0xFD);
+  for (int i = 0; i < 600; i++) spi.transfer(0xFF);
+  // CMD12, argument 0, with its CRC (cards check it in SPI mode only on
+  // CMD0 and CMD8, but a right one costs nothing).
+  static const uint8_t kStop[] = {0x40 | 12, 0, 0, 0, 0, 0x61};
+  for (uint8_t b : kStop) spi.transfer(b);
+  spi.transfer(0xFF);  // the stuff byte after CMD12
+  // The answer: a byte with the top bit clear, within 8 bytes.
+  for (int i = 0; i < 8 && (spi.transfer(0xFF) & 0x80); i++) {
+  }
+  // Busy (0x00) until the card has stopped; 100 ms is far more than a card
+  // takes to end a read.
+  const uint32_t start = millis();
+  while (spi.transfer(0xFF) != 0xFF && millis() - start < 100) {
+  }
+  digitalWrite(cs, HIGH);
+  spi.transfer(0xFF);
+  spi.endTransaction();
+}
 }  // namespace
 
 void PhotoStore::begin(int sck, int miso, int mosi, int cs) {
@@ -46,14 +90,16 @@ void PhotoStore::begin(int sck, int miso, int mosi, int cs) {
     spi.begin(sck, miso, mosi, cs);
     // A few tries: after a reset that doesn't cut the card's power (flashing
     // over USB, the reset button), the card can still be in the middle of
-    // what it was doing and miss the first wake-up ("GO_IDLE_STATE failed").
-    // An absent card costs about 50 ms more at boot.
+    // what it was doing and miss the wake-up ("GO_IDLE_STATE failed").
+    // wakeCard() stops that before each try. An absent card costs about
+    // 100 ms more at boot.
     for (int attempt = 0; attempt < kCardTries && !card_; attempt++) {
       if (attempt) {
         SD.end();
         ESP_LOGW(TAG, "microSD card not ready, trying again");
         delay(kCardRetryMs);
       }
+      wakeCard(spi, cs);
       card_ = SD.begin(cs, spi, kCardHz, "/sd", kCardMaxFiles) && SD.cardType() != CARD_NONE;
     }
     if (!card_) {
