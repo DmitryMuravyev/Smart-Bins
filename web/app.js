@@ -897,8 +897,110 @@ async function loadSuggestions() {
   await Promise.all(['manufacturer', 'category', 'package', 'unit'].map(async field => {
     const res = await attempt(() => api(`/api/parts/values?field=${field}&limit=200`));
     if (!res) return;
-    $(`#dl-${field}`).replaceChildren(...res.values.map(v => new Option(v.value)));
+    suggest.values[field] = res.values.map(v => v.value);
   }));
+}
+
+// ---- Suggestion lists ----------------------------------------------------
+//
+// The fields with recurring values (data-suggest="category" and the like)
+// get their own list under the field, not the browser's <datalist>. On
+// phones a datalist choice is filled in by the browser's autofill, which
+// tells the system's autofill service (a password manager) that a form was
+// filled, and that popped up its window on every choice.
+//
+// The list shows the values containing what was typed, those starting with
+// it first. A tap or Enter takes one; Escape or leaving the field closes it.
+
+const SUGGEST_MAX = 8;
+const suggest = { values: {}, input: null, list: null, active: -1 };
+
+function suggestMatches(input) {
+  const all = suggest.values[input.dataset.suggest] || [];
+  const q = input.value.trim().toLowerCase();
+  if (!q) return [];
+  const starts = [], contains = [];
+  for (const v of all) {
+    const low = v.toLowerCase();
+    if (low === q) continue;  // already typed in full
+    if (low.startsWith(q)) starts.push(v);
+    else if (low.includes(q)) contains.push(v);
+  }
+  return starts.concat(contains).slice(0, SUGGEST_MAX);
+}
+
+function closeSuggest() {
+  if (suggest.list) suggest.list.remove();
+  suggest.list = null;
+  suggest.input = null;
+  suggest.active = -1;
+}
+
+function showSuggest(input) {
+  const matches = suggestMatches(input);
+  if (!matches.length) return closeSuggest();
+  if (!suggest.list || suggest.input !== input) {
+    closeSuggest();
+    const list = document.createElement('ul');
+    list.className = 'suggest';
+    list.setAttribute('role', 'listbox');
+    // pointerdown, not click: it comes before the field loses the focus, and
+    // preventDefault() keeps the focus (and a phone's keyboard) where it is.
+    list.addEventListener('pointerdown', e => {
+      const item = e.target.closest('li');
+      if (!item) return;
+      e.preventDefault();
+      pickSuggest(item.textContent);
+    });
+    // The field's label holds it, so it sits right under the field.
+    input.parentElement.append(list);
+    suggest.list = list;
+    suggest.input = input;
+  }
+  suggest.active = -1;
+  suggest.list.replaceChildren(...matches.map(v => {
+    const li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.textContent = v;
+    return li;
+  }));
+}
+
+function pickSuggest(value) {
+  const input = suggest.input;
+  closeSuggest();
+  if (!input) return;
+  input.value = value;
+  input.focus();
+}
+
+function moveSuggest(step) {
+  const items = suggest.list ? [...suggest.list.children] : [];
+  if (!items.length) return;
+  suggest.active = (suggest.active + step + items.length) % items.length;
+  items.forEach((li, i) => li.classList.toggle('active', i === suggest.active));
+  items[suggest.active].scrollIntoView({ block: 'nearest' });
+}
+
+function setupSuggest(root) {
+  for (const input of root.querySelectorAll('input[data-suggest]')) {
+    input.addEventListener('input', () => showSuggest(input));
+    input.addEventListener('blur', closeSuggest);
+    input.addEventListener('keydown', e => {
+      if (!suggest.list || suggest.input !== input) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveSuggest(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter' && suggest.active >= 0) {
+        e.preventDefault();  // a choice, not the form's submit
+        pickSuggest(suggest.list.children[suggest.active].textContent);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();  // closes the list, not the whole dialog
+        e.stopPropagation();
+        closeSuggest();
+      }
+    });
+  }
 }
 
 function binOptions(current) {
@@ -2600,6 +2702,7 @@ function bindControls() {
   $('#card-restore-dialog').addEventListener('close', onCardRestoreClosed);
   $('#delete-db').addEventListener('click', deleteDb);
   $('#delete-db-dialog').addEventListener('close', onDeleteDbClosed);
+  setupSuggest($('#part-form'));
   $('#csv-export').addEventListener('click', openCsvExport);
   $('#csv-export-dialog').addEventListener('close', onCsvExportClosed);
   $('#csv-file').addEventListener('change', e => {

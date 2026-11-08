@@ -261,6 +261,13 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
 .form-grid label { font-size: 14px; color: var(--muted); min-width: 0; }
 .form-grid .full { grid-column: 1 / -1; }
+/* A field's suggestion list (see setupSuggest() in app.js), under the field. */
+.form-grid label { position: relative; }
+.suggest { position: absolute; left: 0; right: 0; top: 100%; z-index: 5; margin: 2px 0 0; padding: 4px 0;
+  list-style: none; font-size: 16px; max-height: 220px; overflow-y: auto; background: var(--card); color: var(--text);
+  border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 6px 18px rgba(0, 0, 0, .18); }
+.suggest li { padding: 8px 12px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.suggest li:hover, .suggest li.active { background: var(--hover, rgba(127, 127, 127, .14)); }
 .form-grid textarea { font: inherit; margin-top: 4px; }
 .dialog-buttons { align-items: center; }
 .dialog-buttons .spacer { flex: 1; }

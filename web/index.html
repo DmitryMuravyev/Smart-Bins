@@ -482,12 +482,12 @@
     </div>
     <div class="form-grid">
       <label><span data-i18n="field.partNumber">Part number</span><input type="text" name="partNumber" maxlength="64" spellcheck="false"></label>
-      <label><span data-i18n="field.manufacturer">Manufacturer</span><input type="text" name="manufacturer" maxlength="64" list="dl-manufacturer"></label>
+      <label><span data-i18n="field.manufacturer">Manufacturer</span><input type="text" name="manufacturer" data-suggest="manufacturer" autocomplete="off" maxlength="64"></label>
       <label class="full"><span data-i18n="field.description">Description</span><input type="text" name="description" maxlength="256"></label>
-      <label><span data-i18n="field.category">Category</span><input type="text" name="category" maxlength="64" list="dl-category"></label>
-      <label><span data-i18n="field.package">Package</span><input type="text" name="package" maxlength="32" list="dl-package" spellcheck="false"></label>
+      <label><span data-i18n="field.category">Category</span><input type="text" name="category" data-suggest="category" autocomplete="off" maxlength="64"></label>
+      <label><span data-i18n="field.package">Package</span><input type="text" name="package" data-suggest="package" autocomplete="off" maxlength="32" spellcheck="false"></label>
       <label><span data-i18n="field.value">Value</span><input type="text" name="value" maxlength="32" spellcheck="false"></label>
-      <label><span data-i18n="field.unit">Unit</span><input type="text" name="unit" maxlength="16" list="dl-unit" spellcheck="false"></label>
+      <label><span data-i18n="field.unit">Unit</span><input type="text" name="unit" data-suggest="unit" autocomplete="off" maxlength="16" spellcheck="false"></label>
       <label><span data-i18n="field.quantity">Quantity</span><input type="number" name="quantity" min="0" max="1000000000" step="1" inputmode="numeric"></label>
       <label><span data-i18n="field.bin">Bin</span><select name="bin"></select></label>
       <label class="full"><span data-i18n="field.datasheetUrl">Datasheet link</span><input type="url" name="datasheetUrl" maxlength="256" spellcheck="false" placeholder="https://"></label>
@@ -548,10 +548,6 @@
 <dialog id="photo-viewer" class="photo-viewer">
   <img id="photo-viewer-img" alt="">
 </dialog>
-<datalist id="dl-manufacturer"></datalist>
-<datalist id="dl-category"></datalist>
-<datalist id="dl-package"></datalist>
-<datalist id="dl-unit"></datalist>
 
 <!-- One part in the card view. -->
 <template id="part-card">
