@@ -2024,7 +2024,6 @@ async function loadSystem() {
 }
 
 async function enterSystem() {
-  setCsvSeparator();
   await Promise.all([loadSystem(), loadBackupInfo()]);
 }
 
@@ -2276,19 +2275,33 @@ async function deletePreviousDb() {
   if (await attempt(() => api('/api/backup/previous/delete', { method: 'POST' }))) loadBackupInfo();
 }
 
-// Semicolon unless this browser chose otherwise: what Excel expects in most
-// European settings (the comma is their decimal mark), and the import
-// accepts either anyway.
-function setCsvSeparator() {
+// Export CSV: a window asks for the separator, with the one this browser
+// chose last already picked (semicolon the first time: what Excel expects in
+// most European settings, where the comma is the decimal mark). The import
+// reads either, so nothing else needs to know.
+function openCsvExport() {
   let sep = null;
   try { sep = localStorage.getItem('csvSep'); } catch (e) { /* storage blocked */ }
   if (sep !== ';' && sep !== ',') sep = ';';
-  $('#csv-sep').value = sep;
-  updateCsvLink();
+  for (const r of document.querySelectorAll('input[name="csv-sep"]')) r.checked = r.value === sep;
+  const dialog = $('#csv-export-dialog');
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('#csv-export-go').focus();
 }
 
-function updateCsvLink() {
-  $('#csv-export').href = `/api/parts.csv?sep=${encodeURIComponent($('#csv-sep').value)}`;
+function onCsvExportClosed() {
+  if ($('#csv-export-dialog').returnValue !== 'export') return;
+  const chosen = document.querySelector('input[name="csv-sep"]:checked');
+  const sep = chosen ? chosen.value : ';';
+  try { localStorage.setItem('csvSep', sep); } catch (e) { /* storage blocked */ }
+  // A link with "download" starts the file download without leaving the page.
+  const link = document.createElement('a');
+  link.href = `/api/parts.csv?sep=${encodeURIComponent(sep)}`;
+  link.download = '';
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 async function importCsv(file) {
@@ -2582,10 +2595,8 @@ function bindControls() {
   $('#card-restore-dialog').addEventListener('close', onCardRestoreClosed);
   $('#delete-db').addEventListener('click', deleteDb);
   $('#delete-db-dialog').addEventListener('close', onDeleteDbClosed);
-  $('#csv-sep').addEventListener('change', () => {
-    try { localStorage.setItem('csvSep', $('#csv-sep').value); } catch (e) { /* storage blocked */ }
-    updateCsvLink();
-  });
+  $('#csv-export').addEventListener('click', openCsvExport);
+  $('#csv-export-dialog').addEventListener('close', onCsvExportClosed);
   $('#csv-file').addEventListener('change', e => {
     const file = e.target.files[0];
     e.target.value = '';
