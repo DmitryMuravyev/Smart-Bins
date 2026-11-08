@@ -1036,28 +1036,48 @@ bool validBackupName(const String &name) {
 
 // The card's database backups, newest first. Their names hold the date and
 // time, so the newest sorts last by name.
+//
+// The walk holds two of the card's file slots (the folder and the entry it
+// is on), so while a job copies to or from the card it is not walked: the
+// job holds a slot itself, and a walk then made its file opens fail now and
+// then ("no free file descriptors"). The list from the last walk is shown
+// instead; the job's end brings a fresh one. The settings files are noted
+// in the same walk rather than looked up one by one, for the same reason.
 void listCardBackups(JsonArray out) {
   struct Entry {
     String name;
     uint64_t size;
+    bool settings;
   };
-  std::vector<Entry> found;
-  File dir = SD.open(kCardDir);
-  if (!dir || !dir.isDirectory()) return;
-  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-    String name = f.name();
-    const int slash = name.lastIndexOf('/');
-    if (slash >= 0) name = name.substring(slash + 1);
-    if (f.isDirectory() || !validBackupName(name)) continue;
-    found.push_back({name, f.size()});
+  static std::vector<Entry> found;
+  // Nor while a restore from a file is writing its photos to the card.
+  if (!backgroundBusy() && !restoreJob) {
+    found.clear();
+    std::vector<String> settings;  // the .json files beside the copies
+    File dir = SD.open(kCardDir);
+    if (dir && dir.isDirectory()) {
+      for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+        String name = f.name();
+        const int slash = name.lastIndexOf('/');
+        if (slash >= 0) name = name.substring(slash + 1);
+        if (f.isDirectory()) continue;
+        if (name.endsWith(".json")) settings.push_back(name.substring(0, name.length() - 5));
+        else if (validBackupName(name)) found.push_back({name, f.size(), false});
+      }
+    }
+    for (Entry &e : found) {
+      const String stem = e.name.substring(0, e.name.length() - 3);
+      e.settings = std::find(settings.begin(), settings.end(), stem) != settings.end();
+    }
+    std::sort(found.begin(), found.end(), [](const Entry &a, const Entry &b) { return a.name > b.name; });
+    if (found.size() > static_cast<size_t>(kCardListMax)) found.resize(kCardListMax);
   }
-  std::sort(found.begin(), found.end(), [](const Entry &a, const Entry &b) { return a.name > b.name; });
-  for (size_t i = 0; i < found.size() && i < static_cast<size_t>(kCardListMax); i++) {
+  for (const Entry &e : found) {
     JsonObject o = out.add<JsonObject>();
-    o["name"] = found[i].name;
-    o["size"] = found[i].size;
+    o["name"] = e.name;
+    o["size"] = e.size;
     // Copies saved by 0.16.0 and later carry the settings beside them.
-    o["settings"] = SD.exists(settingsPathFor(found[i].name));
+    o["settings"] = e.settings;
   }
 }
 
