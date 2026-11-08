@@ -108,6 +108,11 @@ textarea { display: block; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospa
 #ip-save { margin-top: 12px; }
 .inline-form input { flex: 1; }
 input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
+/* The span around each range input takes the pointer (see guardRange() in
+   app.js), so a swipe up or down that starts on a slider scrolls the page
+   instead of moving it. */
+.range-wrap { display: block; touch-action: pan-y; cursor: pointer; }
+.range-wrap input[type=range] { pointer-events: none; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .chips button { padding: 8px 12px; background: var(--bg); color: var(--text); border: 1px solid var(--border); }
 .chips button.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
