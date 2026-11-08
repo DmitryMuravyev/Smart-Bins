@@ -3,6 +3,7 @@
 #include <FFat.h>
 #include <SD.h>
 #include <SPI.h>
+#include <dirent.h>
 #include <esp_log.h>
 #include <esp_random.h>
 
@@ -337,17 +338,23 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
   return true;
 }
 
+// Only the folder's entries are read (readdir), never the files: no file is
+// opened, so the walk costs a few directory sectors per hundred entries and
+// leaves the file slots alone. It only depends on what is in flash, however
+// many photos the card holds.
 int PhotoStore::flashPhotoCount() const {
-  led::FlashGuard guard;  // walks the FAT directory (see find())
-  File dir = FFat.open(kDir);
-  if (!dir || !dir.isDirectory()) return 0;
+  led::FlashGuard guard;  // reads the FAT directory from flash (see find())
+  const String path = String("/ffat") + kDir;  // FFat's mount point
+  DIR *dir = opendir(path.c_str());
+  if (!dir) return 0;
   int count = 0;
   std::string name;
   Kind kind;
-  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+  for (dirent *e = readdir(dir); e; e = readdir(dir)) {
     // Photos only: a thumbnail belongs to the photo next to it.
-    if (!f.isDirectory() && parseFileName(f.name(), name, kind) && kind == Kind::Photo) count++;
+    if (e->d_type != DT_DIR && parseFileName(e->d_name, name, kind) && kind == Kind::Photo) count++;
   }
+  closedir(dir);
   return count;
 }
 
