@@ -637,6 +637,9 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
   doc["photosFailed"] = job->photosFailed;
   if (!job->photoError.empty()) doc["photoError"] = job->photoError;
   bool restarting = false;
+  // A bare .db (or an archive without config.json) has no settings: the page
+  // says so rather than leaving the tick unanswered.
+  if (job->settingsWanted && !job->configSeen) doc["settingsMissing"] = true;
   if (job->settingsWanted && job->configSeen) {
     config::AppConfig cfg;
     if (config::parse(job->config.c_str(), cfg, err) && config.save(cfg, err)) {
@@ -989,11 +992,27 @@ struct PhotoJob {
   // The card backup written (CardSave) or read (CardRestore), without the folder.
   char file[48] = "";
   int64_t parts = -1;  // parts in the database after a CardRestore
+  // CardRestore with the settings asked for: restored (the board restarts),
+  // missing (the copy has none) or failed with settingsError.
+  bool settingsWanted = false;
+  bool settingsRestored = false;
+  bool settingsMissing = false;
+  char settingsError[80] = "";
   InventoryDb *db = nullptr;
   PhotoStore *photos = nullptr;
 } photoJob;
 
 bool backgroundBusy() { return photoJob.running; }
+
+// Set by registerBackupApi(): the settings a card copy saves and restores,
+// and the restart that applies restored settings.
+ConfigStore *jobConfig = nullptr;
+void (*jobRestart)() = nullptr;
+
+// The settings saved beside a card copy: inventory-....db -> inventory-....json.
+String settingsPathFor(const String &dbName) {
+  return String(kCardDir) + "/" + dbName.substring(0, dbName.length() - 3) + ".json";
+}
 
 // Database backups on the card: /backups/inventory-2026-11-08-1530.db.
 const char *kCardDir = "/backups";
@@ -1036,6 +1055,8 @@ void listCardBackups(JsonArray out) {
     JsonObject o = out.add<JsonObject>();
     o["name"] = found[i].name;
     o["size"] = found[i].size;
+    // Copies saved by 0.16.0 and later carry the settings beside them.
+    o["settings"] = SD.exists(settingsPathFor(found[i].name));
   }
 }
 
@@ -1111,6 +1132,15 @@ void cardSave(PhotoJob &job) {
     jobError(job, "can't finish the copy on the card");
   }
   if (!ok) SD.remove(kCardTemp);
+  // The settings beside it (config.json as a full backup holds it), so a
+  // restore from the card can bring them back too, like one from a file.
+  if (ok && jobConfig) {
+    const std::string json = config::serialize(jobConfig->get());
+    File f = SD.open(settingsPathFor(job.file), FILE_WRITE);
+    if (!f || f.write(reinterpret_cast<const uint8_t *>(json.data()), json.size()) != json.size()) {
+      jobError(job, "the database was saved, but the settings could not be written next to it");
+    }
+  }
   if (ok) ESP_LOGI(TAG, "Database saved to the card: %s, %s", target.c_str(), formatBytes(size));
 }
 
@@ -1181,6 +1211,30 @@ void cardRestore(PhotoJob &job) {
   inventory::Stats st;
   if (job.db->stats(st, err) == Result::Ok) job.parts = st.parts;
   ESP_LOGI(TAG, "Database restored from the card: %s, %lld parts", source.c_str(), (long long)job.parts);
+  if (!job.settingsWanted || !jobConfig) return;
+  // The settings saved beside the copy, as a restore from a file does with
+  // the archive's config.json: checked, saved, then the board restarts.
+  File f = SD.open(settingsPathFor(job.file), FILE_READ);
+  if (!f) {
+    job.settingsMissing = true;
+    return;
+  }
+  std::string json;
+  if (f.size() > kMaxSmallFile) {
+    strncpy(job.settingsError, "the saved settings are too large", sizeof(job.settingsError) - 1);
+    return;
+  }
+  json.resize(f.size());
+  f.read(reinterpret_cast<uint8_t *>(&json[0]), json.size());
+  f.close();
+  config::AppConfig cfg;
+  if (config::parse(json.c_str(), cfg, err) && jobConfig->save(cfg, err)) {
+    job.settingsRestored = true;
+    ESP_LOGI(TAG, "Settings restored from the card, restarting");
+    if (jobRestart) jobRestart();
+  } else {
+    strncpy(job.settingsError, err.c_str(), sizeof(job.settingsError) - 1);
+  }
 }
 
 void photoTask(void *) {
@@ -1225,8 +1279,13 @@ void photoTask(void *) {
 }
 
 // `file`: the card backup to restore (CardRestore only).
-bool startJob(JobKind kind, InventoryDb &db, PhotoStore &photos, const char *file, std::string &err) {
+bool startJob(JobKind kind, InventoryDb &db, PhotoStore &photos, const char *file, std::string &err,
+              bool settings = false) {
   if (photoJob.running) return err = "another job is running, try again when it ends", false;
+  photoJob.settingsWanted = settings;
+  photoJob.settingsRestored = false;
+  photoJob.settingsMissing = false;
+  photoJob.settingsError[0] = 0;
   photoJob.kind = kind;
   photoJob.done = 0;
   photoJob.failed = 0;
@@ -1268,6 +1327,9 @@ void writePhotoJob(JsonObject out) {
   if (photoJob.error[0]) out["error"] = photoJob.error;
   if (photoJob.file[0]) out["file"] = photoJob.file;
   if (photoJob.parts >= 0) out["parts"] = photoJob.parts;
+  if (photoJob.settingsRestored) out["settings"] = true;
+  if (photoJob.settingsMissing) out["settingsMissing"] = true;
+  if (photoJob.settingsError[0]) out["settingsError"] = photoJob.settingsError;
 }
 
 }  // namespace
@@ -1276,6 +1338,8 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
                        Security &security, void (*scheduleRestart)(), int cols, int rows) {
   gridCols = cols;
   gridRows = rows;
+  jobConfig = &config;
+  jobRestart = scheduleRestart;
   // An incoming database left by a restart in the middle of a restore.
   {
     led::FlashGuard guard;  // exists() reads the FAT too
@@ -1442,7 +1506,9 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
     // A download reads the database file while the swap would replace it.
     if (writesHeld()) return sendError(req, 409, "the database is being downloaded, try again when it is done");
     std::string err;
-    if (!startJob(JobKind::CardRestore, db, photos, name->value().c_str(), err)) {
+    // settings=1: also the settings saved beside the copy (the board restarts).
+    const bool settings = hasParam(req, "settings") && param(req, "settings")->value() == "1";
+    if (!startJob(JobKind::CardRestore, db, photos, name->value().c_str(), err, settings)) {
       return sendError(req, 409, err.c_str());
     }
     JsonDocument doc;

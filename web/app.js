@@ -49,6 +49,9 @@ async function api(path, opts = {}) {
     init.headers['Content-Type'] = 'application/json';
     init.body = typeof opts.json === 'string' ? opts.json : JSON.stringify(opts.json);
   }
+  // no-store: an answer must never come from the browser's cache (after a
+  // restore, /api/system has new counts under the same URL).
+  init.cache = 'no-store';
   const res = await fetch(path, init);
   let body = null;
   try { body = await res.json(); } catch (e) { /* not JSON: keep null */ }
@@ -1996,9 +1999,7 @@ function renderBackup() {
   const job = info.job || {};
   const running = !!job.running;
   // One job at a time (photos and the card copies share the card and the flash).
-  for (const b of [$('#photos-move'), $('#photos-clean'), $('#card-db-save'), $('#card-db-restore'), $('#delete-db')]) {
-    b.disabled = running;
-  }
+  for (const b of [$('#photos-move'), $('#photos-clean'), $('#card-db-save'), $('#delete-db')]) b.disabled = running;
   renderCardDb(info, job);
   const line = $('#photo-job');
   if (!(job.kind === 'move' || job.kind === 'clean') || (!running && !backup.jobShown)) {
@@ -2019,48 +2020,104 @@ function renderBackup() {
 }
 
 // "inventory-2026-11-08-153012.db" -> "2026-11-08 15:30:12"; other names as they are.
-function cardBackupLabel(b) {
-  const m = /^inventory-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})\.db$/.exec(b.name);
-  return `${m ? `${m[1]} ${m[2]}:${m[3]}:${m[4]}` : b.name} (${formatBytes(b.size)})`;
+function cardCopyDate(name) {
+  const m = /^inventory-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})\.db$/.exec(name);
+  return m ? `${m[1]} ${m[2]}:${m[3]}:${m[4]}` : name;
 }
 
-// The database on the microSD card: the saved copies and the job's progress.
+// The SD card parts of the Backup card: Save DB to SD card beside the
+// downloads, Restore from SD card beside Restore from file (enabled once a
+// copy exists), and the running copy's progress under each.
 function renderCardDb(info, job) {
-  $('#card-db').hidden = !info.card;
-  if (!info.card) return;
-  const list = $('#card-db-list');
+  const card = !!info.card;
+  for (const el of [$('#card-db-save'), $('#card-db-hint'), $('#card-db-restore')]) el.hidden = !card;
   const copies = info.cardBackups || [];
-  const chosen = list.value;
-  if (copies.length) {
-    fillSelect(list, copies.map(b => b.name), copies.some(b => b.name === chosen) ? chosen : copies[0].name,
-      name => cardBackupLabel(copies.find(b => b.name === name)));
-  } else {
-    fillSelect(list, [''], '', () => t('cardDb.none'));
-  }
-  list.disabled = !copies.length;
-  if (!copies.length) $('#card-db-restore').disabled = true;
+  $('#card-db-restore').disabled = !!job.running || !copies.length;
+  $('#card-db-restore').title = copies.length ? '' : t('cardDb.none');
 
-  const line = $('#card-db-status');
-  const ours = job.kind === 'cardSave' || job.kind === 'cardRestore';
-  if (!ours || (!job.running && !backup.jobShown)) {
-    line.hidden = true;
-    return;
+  const saving = job.kind === 'cardSave', restoring = job.kind === 'cardRestore';
+  const saveLine = $('#card-save-status');
+  saveLine.hidden = !(card && saving && (job.running || backup.cardShown));
+  if (!saveLine.hidden) {
+    saveLine.classList.toggle('err', !job.running && job.failed > 0);
+    const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
+    saveLine.textContent = job.running ? t('cardDb.saving', { pct })
+      : job.failed ? t('cardDb.failed', { error: job.error || '' })
+      : t('cardDb.saved', { file: job.file || '', size: formatBytes(job.bytes) });
   }
-  line.hidden = false;
-  line.classList.toggle('err', !job.running && job.failed > 0);
-  const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
-  if (job.running) {
-    line.textContent = job.kind === 'cardSave' ? t('cardDb.saving', { pct })
-      : t('cardDb.restoring', { file: job.file || '', pct });
-  } else if (job.failed) {
-    line.textContent = t('cardDb.failed', { error: job.error || '' });
-  } else {
-    line.textContent = job.kind === 'cardSave'
-      ? t('cardDb.saved', { file: job.file || '', size: formatBytes(job.bytes) })
-      : t('cardDb.restored', { parts: job.parts ?? 0 });
+
+  // A restore from the card reports where a restore from a file does.
+  if (card && restoring && (job.running || backup.cardShown)) {
+    const line = $('#restore-status');
+    line.hidden = false;
+    line.classList.toggle('err', !job.running && (job.failed > 0 || !!job.settingsError || !!job.settingsMissing));
+    const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
+    if (job.running) line.textContent = t('cardDb.restoring', { file: cardCopyDate(job.file || ''), pct });
+    else if (job.failed) line.textContent = t('cardDb.failed', { error: job.error || '' });
+    else if (job.settingsMissing) line.textContent = t('cardDb.restoredNoSettings', { parts: job.parts ?? 0 });
+    else if (job.settingsError) line.textContent = t('cardDb.restoredSettingsFailed', { parts: job.parts ?? 0, error: job.settingsError });
+    else line.textContent = t('cardDb.restored', { parts: job.parts ?? 0 });
+    // Just finished: new parts, so new counts on the System page (or a
+    // restart, when the settings came back too).
+    if (!job.running && backup.wasRunning) {
+      if (job.settings) waitForRestart();
+      else refreshAfterRestore();
+    }
   }
-  // A restore from the card changed the parts: the System page's counts too.
-  if (!job.running && backup.wasRunning && job.kind === 'cardRestore') loadSystem();
+}
+
+// Restore from SD card: a window with the saved copies (newest first and
+// chosen), then a confirmation.
+function openCardRestore() {
+  const copies = (backup.info && backup.info.cardBackups) || [];
+  if (!copies.length) return;
+  $('#card-restore-list').replaceChildren(...copies.map((c, i) => {
+    const row = document.createElement('label');
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'card-copy';
+    radio.value = c.name;
+    radio.checked = i === 0;
+    const date = document.createElement('span');
+    date.textContent = cardCopyDate(c.name);
+    const size = document.createElement('span');
+    size.className = 'muted small';
+    size.textContent = c.settings === false ? `${formatBytes(c.size)}, ${t('cardDb.noSettings')}` : formatBytes(c.size);
+    row.append(radio, date, size);
+    return row;
+  }));
+  const dialog = $('#card-restore-dialog');
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('#card-restore-go').focus();
+}
+
+async function onCardRestoreClosed() {
+  if ($('#card-restore-dialog').returnValue !== 'restore') return;
+  const chosen = $('#card-restore-list input:checked');
+  if (!chosen) return;
+  const settings = $('#restore-settings').checked;
+  const date = cardCopyDate(chosen.value);
+  if (!confirm(t(settings ? 'cardDb.restoreConfirmSettings' : 'cardDb.restoreConfirm', { date }))) return;
+  backup.cardShown = true;
+  await startPhotoJob(`/api/backup/card/restore?name=${encodeURIComponent(chosen.value)}&settings=${settings ? 1 : 0}`);
+}
+
+// After a restore or Delete DB: the backup card first, then the System
+// page's counts. One request at a time, as the board is short of memory
+// right after a restore; a refused one is tried again a couple of times.
+async function refreshAfterRestore() {
+  await loadBackupInfo();
+  for (let i = 0; i < 3; i++) {
+    try {
+      const sys = await api('/api/system');
+      state.system = sys;
+      renderSystem();
+      return;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
+  }
 }
 
 async function startPhotoJob(path) {
@@ -2095,6 +2152,7 @@ async function restoreBackup(file) {
   if (!confirm(t(settings ? 'backup.restoreConfirmSettings' : 'backup.restoreConfirm', { file: file.name }))) return;
   const status = $('#restore-status');
   const pick = $('#restore-pick');
+  backup.cardShown = false;  // this line is the file restore's now
   status.hidden = false;
   status.classList.remove('err');
   pick.classList.add('busy');
@@ -2107,11 +2165,10 @@ async function restoreBackup(file) {
     if (r.photosFailed) text += ` ${t('backup.photosFailed', { n: r.photosFailed, error: r.photoError || '' })}`;
     if (r.settingsError) text += ` ${t('backup.settingsFailed', { error: r.settingsError })}`;
     status.textContent = text;
-    status.classList.toggle('err', !!(r.photosFailed || r.settingsError));
+    if (r.settingsMissing) text += ` ${t('backup.noSettings')}`;
+    status.classList.toggle('err', !!(r.photosFailed || r.settingsError || r.settingsMissing));
     if (r.restarting) return waitForRestart();
-    // (The inventory page searches afresh whenever it is opened.)
-    loadSystem();
-    loadBackupInfo();
+    refreshAfterRestore();
   } catch (e) {
     status.textContent = t('backup.restoreFailed', { error: e.message });
     status.classList.add('err');
@@ -2121,14 +2178,8 @@ async function restoreBackup(file) {
 }
 
 async function saveDbToCard() {
+  backup.cardShown = true;
   await startPhotoJob('/api/backup/card/save');
-}
-
-async function restoreDbFromCard() {
-  const name = $('#card-db-list').value;
-  if (!name) return;
-  if (!confirm(t('cardDb.restoreConfirm', { file: name }))) return;
-  await startPhotoJob(`/api/backup/card/restore?name=${encodeURIComponent(name)}`);
 }
 
 // Delete DB: a warning dialog first, with the number of parts that go.
@@ -2139,15 +2190,15 @@ function deleteDb() {
   $('#delete-db-text').textContent = t('deleteDb.confirmText', { n: parts });
   dialog.returnValue = '';
   dialog.showModal();
+  // Cancel is the default: Enter or a stray tap keeps the database.
+  $('#delete-db-cancel').focus();
 }
 
 async function onDeleteDbClosed() {
   if ($('#delete-db-dialog').returnValue !== 'delete') return;
   if (!await attempt(() => api('/api/backup/delete-db', { method: 'POST' }))) return;
   toast(t('deleteDb.done'));
-  // (The inventory page searches afresh whenever it is opened.)
-  loadSystem();
-  loadBackupInfo();
+  refreshAfterRestore();
 }
 
 async function deletePreviousDb() {
@@ -2455,7 +2506,8 @@ function bindControls() {
   });
   $('#previous-db-delete').addEventListener('click', deletePreviousDb);
   $('#card-db-save').addEventListener('click', saveDbToCard);
-  $('#card-db-restore').addEventListener('click', restoreDbFromCard);
+  $('#card-db-restore').addEventListener('click', openCardRestore);
+  $('#card-restore-dialog').addEventListener('close', onCardRestoreClosed);
   $('#delete-db').addEventListener('click', deleteDb);
   $('#delete-db-dialog').addEventListener('close', onDeleteDbClosed);
   $('#csv-sep').addEventListener('change', () => {
