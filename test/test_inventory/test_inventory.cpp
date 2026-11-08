@@ -638,6 +638,34 @@ static void test_replace_file() {
   std::remove(kPrev);
 }
 
+// Delete DB: no incoming file, so a new empty database takes the old one's
+// place, and the old one is kept aside like before a restore.
+static void test_replace_with_empty() {
+  static const char *kPrev = "/tmp/sb_test_prev.db";
+  std::remove(kPrev);
+  Part p;
+  db.addPart(named("GONE"), p, err);
+  Stats s;
+  db.stats(s, err);
+  const int64_t before = s.parts;
+  TEST_ASSERT_TRUE(before > 0);
+  TEST_ASSERT_TRUE_MESSAGE(db.replaceFile(kPath, nullptr, kPrev, err), err.c_str());
+  TEST_ASSERT_TRUE(db.isOpen());
+  db.syncBins(4, 3, err);
+  db.stats(s, err);
+  TEST_ASSERT_EQUAL(0, s.parts);
+  TEST_ASSERT_EQUAL(12, s.binsTotal);
+  // New parts can be added to the empty database.
+  TEST_ASSERT_EQUAL(static_cast<int>(Result::Ok), static_cast<int>(db.addPart(named("NEW"), p, err)));
+  {
+    InventoryDb prev;
+    TEST_ASSERT_TRUE(prev.open(kPrev, err));
+    prev.stats(s, err);
+    TEST_ASSERT_EQUAL(before, s.parts);
+  }
+  std::remove(kPrev);
+}
+
 static void test_bin_names() {
   TEST_ASSERT_EQUAL_STRING("A1", binName({0, 0}).c_str());
   TEST_ASSERT_EQUAL_STRING("Z12", binName({25, 11}).c_str());
@@ -687,6 +715,7 @@ int main() {
   RUN_TEST(test_next_photo);
   RUN_TEST(test_import_parts);
   RUN_TEST(test_replace_file);
+  RUN_TEST(test_replace_with_empty);
   RUN_TEST(test_bin_names);
   return UNITY_END();
 }

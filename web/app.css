@@ -311,7 +311,12 @@ button.danger { background: var(--err); color: #fff; }
 .button.small { padding: 6px 12px; font-size: 14px; }
 .button.busy { opacity: .5; pointer-events: none; }
 #csv-result ul { margin: 4px 0 0; padding-left: 20px; }
-#restore-status.err, #csv-result.err, #photo-job.err { color: var(--err); }
+#restore-status.err, #csv-result.err, #photo-job.err, #card-db-status.err { color: var(--err); }
+#card-db-list { max-width: 60%; }
+/* The Delete DB warning: narrower than the part form, its title in red. */
+.warn-dialog { width: min(440px, calc(100% - 24px)); border-color: var(--err); }
+.warn-dialog h2 { display: flex; align-items: center; gap: 8px; margin-top: 0; color: var(--err); }
+.warn-dialog h2 .ico { font-size: 28px; line-height: 1; }
 
 /* ---- Hardware settings (Task 14) ---- */
 details.hw[open] summary { margin-bottom: 8px; }

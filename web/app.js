@@ -1975,6 +1975,7 @@ async function loadBackupInfo() {
   if (!info) return;
   backup.info = info;
   renderBackup();
+  backup.wasRunning = !!(info.job && info.job.running);
   // A photo job reports its progress here; ask again while it runs.
   clearTimeout(backup.poll);
   if (info.job && info.job.running && $('#page-system').classList.contains('active')) {
@@ -1993,10 +1994,14 @@ function renderBackup() {
   // Moving makes sense only with a card and photos still in flash.
   $('#photos-move').hidden = !(info.card && info.flashPhotos);
   const job = info.job || {};
-  const line = $('#photo-job');
   const running = !!job.running;
-  for (const b of [$('#photos-move'), $('#photos-clean')]) b.disabled = running;
-  if (!job.kind || (!running && !backup.jobShown)) {
+  // One job at a time (photos and the card copies share the card and the flash).
+  for (const b of [$('#photos-move'), $('#photos-clean'), $('#card-db-save'), $('#card-db-restore'), $('#delete-db')]) {
+    b.disabled = running;
+  }
+  renderCardDb(info, job);
+  const line = $('#photo-job');
+  if (!(job.kind === 'move' || job.kind === 'clean') || (!running && !backup.jobShown)) {
     line.hidden = true;
     return;
   }
@@ -2011,6 +2016,51 @@ function renderBackup() {
     line.textContent = running ? t('photoTools.cleaning')
       : t('photoTools.cleaned', { n: job.done, size: formatBytes(job.bytes) });
   }
+}
+
+// "inventory-2026-11-08-153012.db" -> "2026-11-08 15:30:12"; other names as they are.
+function cardBackupLabel(b) {
+  const m = /^inventory-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})\.db$/.exec(b.name);
+  return `${m ? `${m[1]} ${m[2]}:${m[3]}:${m[4]}` : b.name} (${formatBytes(b.size)})`;
+}
+
+// The database on the microSD card: the saved copies and the job's progress.
+function renderCardDb(info, job) {
+  $('#card-db').hidden = !info.card;
+  if (!info.card) return;
+  const list = $('#card-db-list');
+  const copies = info.cardBackups || [];
+  const chosen = list.value;
+  if (copies.length) {
+    fillSelect(list, copies.map(b => b.name), copies.some(b => b.name === chosen) ? chosen : copies[0].name,
+      name => cardBackupLabel(copies.find(b => b.name === name)));
+  } else {
+    fillSelect(list, [''], '', () => t('cardDb.none'));
+  }
+  list.disabled = !copies.length;
+  if (!copies.length) $('#card-db-restore').disabled = true;
+
+  const line = $('#card-db-status');
+  const ours = job.kind === 'cardSave' || job.kind === 'cardRestore';
+  if (!ours || (!job.running && !backup.jobShown)) {
+    line.hidden = true;
+    return;
+  }
+  line.hidden = false;
+  line.classList.toggle('err', !job.running && job.failed > 0);
+  const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
+  if (job.running) {
+    line.textContent = job.kind === 'cardSave' ? t('cardDb.saving', { pct })
+      : t('cardDb.restoring', { file: job.file || '', pct });
+  } else if (job.failed) {
+    line.textContent = t('cardDb.failed', { error: job.error || '' });
+  } else {
+    line.textContent = job.kind === 'cardSave'
+      ? t('cardDb.saved', { file: job.file || '', size: formatBytes(job.bytes) })
+      : t('cardDb.restored', { parts: job.parts ?? 0 });
+  }
+  // A restore from the card changed the parts: the System page's counts too.
+  if (!job.running && backup.wasRunning && job.kind === 'cardRestore') loadSystem();
 }
 
 async function startPhotoJob(path) {
@@ -2068,6 +2118,36 @@ async function restoreBackup(file) {
   } finally {
     pick.classList.remove('busy');
   }
+}
+
+async function saveDbToCard() {
+  await startPhotoJob('/api/backup/card/save');
+}
+
+async function restoreDbFromCard() {
+  const name = $('#card-db-list').value;
+  if (!name) return;
+  if (!confirm(t('cardDb.restoreConfirm', { file: name }))) return;
+  await startPhotoJob(`/api/backup/card/restore?name=${encodeURIComponent(name)}`);
+}
+
+// Delete DB: a warning dialog first, with the number of parts that go.
+// Cancel holds the focus, so a stray Enter keeps the database.
+function deleteDb() {
+  const dialog = $('#delete-db-dialog');
+  const parts = backup.info && backup.info.parts !== undefined ? backup.info.parts : '?';
+  $('#delete-db-text').textContent = t('deleteDb.confirmText', { n: parts });
+  dialog.returnValue = '';
+  dialog.showModal();
+}
+
+async function onDeleteDbClosed() {
+  if ($('#delete-db-dialog').returnValue !== 'delete') return;
+  if (!await attempt(() => api('/api/backup/delete-db', { method: 'POST' }))) return;
+  toast(t('deleteDb.done'));
+  // (The inventory page searches afresh whenever it is opened.)
+  loadSystem();
+  loadBackupInfo();
 }
 
 async function deletePreviousDb() {
@@ -2374,6 +2454,10 @@ function bindControls() {
     if (file) restoreBackup(file);
   });
   $('#previous-db-delete').addEventListener('click', deletePreviousDb);
+  $('#card-db-save').addEventListener('click', saveDbToCard);
+  $('#card-db-restore').addEventListener('click', restoreDbFromCard);
+  $('#delete-db').addEventListener('click', deleteDb);
+  $('#delete-db-dialog').addEventListener('close', onDeleteDbClosed);
   $('#csv-sep').addEventListener('change', () => {
     try { localStorage.setItem('csvSep', $('#csv-sep').value); } catch (e) { /* storage blocked */ }
     updateCsvLink();

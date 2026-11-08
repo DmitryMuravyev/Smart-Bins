@@ -373,6 +373,27 @@
           <button type="button" class="link" id="previous-db-delete" data-i18n="backup.previousDelete">Delete it</button>
         </div>
       </div>
+      <!-- The database on the microSD card (shown with a card in the slot):
+           copies go to /backups on the card and can be put back from there. -->
+      <div id="card-db" hidden>
+        <h3 data-i18n="cardDb.title">microSD card</h3>
+        <p class="muted small" data-i18n="cardDb.hint">Saves the parts database to the backups folder on the card, or puts a saved copy back. The current database is kept, so a restore from the card can be undone too.</p>
+        <div class="buttons">
+          <button type="button" class="secondary" id="card-db-save" data-i18n="cardDb.save">Save database to card</button>
+        </div>
+        <label class="row"><span data-i18n="cardDb.copies">Saved copies</span><select id="card-db-list"></select></label>
+        <div class="buttons">
+          <button type="button" class="secondary" id="card-db-restore" data-i18n="cardDb.restore">Restore from card</button>
+        </div>
+        <p class="small" id="card-db-status" aria-live="polite" hidden></p>
+      </div>
+      <!-- Delete DB: an empty database in place of the current one, after a
+           warning dialog (see deleteDb() in app.js). -->
+      <h3 data-i18n="deleteDb.title">Delete the database</h3>
+      <p class="muted small" data-i18n="deleteDb.hint">Removes every part. Bins, settings and photos stay.</p>
+      <div class="buttons">
+        <button type="button" class="danger" id="delete-db" data-i18n="deleteDb.button">Delete DB</button>
+      </div>
     </div>
 
     <div class="card" id="csv-card">
@@ -474,6 +495,19 @@
       <span class="spacer"></span>
       <button type="button" class="secondary" id="part-cancel" data-i18n="inv.cancel">Cancel</button>
       <button type="submit" id="part-save" data-i18n="settings.save">Save</button>
+    </div>
+  </form>
+</dialog>
+<!-- The warning before Delete DB. Cancel has the focus, so Enter doesn't delete. -->
+<dialog id="delete-db-dialog" class="dialog warn-dialog">
+  <form method="dialog">
+    <h2><span class="ico" aria-hidden="true">&#9888;&#xFE0E;</span> <span data-i18n="deleteDb.confirmTitle">Delete the whole database?</span></h2>
+    <p id="delete-db-text"></p>
+    <p class="small" data-i18n="deleteDb.confirmKeep">Until the next restore or delete, the board keeps one copy of the deleted database, which can be downloaded on this page. Photos stay until unused photos are removed.</p>
+    <div class="buttons dialog-buttons">
+      <span class="spacer"></span>
+      <button value="cancel" class="secondary" autofocus data-i18n="inv.cancel">Cancel</button>
+      <button value="delete" class="danger" data-i18n="deleteDb.button">Delete DB</button>
     </div>
   </form>
 </dialog>

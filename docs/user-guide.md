@@ -60,6 +60,8 @@ Every work light: on/off, brightness, and for color lights a color slider, a whi
 - Firmware, chip, uptime, **Last restart** (see [Troubleshooting](#troubleshooting)), free memory (and free PSRAM on a board with PSRAM), storage, and the inventory figures.
 - **Backup**: **Download backup** saves one `.tar` file with the parts database, every photo and the settings (any computer opens it: `tar -xf`, 7-Zip). **Database only** downloads the SQLite file.
 - **Restore** takes a backup `.tar` (or a bare `.db`), replaces the parts, adds the photos and, if ticked, restores the settings. The database it replaces is kept and can be downloaded, so a restore can be undone.
+- **microSD card** (with a card in the slot): **Save database to card** copies the parts database to the `backups` folder on the card, named by date and time; **Restore from card** puts a chosen copy back, keeping the current database like a restore from a file.
+- **Delete DB** removes every part after a warning; bins, settings and photos stay. The deleted database is kept like the one before a restore, so it can still be downloaded until the next restore or delete. **Remove unused photos** then clears the photos.
 - **CSV export / import** for editing the parts in a spreadsheet (semicolon or comma separated; a row whose `id` matches a part updates it, other rows add parts; bins are written like `A1`).
 - **Photo storage**: moves photos from flash to a microSD card, and removes photo files no part uses.
 - **Firmware update**: installs a release's `-update.bin` file (see [Installing the firmware](flashing.md#3-updating)).

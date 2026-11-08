@@ -35,8 +35,10 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `GET /api/backup` | the full backup as a `.tar` file: `smartbins-backup.json` (format, firmware, schema), `config.json`, `inventory.db`, `photos/*.jpg`. While the database file is being sent (a moment), changes to parts answer 503 |
 | `GET /api/backup/db` | the database file alone (SQLite; opens in DB Browser for SQLite and the like) |
 | `POST /api/backup/restore[?settings=1]` | body: a backup `.tar` or a `.db` file. `curl --data-binary @smartbins-backup.tar ...` Answers `{parts, photos, photosFailed, settings, restarting}` |
-| `GET /api/backup/previous`, `POST /api/backup/previous/delete` | the database kept from before the last restore |
-| `GET /api/backup/info` | database size, the kept database, whether photos are still in flash with a card in, and the photo job's progress |
+| `GET /api/backup/previous`, `POST /api/backup/previous/delete` | the database kept from before the last restore or delete |
+| `POST /api/backup/delete-db` | replaces the database with an empty one (Delete DB); the old one is kept as the previous database. 409 while a restore, a background job or a database download runs |
+| `POST /api/backup/card/save`, `POST /api/backup/card/restore?name=` | copies the database to `/backups/inventory-YYYY-MM-DD-HHMMSS.db` on the microSD card / puts such a copy back in place of the current one (kept as the previous database). Run in the background like the photo jobs (`job.kind` `cardSave`, `cardRestore`, with `file` and, after a restore, `parts`) |
+| `GET /api/backup/info` | database size, the kept database, whether photos are still in flash with a card in, the database copies on the card (`cardBackups`: `name`, `size`, newest first), and the background job's progress |
 | `GET /api/parts.csv[?sep=;]` | every part as CSV (UTF-8 with BOM, `,` or `;`) |
 | `POST /api/parts/import` | body: CSV with a header line (`id`, `part_number`, ..., `quantity`, `bin`, ...); answers `{added, updated, failed, errors: [{line, error}]}` |
 | `POST /api/photos/move-to-card`, `POST /api/photos/clean` | move photos from flash to the microSD card / delete photo files no part uses; run in the background (progress in `/api/backup/info`) |

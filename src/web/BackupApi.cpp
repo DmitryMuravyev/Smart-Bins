@@ -2,10 +2,14 @@
 
 #include <ESPAsyncWebServer.h>
 #include <FFat.h>
+#include <SD.h>
 
+#include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -127,15 +131,29 @@ uint64_t flashFree() {
 // ---- Holding database writes during a copy ----
 //
 // Two downloads may overlap; writes resume when the last one has its copy.
+// A copy to the microSD card holds them too, from its own task, hence the
+// mutex around the count.
 int writeHolders = 0;
+std::mutex holdMutex;
 
 void holdWrites(InventoryDb &db) {
+  std::lock_guard<std::mutex> lock(holdMutex);
   if (writeHolders++ == 0) db.holdWrites(true);
 }
 
 void releaseWrites(InventoryDb &db) {
+  std::lock_guard<std::mutex> lock(holdMutex);
   if (writeHolders > 0 && --writeHolders == 0) db.holdWrites(false);
 }
+
+bool writesHeld() {
+  std::lock_guard<std::mutex> lock(holdMutex);
+  return writeHolders > 0;
+}
+
+// True while a background job (photos, or the database to or from the
+// card) runs; defined with the jobs below.
+bool backgroundBusy();
 
 // ---- The backup archive, produced as it is sent ----
 //
@@ -531,6 +549,8 @@ void onRestoreBody(AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t
     restoreJob->settingsWanted = hasParam(req, "settings") && param(req, "settings")->value() == "1";
     // The password middleware only runs once the whole body is in.
     if (!security.allows(req)) restoreFail(*restoreJob, 401, "password required");
+    // A copy to or from the microSD card (or a photo job) is using the files.
+    else if (backgroundBusy()) restoreFail(*restoreJob, 409, "another job is running, try again when it ends");
     wireReader(*restoreJob, photos);
     req->onDisconnect([req, &photos]() {
       if (restoreJob && restoreJob->req == req) endRestore(photos, true);
@@ -945,70 +965,290 @@ void onImportDone(AsyncWebServerRequest *req, InventoryDb &db) {
   sendJson(req, job->error.empty() ? 200 : job->status, doc);
 }
 
-// ---- Photo maintenance in the background ----
+// ---- Jobs in the background: photos, and the database on the card ----
 //
-// Moving photos to the card copies megabytes; it runs in its own task so the
-// web server stays responsive, and the page polls /api/backup/info.
+// Moving photos to the card copies megabytes, and the database copies to and
+// from the card take a few seconds each; they run in their own task so the
+// web server stays responsive, and the page polls /api/backup/info. One job
+// at a time: they share the card and the flash.
+enum class JobKind : uint8_t {
+  Move,         // photos from flash to the card
+  Clean,        // photo files no part uses
+  CardSave,     // the database to /backups on the card
+  CardRestore,  // a database from /backups on the card in place of this one
+};
+
 struct PhotoJob {
   volatile bool running = false;
-  bool move = false;  // true: move to card, false: remove unused
+  JobKind kind = JobKind::Move;
   volatile int done = 0;
   int total = 0;
   volatile int failed = 0;
   volatile uint64_t bytes = 0;
   char error[96] = "";
+  // The card backup written (CardSave) or read (CardRestore), without the folder.
+  char file[48] = "";
+  int64_t parts = -1;  // parts in the database after a CardRestore
   InventoryDb *db = nullptr;
   PhotoStore *photos = nullptr;
 } photoJob;
 
+bool backgroundBusy() { return photoJob.running; }
+
+// Database backups on the card: /backups/inventory-2026-11-08-1530.db.
+const char *kCardDir = "/backups";
+const char *kCardTemp = "/backups/save.tmp";
+// The copy runs in steps of this size, on the task's stack (see startJob()).
+constexpr size_t kCopyStep = 2048;
+// Backups listed on the System page, newest first.
+constexpr int kCardListMax = 20;
+
+// A file name the page may ask to restore: letters, digits, '-', '_' and
+// '.', ending in ".db". Keeps a request from naming a file outside /backups.
+bool validBackupName(const String &name) {
+  if (name.length() < 4 || name.length() >= sizeof(PhotoJob::file) || !name.endsWith(".db")) return false;
+  for (size_t i = 0; i < name.length(); i++) {
+    const char c = name[i];
+    if (!isalnum(static_cast<unsigned char>(c)) && c != '-' && c != '_' && c != '.') return false;
+  }
+  return name[0] != '.';
+}
+
+// The card's database backups, newest first. Their names hold the date and
+// time, so the newest sorts last by name.
+void listCardBackups(JsonArray out) {
+  struct Entry {
+    String name;
+    uint64_t size;
+  };
+  std::vector<Entry> found;
+  File dir = SD.open(kCardDir);
+  if (!dir || !dir.isDirectory()) return;
+  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
+    String name = f.name();
+    const int slash = name.lastIndexOf('/');
+    if (slash >= 0) name = name.substring(slash + 1);
+    if (f.isDirectory() || !validBackupName(name)) continue;
+    found.push_back({name, f.size()});
+  }
+  std::sort(found.begin(), found.end(), [](const Entry &a, const Entry &b) { return a.name > b.name; });
+  for (size_t i = 0; i < found.size() && i < static_cast<size_t>(kCardListMax); i++) {
+    JsonObject o = out.add<JsonObject>();
+    o["name"] = found[i].name;
+    o["size"] = found[i].size;
+  }
+}
+
+void jobError(PhotoJob &job, const std::string &why) {
+  job.failed = 1;
+  strncpy(job.error, why.c_str(), sizeof(job.error) - 1);
+  job.error[sizeof(job.error) - 1] = 0;
+}
+
+// The database to the card. Writes are held meanwhile, as for a download,
+// so the copy is of one consistent state.
+void cardSave(PhotoJob &job) {
+  // Name from the clock: inventory-2026-11-08-153012.db. Before network
+  // time arrives, the time since start keeps names apart (they then sort
+  // before every dated one).
+  const time_t t = nowOrZero();
+  if (t) {
+    struct tm tm;
+    localtime_r(&t, &tm);
+    strftime(job.file, sizeof(job.file), "inventory-%Y-%m-%d-%H%M%S.db", &tm);
+  } else {
+    snprintf(job.file, sizeof(job.file), "inventory-0-%lu.db", (unsigned long)millis());
+  }
+  const String target = String(kCardDir) + "/" + job.file;
+  if (!SD.exists(kCardDir)) SD.mkdir(kCardDir);
+  if (SD.exists(kCardTemp)) SD.remove(kCardTemp);
+  File dst = SD.open(kCardTemp, FILE_WRITE);
+  if (!dst) return jobError(job, "can't write to the card");
+  holdWrites(*job.db);
+  uint8_t buf[kCopyStep];
+  bool ok = true;
+  uint64_t size = 0;
+  {
+    File src;
+    {
+      led::FlashGuard guard;  // reading the FAT partition, see FlashGuard
+      src = FFat.open(kDbFile, FILE_READ);
+      if (src) size = src.size();
+    }
+    if (!src) {
+      ok = false;
+      jobError(job, "can't read the database");
+    }
+    job.total = static_cast<int>(size);
+    while (ok && job.bytes < size) {
+      size_t n;
+      {
+        led::FlashGuard guard;
+        n = src.read(buf, sizeof(buf));
+      }
+      if (!n || dst.write(buf, n) != n) {
+        ok = false;
+        jobError(job, "copying to the card failed (card full?)");
+        break;
+      }
+      job.bytes = job.bytes + n;
+    }
+    if (src) {
+      led::FlashGuard guard;
+      src.close();
+    }
+  }
+  releaseWrites(*job.db);
+  dst.close();
+  if (ok) {
+    File check = SD.open(kCardTemp, FILE_READ);
+    ok = check && check.size() == size;
+    if (check) check.close();
+    if (!ok) jobError(job, "the copy on the card has the wrong size");
+  }
+  if (ok && !SD.rename(kCardTemp, target)) {
+    ok = false;
+    jobError(job, "can't finish the copy on the card");
+  }
+  if (!ok) SD.remove(kCardTemp);
+  if (ok) ESP_LOGI(TAG, "Database saved to the card: %s, %s", target.c_str(), formatBytes(size));
+}
+
+// A database from the card in place of the current one, which is kept as
+// the previous database (as by a restore from a file).
+void cardRestore(PhotoJob &job) {
+  const String source = String(kCardDir) + "/" + job.file;
+  File src = SD.open(source, FILE_READ);
+  if (!src) return jobError(job, "the backup is not on the card");
+  const uint64_t size = src.size();
+  job.total = static_cast<int>(size);
+  // The same checks as a restore from a file (see onRestoreDone()): a
+  // SQLite file, from this firmware's schema or an older one.
+  uint8_t head[100];
+  if (src.read(head, sizeof(head)) != sizeof(head) || memcmp(head, "SQLite format 3", 16) != 0) {
+    return jobError(job, "the backup is not a SQLite database");
+  }
+  if (be32(head + 60) > static_cast<uint32_t>(inventory::kSchemaVersion)) {
+    return jobError(job, "the backup is from a newer firmware, update first");
+  }
+  src.seek(0);
+  // The incoming copy sits next to the current database until the swap; the
+  // one kept from the last restore or delete makes room (the swap replaces it).
+  const uint64_t free = flashFree() + fileSize(FFat, kIncomingFile) + fileSize(FFat, kPreviousFile);
+  if (size + kRestoreMargin > free) {
+    char msg[96];
+    snprintf(msg, sizeof(msg), "not enough free flash for the database (%s needed)", formatBytes(size + kRestoreMargin));
+    return jobError(job, msg);
+  }
+  File dst;
+  {
+    led::FlashGuard guard;
+    if (FFat.exists(kPreviousFile)) FFat.remove(kPreviousFile);
+    if (FFat.exists(kIncomingFile)) FFat.remove(kIncomingFile);
+    dst = FFat.open(kIncomingFile, FILE_WRITE);
+  }
+  if (!dst) return jobError(job, "can't create the database file");
+  uint8_t buf[kCopyStep];
+  bool ok = true;
+  while (job.bytes < size) {
+    const size_t n = src.read(buf, sizeof(buf));
+    size_t written = 0;
+    if (n) {
+      led::FlashGuard guard;  // a flash write, see FlashGuard
+      written = dst.write(buf, n);
+    }
+    if (!n || written != n) {
+      ok = false;
+      jobError(job, n ? "writing the database failed (flash full?)" : "reading the card failed");
+      break;
+    }
+    job.bytes = job.bytes + n;
+  }
+  {
+    led::FlashGuard guard;
+    dst.close();
+    if (!ok) FFat.remove(kIncomingFile);
+  }
+  if (!ok) return;
+  // The swap (replaceFile() takes the write hooks itself, see onRestoreDone()).
+  std::string err;
+  if (!job.db->replaceFile(kDbPath, kIncomingPath, kPreviousPath, err)) {
+    led::FlashGuard guard;
+    if (FFat.exists(kIncomingFile)) FFat.remove(kIncomingFile);
+    return jobError(job, err);
+  }
+  job.db->syncBins(gridCols, gridRows, err);
+  inventory::Stats st;
+  if (job.db->stats(st, err) == Result::Ok) job.parts = st.parts;
+  ESP_LOGI(TAG, "Database restored from the card: %s, %lld parts", source.c_str(), (long long)job.parts);
+}
+
 void photoTask(void *) {
   PhotoJob &job = photoJob;
-  if (job.move) {
-    int64_t id = 0;
-    std::string name, err;
-    while (job.db->nextPhoto(id, id, name, err) == Result::Ok) {
-      uint64_t moved = 0;
-      if (!job.photos->moveToCard(name, moved, err)) {
-        job.failed = job.failed + 1;
-        if (!job.error[0]) strncpy(job.error, err.c_str(), sizeof(job.error) - 1);
+  switch (job.kind) {
+    case JobKind::Move: {
+      int64_t id = 0;
+      std::string name, err;
+      while (job.db->nextPhoto(id, id, name, err) == Result::Ok) {
+        uint64_t moved = 0;
+        if (!job.photos->moveToCard(name, moved, err)) {
+          job.failed = job.failed + 1;
+          if (!job.error[0]) strncpy(job.error, err.c_str(), sizeof(job.error) - 1);
+        }
+        job.bytes = job.bytes + moved;
+        job.done = job.done + 1;
       }
-      job.bytes = job.bytes + moved;
-      job.done = job.done + 1;
+      break;
     }
-  } else {
-    // In use: the part named by the photo's id prefix still has this photo.
-    uint64_t freed = 0;
-    const int removed = job.photos->removeUnused([](const std::string &name) {
-      const int64_t id = atoll(name.c_str());
-      Part p;
-      std::string err;
-      const Result r = photoJob.db->getPart(id, p, err);
-      // Unsure (database error): keep it.
-      return r == Result::Error || (r == Result::Ok && p.photo == name);
-    }, freed);
-    job.done = removed;
-    job.bytes = freed;
+    case JobKind::Clean: {
+      // In use: the part named by the photo's id prefix still has this photo.
+      uint64_t freed = 0;
+      const int removed = job.photos->removeUnused([](const std::string &name) {
+        const int64_t id = atoll(name.c_str());
+        Part p;
+        std::string err;
+        const Result r = photoJob.db->getPart(id, p, err);
+        // Unsure (database error): keep it.
+        return r == Result::Error || (r == Result::Ok && p.photo == name);
+      }, freed);
+      job.done = removed;
+      job.bytes = freed;
+      break;
+    }
+    case JobKind::CardSave: cardSave(job); break;
+    case JobKind::CardRestore: cardRestore(job); break;
   }
-  ESP_LOGI(TAG, "Photo %s finished: %d done, %d failed, %llu bytes", job.move ? "move" : "clean-up", job.done,
-           job.failed, (unsigned long long)job.bytes);
+  ESP_LOGI(TAG, "Job %d finished: %d done, %d failed, %llu bytes%s%s", static_cast<int>(job.kind), job.done,
+           job.failed, (unsigned long long)job.bytes, job.error[0] ? ": " : "", job.error);
   job.running = false;
   vTaskDelete(nullptr);
 }
 
-bool startPhotoJob(bool move, InventoryDb &db, PhotoStore &photos, std::string &err) {
-  if (photoJob.running) return err = "a photo job is already running", false;
-  photoJob.move = move;
+// `file`: the card backup to restore (CardRestore only).
+bool startJob(JobKind kind, InventoryDb &db, PhotoStore &photos, const char *file, std::string &err) {
+  if (photoJob.running) return err = "another job is running, try again when it ends", false;
+  photoJob.kind = kind;
   photoJob.done = 0;
   photoJob.failed = 0;
   photoJob.bytes = 0;
   photoJob.error[0] = 0;
+  photoJob.file[0] = 0;
+  if (file) {
+    strncpy(photoJob.file, file, sizeof(photoJob.file) - 1);
+    photoJob.file[sizeof(photoJob.file) - 1] = 0;
+  }
+  photoJob.parts = -1;
   photoJob.db = &db;
   photoJob.photos = &photos;
-  inventory::Stats s;
-  photoJob.total = db.stats(s, err) == Result::Ok ? static_cast<int>(s.photos) : 0;
+  photoJob.total = 0;
+  if (kind == JobKind::Move || kind == JobKind::Clean) {
+    inventory::Stats s;
+    photoJob.total = db.stats(s, err) == Result::Ok ? static_cast<int>(s.photos) : 0;
+  }
   photoJob.running = true;
-  // 10 KB: SQLite's statements need several KB of stack (as the benchmark).
-  // Core 0, away from the LED tasks.
+  // 10 KB: SQLite's statements need several KB of stack (as the benchmark),
+  // and the card copies keep their 2 KB step buffer there too. Core 0, away
+  // from the LED tasks.
   if (xTaskCreatePinnedToCore(photoTask, "photos", 10240, nullptr, 1, nullptr, 0) != pdPASS) {
     photoJob.running = false;
     return err = "not enough memory to start, try again", false;
@@ -1017,14 +1257,17 @@ bool startPhotoJob(bool move, InventoryDb &db, PhotoStore &photos, std::string &
 }
 
 void writePhotoJob(JsonObject out) {
+  static const char *const kKinds[] = {"move", "clean", "cardSave", "cardRestore"};
   // Plain copies: ArduinoJson takes no volatile values.
   out["running"] = static_cast<bool>(photoJob.running);
-  out["kind"] = photoJob.move ? "move" : "clean";
+  out["kind"] = kKinds[static_cast<int>(photoJob.kind)];
   out["done"] = static_cast<int>(photoJob.done);
   out["total"] = photoJob.total;
   out["failed"] = static_cast<int>(photoJob.failed);
   out["bytes"] = static_cast<uint64_t>(photoJob.bytes);
   if (photoJob.error[0]) out["error"] = photoJob.error;
+  if (photoJob.file[0]) out["file"] = photoJob.file;
+  if (photoJob.parts >= 0) out["parts"] = photoJob.parts;
 }
 
 }  // namespace
@@ -1059,6 +1302,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
       doc["flashPhotos"] = photos.flashPhotoCount() > 0;
       if (FFat.exists(kPreviousFile)) doc["previousBytes"] = fileSize(FFat, kPreviousFile);
     }
+    if (photos.onCard()) listCardBackups(doc["cardBackups"].to<JsonArray>());
     writePhotoJob(doc["job"].to<JsonObject>());
     sendJson(req, 200, doc);
   });
@@ -1165,7 +1409,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   server.on(AsyncURIMatcher::exact("/api/photos/move-to-card"), HTTP_POST, [&db, &photos](AsyncWebServerRequest *req) {
     if (!photos.onCard()) return sendError(req, 409, "no microSD card");
     std::string err;
-    if (!startPhotoJob(true, db, photos, err)) return sendError(req, 409, err.c_str());
+    if (!startJob(JobKind::Move, db, photos, nullptr, err)) return sendError(req, 409, err.c_str());
     JsonDocument doc;
     writePhotoJob(doc.to<JsonObject>());
     sendJson(req, 200, doc);
@@ -1173,9 +1417,56 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
   server.on(AsyncURIMatcher::exact("/api/photos/clean"), HTTP_POST, [&db, &photos](AsyncWebServerRequest *req) {
     if (!db.isOpen()) return sendError(req, 503, "inventory database unavailable");
     std::string err;
-    if (!startPhotoJob(false, db, photos, err)) return sendError(req, 409, err.c_str());
+    if (!startJob(JobKind::Clean, db, photos, nullptr, err)) return sendError(req, 409, err.c_str());
     JsonDocument doc;
     writePhotoJob(doc.to<JsonObject>());
+    sendJson(req, 200, doc);
+  });
+
+  // The database to and from the microSD card (System page). Both copy in
+  // the background; the page follows the job through /api/backup/info.
+  server.on(AsyncURIMatcher::exact("/api/backup/card/save"), HTTP_POST, [&db, &photos](AsyncWebServerRequest *req) {
+    if (!photos.onCard()) return sendError(req, 409, "no microSD card");
+    if (!db.isOpen()) return sendError(req, 503, "inventory database unavailable");
+    std::string err;
+    if (!startJob(JobKind::CardSave, db, photos, nullptr, err)) return sendError(req, 409, err.c_str());
+    JsonDocument doc;
+    writePhotoJob(doc.to<JsonObject>());
+    sendJson(req, 200, doc);
+  });
+  server.on(AsyncURIMatcher::exact("/api/backup/card/restore"), HTTP_POST, [&db, &photos](AsyncWebServerRequest *req) {
+    if (!photos.onCard()) return sendError(req, 409, "no microSD card");
+    const AsyncWebParameter *name = param(req, "name");
+    if (!name || !validBackupName(name->value())) return sendError(req, 400, "bad backup name");
+    if (restoreJob) return sendError(req, 409, "another restore is running");
+    // A download reads the database file while the swap would replace it.
+    if (writesHeld()) return sendError(req, 409, "the database is being downloaded, try again when it is done");
+    std::string err;
+    if (!startJob(JobKind::CardRestore, db, photos, name->value().c_str(), err)) {
+      return sendError(req, 409, err.c_str());
+    }
+    JsonDocument doc;
+    writePhotoJob(doc.to<JsonObject>());
+    sendJson(req, 200, doc);
+  });
+
+  // Delete DB (System page): an empty database takes the current one's
+  // place. The current one is kept as the "previous" database, like before
+  // a restore, so it can still be downloaded until the next restore or
+  // delete. Photos stay; "Remove unused photos" clears them.
+  server.on(AsyncURIMatcher::exact("/api/backup/delete-db"), HTTP_POST, [&db](AsyncWebServerRequest *req) {
+    if (restoreJob) return sendError(req, 409, "a restore is running");
+    if (backgroundBusy()) return sendError(req, 409, "another job is running, try again when it ends");
+    // A download of the database holds writes while it reads the file.
+    if (writesHeld()) return sendError(req, 409, "the database is being downloaded, try again when it is done");
+    std::string err;
+    // No FlashGuard here: replaceFile() takes the database's write hooks
+    // (see onRestoreDone()).
+    if (!db.replaceFile(kDbPath, nullptr, kPreviousPath, err)) return sendError(req, 500, err.c_str());
+    db.syncBins(gridCols, gridRows, err);
+    ESP_LOGI(TAG, "Database deleted (kept aside as %s)", kPreviousFile);
+    JsonDocument doc;
+    doc["ok"] = true;
     sendJson(req, 200, doc);
   });
 }
