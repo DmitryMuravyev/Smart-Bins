@@ -1231,9 +1231,20 @@ void cardRestore(PhotoJob &job) {
     if (FFat.exists(kIncomingFile)) FFat.remove(kIncomingFile);
     return jobError(job, err);
   }
-  job.db->syncBins(gridCols, gridRows, err);
-  inventory::Stats st;
-  if (job.db->stats(st, err) == Result::Ok) job.parts = st.parts;
+  if (job.db->syncBins(gridCols, gridRows, err) != Result::Ok) ESP_LOGW(TAG, "Bins not synced after the restore: %s", err.c_str());
+  // The part count for the status line. Right after the swap the heap can be
+  // nearly empty (the new database's first reads, and the page polling for
+  // progress), and the count then failed now and then: a few tries, a moment
+  // apart.
+  for (int i = 0; i < 4; i++) {
+    inventory::Stats st;
+    if (job.db->stats(st, err) == Result::Ok) {
+      job.parts = st.parts;
+      break;
+    }
+    ESP_LOGW(TAG, "Counting the restored parts failed: %s", err.c_str());
+    vTaskDelay(pdMS_TO_TICKS(250));
+  }
   ESP_LOGI(TAG, "Database restored from the card: %s, %lld parts", source.c_str(), (long long)job.parts);
   if (!job.settingsWanted || !jobConfig) return;
   // The settings saved beside the copy, as a restore from a file does with
