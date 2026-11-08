@@ -11,6 +11,7 @@
 #include "Health.h"
 #include "ConfigStore.h"
 #include "InventoryApi.h"
+#include "MemoryProfile.h"
 #include "PhotoApi.h"
 #include "Security.h"
 #include "PinMap.h"
@@ -135,6 +136,9 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
       p["input"] = d.use == board::PinUse::Input;
       if (board::isFixedPin(d.name)) p["fixed"] = true;
     }
+    // False on boards without PSRAM: the microphone is off there whatever the
+    // setting says (kMicrophone in MemoryProfile.h), so the page greys it out.
+    doc["micAvailable"] = mem::kMicrophone;
     writeAllowedPins(doc["outputs"].to<JsonArray>(), board::PinUse::Output);
     writeAllowedPins(doc["inputs"].to<JsonArray>(), board::PinUse::Input);
     sendJson(req, 200, doc);

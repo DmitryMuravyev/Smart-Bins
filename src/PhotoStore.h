@@ -87,8 +87,9 @@ class PhotoStore {
   // then deletes the flash copy. Adds the bytes freed in flash to `moved`.
   // True when nothing of it is left in flash (also when it never was there).
   bool moveToCard(const std::string &name, uint64_t &moved, std::string &err);
-  // True when some photo file is still in flash while a card is in use.
-  bool flashHasPhotos() const;
+  // How many photos (not counting thumbnails) are still in flash while a card
+  // is in use; 0 without a card. Walks the photo folder in flash.
+  int flashPhotoCount() const;
   // Deletes every photo file (on the card and in flash) whose name `inUse`
   // doesn't recognise. Returns the number of files removed; `freed` grows by
   // their size.

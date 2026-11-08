@@ -171,6 +171,10 @@ void writePhotoStats(JsonObject out, PhotoStore &photos) {
   out["used"] = photos.usedBytes();
   out["total"] = photos.totalBytes();
   out["available"] = photos.availableBytes();
+  // With a card, photos taken before it went in stay in flash until they
+  // are moved (System page): the page tells the two apart. Before 0.16.0 it
+  // said every photo was on the card, even on a card that was still empty.
+  if (photos.onCard()) out["inFlash"] = photos.flashPhotoCount();
 }
 
 void registerPhotoApi(AsyncWebServer &server, PhotoStore &photos, InventoryDb &db, Security &security) {

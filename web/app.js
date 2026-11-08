@@ -1784,6 +1784,11 @@ function renderPinFields() {
   const info = state.pins;
   const list = $('#hw-pin-list');
   $('#hw-mic').value = (state.config && state.config.microphone) || 'i2s';
+  // Boards without PSRAM run no microphone (see micAvailable in /api/pins):
+  // the choice is greyed out and its pins hidden, but kept as they are.
+  const micOff = !!info && info.micAvailable === false;
+  $('#hw-mic').disabled = micOff;
+  $('#hw-mic-psram').hidden = !micOff;
   if (!info) return list.replaceChildren();
   list.replaceChildren(...info.pins.map(p => {
     const row = document.createElement('label');
@@ -1811,9 +1816,10 @@ function renderPinFields() {
   checkPins();
 }
 
-// Only the pins of the chosen microphone are shown.
+// Only the pins of the chosen microphone are shown (none when the board
+// runs no microphone at all).
 function updateMicPins() {
-  const mic = $('#hw-mic').value;
+  const mic = $('#hw-mic').disabled ? 'none' : $('#hw-mic').value;
   for (const row of $$('#hw-pin-list .pin-row')) {
     const n = row.dataset.pin;
     if (n.startsWith('mic_i2s')) row.hidden = mic !== 'i2s';
@@ -1854,6 +1860,9 @@ async function savePins() {
   for (const row of $$('#hw-pin-list .pin-row')) {
     const sel = $('.pin-gpio', row);
     if (sel.disabled) continue;  // the BOOT button
+    // A board without a microphone keeps its microphone pins as they were,
+    // for the day the configuration moves to a board with PSRAM.
+    if (row.hidden && $('#hw-mic').disabled) continue;
     // A hidden microphone pin is set free, so it can't clash with anything.
     cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
   }
@@ -1863,6 +1872,21 @@ async function savePins() {
 function defaultPins() {
   for (const sel of $$('#hw-pin-list .pin-gpio')) sel.value = sel.dataset.default;
   checkPins();
+}
+
+// The Photos line of the System page: how many there are and where. With a
+// card, photos taken before it went in stay in flash until they are moved,
+// so the line counts the two places apart (inFlash, firmware 0.16.0 on).
+// The card's figures are the whole card: a new card shows some use for its
+// file system before any photo is on it.
+function photoSummary(s) {
+  const n = s.inventory.photos;
+  if (!s.photos) return String(n);
+  const sizes = { used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) };
+  if (s.photos.storage !== 'card') return t('system.photosFlash', { n, ...sizes });
+  const inFlash = Math.min(s.photos.inFlash || 0, n);
+  if (!inFlash) return t('system.photosCard', { n, ...sizes });
+  return t('system.photosSplit', { n, flash: inFlash, card: n - inFlash, ...sizes });
 }
 
 // ---------------------------------------------------------------------------
@@ -2133,9 +2157,7 @@ function renderSystem() {
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
       ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],
-      ['system.photos', !s.photos ? String(s.inventory.photos)
-        : t(s.photos.storage === 'card' ? 'system.photosCard' : 'system.photosFlash',
-          { n: s.inventory.photos, used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) })],
+      ['system.photos', photoSummary(s)],
       ['system.bins', t('system.binsValue', { used: s.inventory.binsUsed, total: s.inventory.binsTotal })],
       ['system.categories', String(s.inventory.categories)],
       ['system.manufacturers', String(s.inventory.manufacturers)],

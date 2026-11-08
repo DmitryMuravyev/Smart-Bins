@@ -320,17 +320,19 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
   return true;
 }
 
-bool PhotoStore::flashHasPhotos() const {
-  if (!card_) return false;
+int PhotoStore::flashPhotoCount() const {
+  if (!card_) return 0;
   led::FlashGuard guard;  // walks the FAT directory (see find())
   File dir = FFat.open(kDir);
-  if (!dir || !dir.isDirectory()) return false;
+  if (!dir || !dir.isDirectory()) return 0;
+  int count = 0;
   std::string name;
   Kind kind;
   for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-    if (!f.isDirectory() && parseFileName(f.name(), name, kind)) return true;
+    // Photos only: a thumbnail belongs to the photo next to it.
+    if (!f.isDirectory() && parseFileName(f.name(), name, kind) && kind == Kind::Photo) count++;
   }
-  return false;
+  return count;
 }
 
 int PhotoStore::removeUnused(const std::function<bool(const std::string &name)> &inUse, uint64_t &freed) {

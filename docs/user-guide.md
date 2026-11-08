@@ -101,7 +101,7 @@ Under Settings → **Work lights**, each of the five channels is one of:
 
 ### Microphone and pins
 
-- **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden.
+- **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden. The microphone and the music effects need a board with PSRAM (the 16 MB PSRAM build): on a board without it they are off and the choice is greyed out, so that the web server keeps enough memory, above all with a microSD card in the slot.
 - **Pins**: the GPIO of every function. Each list offers only the pins the board can use for that function, and a pin chosen twice is marked. **Default pins** puts back the reference map. On the PSRAM build, GPIO16 and 17 are not offered: the PSRAM uses them.
 
 If the board stops responding after a pin change, hold BOOT for 10s: the factory reset restores the default pins.

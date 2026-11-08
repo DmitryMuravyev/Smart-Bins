@@ -4,10 +4,10 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 
 | Endpoint | What it does |
 |---|---|
-| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage, Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
+| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage (`photos`: where photos go, the space there and, with a microSD card, `inFlash`: photos still in flash), Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
 | `POST /api/system/restart` | restarts the board |
 | `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
-| `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`) |
+| `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`), and `micAvailable` (false on a board without PSRAM, which runs no microphone) |
 | `POST /api/firmware` | installs new firmware: a multipart upload with the file in the field `firmware` (`curl -F firmware=@smartbins-1.0.0-esp32-8mb-update.bin ...`); restarts with it when the image is complete and valid, otherwise keeps the running one and answers the reason |
 | `/api/locate?x=3&y=2` | lights one bin; optional `color=FF0000`, `mode=steady\|slow-pulse\|fast-pulse`, `s=10` (0 = until cleared) |
 | `/api/locate/clear[?x=3&y=2]` | fades every located bin out, or just the one given |

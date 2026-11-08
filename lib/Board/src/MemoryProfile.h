@@ -66,9 +66,27 @@ constexpr size_t kRestoreWriteBuffer = kPsram ? 16384 : 4096;
 constexpr int kMaxOpenFiles = kPsram ? 8 : 4;
 
 // ---- Tasks (stacks are always in internal RAM) ----
+//
+// Sizes without PSRAM come from the "Unused stack" line of the 60-second
+// debug report (the least that was ever left over), plus a margin.
 
 // The microphone task: 3 KB leaves about 1 KB unused.
 constexpr uint32_t kMicStack = kPsram ? 4096 : 3072;
+// The Arduino loop task (Wi-Fi housekeeping, OTA updates, the BOOT button):
+// 8 KB by default, of which 4 KB was never touched. 6 KB without PSRAM.
+constexpr uint32_t kLoopStack = kPsram ? 8192 : 6144;
+// The LED and work-light tasks: 4 KB each, about 2.3 KB never touched.
+// 3.5 KB each without PSRAM.
+constexpr uint32_t kLedStack = kPsram ? 4096 : 3584;
+
+// ---- Optional features ----
+
+// The microphone and the music effects. Without PSRAM they would take about
+// 3 KB of RAM for good (the task's stack) and 6 KB more while music plays,
+// and with a microSD card in the slot (about 13 KB for its file system)
+// the web server was left with too little to answer requests. So they run
+// only on boards with PSRAM; the other effects need under 1 KB and stay.
+constexpr bool kMicrophone = kPsram;
 
 }  // namespace mem
 }  // namespace sb
