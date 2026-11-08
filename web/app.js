@@ -2038,7 +2038,12 @@ async function loadBackupInfo() {
   if (!info) return;
   backup.info = info;
   renderBackup();
-  backup.wasRunning = !!(info.job && info.job.running);
+  // A job that just ended changed what is stored (a copy saved to the card,
+  // photos moved or removed): new storage figures on the System page. A
+  // restore from the card refreshes it itself (see renderCardDb()).
+  const job = info.job || {};
+  if (backup.wasRunning && !job.running && job.kind !== 'cardRestore') loadSystem();
+  backup.wasRunning = !!job.running;
   // A photo job reports its progress here; ask again while it runs.
   clearTimeout(backup.poll);
   if (info.job && info.job.running && $('#page-system').classList.contains('active')) {

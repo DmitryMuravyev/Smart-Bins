@@ -3,6 +3,8 @@
 #include <ESPAsyncWebServer.h>
 #include <FFat.h>
 #include <SD.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #include <algorithm>
 #include <cctype>
@@ -1007,6 +1009,9 @@ bool backgroundBusy() { return photoJob.running; }
 
 // Database backups on the card: /backups/inventory-2026-11-08-1530.db.
 const char *kCardDir = "/backups";
+// Where SD.begin() mounts the card (see PhotoStore::begin()), for the
+// POSIX calls of listCardBackups().
+const char *kCardMount = "/sd";
 const char *kCardTemp = "/backups/save.tmp";
 // The copy runs in steps of this size, on the task's stack (see startJob()).
 constexpr size_t kCopyStep = 2048;
@@ -1037,47 +1042,45 @@ bool validBackupName(const String &name) {
 // The card's database backups, newest first. Their names hold the date and
 // time, so the newest sorts last by name.
 //
-// The walk holds two of the card's file slots (the folder and the entry it
-// is on), so while a job copies to or from the card it is not walked: the
-// job holds a slot itself, and a walk then made its file opens fail now and
-// then ("no free file descriptors"). The list from the last walk is shown
-// instead; the job's end brings a fresh one. The settings files are noted
-// in the same walk rather than looked up one by one, for the same reason.
+// Read with opendir()/readdir()/stat() rather than SD.open() and
+// openNextFile(): those open every entry as a file, and the card has only
+// two file slots (each costs about 4 KB of heap, see PhotoStore.cpp). A walk
+// that took them made a restore's own opens fail now and then ("no free file
+// descriptors"). A folder handle and stat() take no file slot, so this list
+// can be read at any time, even while a job copies to or from the card. The
+// settings files beside the copies are noted in the same walk.
 void listCardBackups(JsonArray out) {
   struct Entry {
     String name;
     uint64_t size;
-    bool settings;
   };
-  static std::vector<Entry> found;
-  // Nor while a restore from a file is writing its photos to the card.
-  if (!backgroundBusy() && !restoreJob) {
-    found.clear();
-    std::vector<String> settings;  // the .json files beside the copies
-    File dir = SD.open(kCardDir);
-    if (dir && dir.isDirectory()) {
-      for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-        String name = f.name();
-        const int slash = name.lastIndexOf('/');
-        if (slash >= 0) name = name.substring(slash + 1);
-        if (f.isDirectory()) continue;
-        if (name.endsWith(".json")) settings.push_back(name.substring(0, name.length() - 5));
-        else if (validBackupName(name)) found.push_back({name, f.size(), false});
-      }
+  std::vector<Entry> found;
+  std::vector<String> settings;  // the .json files' names, without ".json"
+  const String dirPath = String(kCardMount) + kCardDir;
+  DIR *dir = opendir(dirPath.c_str());
+  if (!dir) return;  // no backups folder yet
+  for (dirent *e = readdir(dir); e; e = readdir(dir)) {
+    if (e->d_type == DT_DIR) continue;
+    const String name = e->d_name;
+    if (name.endsWith(".json")) {
+      settings.push_back(name.substring(0, name.length() - 5));
+    } else if (validBackupName(name)) {
+      struct stat st;
+      const String path = dirPath + "/" + name;
+      found.push_back({name, stat(path.c_str(), &st) == 0 ? static_cast<uint64_t>(st.st_size) : 0});
     }
-    for (Entry &e : found) {
-      const String stem = e.name.substring(0, e.name.length() - 3);
-      e.settings = std::find(settings.begin(), settings.end(), stem) != settings.end();
-    }
-    std::sort(found.begin(), found.end(), [](const Entry &a, const Entry &b) { return a.name > b.name; });
-    if (found.size() > static_cast<size_t>(kCardListMax)) found.resize(kCardListMax);
   }
+  closedir(dir);
+  std::sort(found.begin(), found.end(), [](const Entry &a, const Entry &b) { return a.name > b.name; });
+  if (found.size() > static_cast<size_t>(kCardListMax)) found.resize(kCardListMax);
   for (const Entry &e : found) {
+    // "inventory-<date>.db" has its settings in "inventory-<date>.json".
+    const String stem = e.name.substring(0, e.name.length() - 3);
     JsonObject o = out.add<JsonObject>();
     o["name"] = e.name;
     o["size"] = e.size;
     // Copies saved by 0.16.0 and later carry the settings beside them.
-    o["settings"] = e.settings;
+    o["settings"] = std::find(settings.begin(), settings.end(), stem) != settings.end();
   }
 }
 
