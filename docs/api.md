@@ -4,7 +4,7 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 
 | Endpoint | What it does |
 |---|---|
-| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage (`photos`: where photos go, the space there and, with a microSD card, `inFlash`: photos still in flash), Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
+| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage (`photos`: where photos go, the space there and `inFlash`: the photos in flash, which with a microSD card are the ones not moved yet), Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
 | `POST /api/system/restart` | restarts the board |
 | `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
 | `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`), and `micAvailable` (false on a board without PSRAM, which runs no microphone) |

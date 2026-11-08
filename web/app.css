@@ -265,6 +265,8 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .dialog-buttons { align-items: center; }
 .dialog-buttons .spacer { flex: 1; }
 button.danger { background: var(--err); color: #fff; }
+/* Restart device: orange, between an everyday button and a destructive one. */
+button.warning { background: var(--warn); color: var(--accent-text); }
 
 /* Photos. Thumbnails are 128 px files; on a card they are shown at 64 px, the
    height of the three text lines beside them (23 + 20 + 20 px), sharp on 2x screens. */

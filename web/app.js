@@ -1886,8 +1886,13 @@ function photoSummary(s) {
   const n = s.inventory.photos;
   if (!s.photos) return String(n);
   const sizes = { used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) };
-  if (s.photos.storage !== 'card') return t('system.photosFlash', { n, ...sizes });
-  const inFlash = Math.min(s.photos.inFlash || 0, n);
+  const inFlash = Math.min(s.photos.inFlash ?? n, n);
+  if (s.photos.storage !== 'card') {
+    // Photos the database names but flash doesn't have: on a card that is
+    // out or didn't start.
+    if (inFlash < n) return t('system.photosMissing', { n, flash: inFlash, missing: n - inFlash });
+    return t('system.photosFlash', { n, ...sizes });
+  }
   if (!inFlash) return t('system.photosCard', { n, ...sizes });
   return t('system.photosSplit', { n, flash: inFlash, card: n - inFlash, ...sizes });
 }
