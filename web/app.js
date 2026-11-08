@@ -239,6 +239,7 @@ function buildLightCard(light) {
 
   card.querySelector('.light-on').addEventListener('change', e => sendLight(id, { on: e.target.checked ? 1 : 0 }));
   const level = card.querySelector('.light-level');
+  guardRange(level);
   level.addEventListener('input', () => {
     card.querySelector('.light-level-out').textContent = percent(level.value);
     sendLight(id, { level: level.value });
@@ -380,6 +381,90 @@ function makeSlider(el, min, max, step, onInput) {
   el.style.setProperty('--pos', 0);
   el.setAttribute('aria-valuenow', min);
   return { set: v => { if (!dragging && !pending) show(v, false); } };
+}
+
+// The same touch handling for a plain range input (brightness, speed and so
+// on): a phone's browser moves a range's thumb the moment a finger lands on
+// it, so a swipe up or down that happens to start on one changed the value
+// before the page scrolled. guardRange() wraps the input in a span that
+// takes the pointer instead (the input itself gets pointer-events: none, see
+// app.css) and acts as makeSlider() does:
+//   - a finger that lands changes nothing yet; a clearly sideways move
+//     starts a drag, a tap sets the value where it landed, and a swipe up or
+//     down scrolls the page and leaves the value alone (touch-action: pan-y
+//     on the span hands vertical moves to the browser);
+//   - the mouse still acts on press;
+//   - the input keeps its value and its usual 'input' (while it moves) and
+//     'change' (when let go) events, so the code around it is unchanged, and
+//     it keeps its keyboard handling;
+//   - it takes the focus while it is moved, as a native range does, so
+//     setIfIdle() leaves it alone under the finger.
+// The thumb's centre is taken to run from RANGE_THUMB / 2 inside one end of
+// the input to as far inside the other: about where browsers draw it.
+const RANGE_THUMB = 16;
+
+function guardRange(input) {
+  if (input.parentElement.classList.contains('range-wrap')) return;  // already done
+  const wrap = document.createElement('span');
+  wrap.className = 'range-wrap';
+  input.replaceWith(wrap);
+  wrap.append(input);
+  const min = Number(input.min || 0), max = Number(input.max || 100);
+  let dragging = false, pending = null, startValue = null;
+  const fire = type => input.dispatchEvent(new Event(type, { bubbles: true }));
+  const setFromX = x => {
+    const r = input.getBoundingClientRect();
+    const v = min + (x - r.left - RANGE_THUMB / 2) / Math.max(1, r.width - RANGE_THUMB) * (max - min);
+    const before = input.value;
+    input.value = v;  // the input rounds it to its step and clamps it
+    if (input.value !== before) fire('input');
+  };
+  const begin = () => {
+    startValue = input.value;
+    input.focus({ preventScroll: true });
+  };
+  const end = () => {
+    if (startValue !== null && input.value !== startValue) fire('change');
+    startValue = null;
+  };
+  const startDrag = e => {
+    pending = null;
+    dragging = true;
+    wrap.setPointerCapture(e.pointerId);
+    begin();
+    setFromX(e.clientX);
+  };
+  wrap.addEventListener('pointerdown', e => {
+    if (input.disabled) return;
+    if (e.pointerType === 'mouse') {
+      startDrag(e);
+      e.preventDefault();  // no text selection, and the focus stays on the input
+      return;
+    }
+    pending = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  });
+  wrap.addEventListener('pointermove', e => {
+    if (dragging) return setFromX(e.clientX);
+    if (!pending || e.pointerId !== pending.id) return;
+    const dx = Math.abs(e.clientX - pending.x), dy = Math.abs(e.clientY - pending.y);
+    if (dx > SLIDER_SLOP && dx > dy) startDrag(e);
+    else if (dy > SLIDER_SLOP) pending = null;  // a scroll: the browser has it
+  });
+  wrap.addEventListener('pointerup', e => {
+    // A tap: the finger came up close to where it landed.
+    if (pending && e.pointerId === pending.id) {
+      begin();
+      setFromX(pending.x);
+    }
+    pending = null;
+    dragging = false;
+    end();
+  });
+  wrap.addEventListener('pointercancel', () => {
+    pending = null;
+    dragging = false;
+    end();
+  });
 }
 
 function hueToHex(h) {
@@ -2656,6 +2741,8 @@ function bindControls() {
   // Locate color: the same hue slider and color presets as the lights
   // (presets that set a color temperature don't apply to a bin and are left out).
   locateHue = makeSlider($('#locate-hue'), 0, 359, 1, onLocateHue);
+  // Plain sliders: a swipe that starts on one scrolls the page (see guardRange()).
+  for (const input of $$('input[type=range]')) guardRange(input);
   for (const p of PRESETS.filter(p => p.params.color)) {
     const b = document.createElement('button');
     b.style.background = p.css;
