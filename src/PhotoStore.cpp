@@ -12,6 +12,7 @@
 #include <cstring>
 
 #include "BootReport.h"
+#include "MemoryProfile.h"
 #include "led/RmtStrip.h"
 
 namespace sb {
@@ -27,9 +28,12 @@ const char *kMovePath = "/photos/move.tmp";
 // SD.begin() falls back to nothing slower on its own, so a card that fails
 // here is treated as absent (photos then go to flash).
 constexpr uint32_t kCardHz = 20000000;
-// Files open at once on the card: an upload and a photo being sent. Each slot
-// costs heap, as on the FAT partition (see mountFilesystem() in main.cpp).
-constexpr uint8_t kCardMaxFiles = 2;
+// Files open at once on the card: an upload (or a copy to or from the card)
+// and a photo being sent, plus a folder walk (the folder and its current
+// entry). Each slot costs about 4 KB of heap, as on the FAT partition (see
+// mountFilesystem() in main.cpp). Two were too few: with a restore under
+// way, a walk or a send now and then found no free slot.
+constexpr uint8_t kCardMaxFiles = mem::kCardMaxFiles;
 }  // namespace
 
 void PhotoStore::begin(int sck, int miso, int mosi, int cs) {

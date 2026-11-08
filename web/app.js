@@ -2054,9 +2054,14 @@ function renderCardDb(info, job) {
     const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
     if (job.running) line.textContent = t('cardDb.restoring', { file: cardCopyDate(job.file || ''), pct });
     else if (job.failed) line.textContent = t('cardDb.failed', { error: job.error || '' });
-    else if (job.settingsMissing) line.textContent = t('cardDb.restoredNoSettings', { parts: job.parts ?? 0 });
-    else if (job.settingsError) line.textContent = t('cardDb.restoredSettingsFailed', { parts: job.parts ?? 0, error: job.settingsError });
-    else line.textContent = t('cardDb.restored', { parts: job.parts ?? 0 });
+    else {
+      // The count from the database as it is now (in the same answer), not
+      // only the one the job noted: one number for the page to trust.
+      const parts = info.parts ?? job.parts ?? 0;
+      if (job.settingsMissing) line.textContent = t('cardDb.restoredNoSettings', { parts });
+      else if (job.settingsError) line.textContent = t('cardDb.restoredSettingsFailed', { parts, error: job.settingsError });
+      else line.textContent = t('cardDb.restored', { parts });
+    }
     // Just finished: new parts, so new counts on the System page (or a
     // restart, when the settings came back too).
     if (!job.running && backup.wasRunning) {

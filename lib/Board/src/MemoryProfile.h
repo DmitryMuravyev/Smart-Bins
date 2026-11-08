@@ -64,6 +64,8 @@ constexpr size_t kImportBatch = kPsram ? 50 : 5;
 constexpr size_t kRestoreWriteBuffer = kPsram ? 16384 : 4096;
 // Files the FAT partition may have open at once (each holds a sector buffer).
 constexpr int kMaxOpenFiles = kPsram ? 8 : 4;
+// Files the microSD card may have open at once (see PhotoStore.cpp).
+constexpr int kCardMaxFiles = kPsram ? 6 : 3;
 
 // ---- Tasks (stacks are always in internal RAM) ----
 //
