@@ -311,8 +311,16 @@ button.danger { background: var(--err); color: #fff; }
 .button.small { padding: 6px 12px; font-size: 14px; }
 .button.busy { opacity: .5; pointer-events: none; }
 #csv-result ul { margin: 4px 0 0; padding-left: 20px; }
-#restore-status.err, #csv-result.err, #photo-job.err, #card-db-status.err { color: var(--err); }
-#card-db-list { max-width: 60%; }
+#restore-status.err, #csv-result.err, #photo-job.err, #card-save-status.err { color: var(--err); }
+/* Delete DB in its warning dialog: red outline, so the filled Cancel reads as the default. */
+button.danger-outline { background: transparent; color: var(--err); border: 1px solid var(--err); }
+/* The copy picker of Restore from SD card. */
+.pick-dialog { width: min(440px, calc(100% - 24px)); }
+.pick-dialog h2 { margin-top: 0; }
+.pick-list { display: flex; flex-direction: column; gap: 4px; max-height: 50vh; overflow-y: auto; margin: 8px 0; }
+.pick-list label { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; }
+.pick-list label:has(input:checked) { border-color: var(--accent); }
+.pick-list .muted { margin-left: auto; text-align: right; }
 /* The Delete DB warning: narrower than the part form, its title in red. */
 .warn-dialog { width: min(440px, calc(100% - 24px)); border-color: var(--err); }
 .warn-dialog h2 { display: flex; align-items: center; gap: 8px; margin-top: 0; color: var(--err); }
