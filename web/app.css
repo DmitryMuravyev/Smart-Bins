@@ -88,6 +88,12 @@ button, .button { display: inline-block; padding: 10px 16px; border: 0; border-r
   font: inherit; text-decoration: none; cursor: pointer; }
 button.secondary, .button.secondary { background: var(--bg); color: var(--text); border: 1px solid var(--border); }
 button:disabled { opacity: .5; cursor: default; }
+/* Fields that can't be changed right now look it, as disabled buttons do:
+   browsers dim a disabled drop-down only faintly (Chrome on Android not at
+   all) once it has its own background and text color. */
+input:disabled, select:disabled, textarea:disabled { opacity: .5; cursor: default; }
+.switch input:disabled { opacity: 0; }  /* the hidden checkbox stays hidden */
+.switch input:disabled + span { opacity: .5; cursor: default; }
 .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 input[type=password], input[type=text], select, textarea { width: 100%; padding: 10px; margin: 4px 0; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg); color: var(--text); font: inherit; }
