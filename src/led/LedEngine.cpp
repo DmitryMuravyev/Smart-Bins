@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "Chips.h"
+#include "MemoryProfile.h"
 #include "util/MutexLock.h"
 
 namespace sb {
@@ -102,7 +103,7 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
   brightness_ = Fader(g.brightness);
   lock_ = xSemaphoreCreateMutex();
   highlights_.reserve(kMaxHighlights);
-  xTaskCreatePinnedToCore(taskEntry, "leds", 4096, this, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "leds", mem::kLedStack, this, 2, nullptr, 1);
   ESP_LOGI(TAG, "Grid %ux%u, %u px on A, %u px on B, %s, %s%s", (unsigned)g.cols, (unsigned)g.rows,
            (unsigned)mapper_.segmentLength(0), (unsigned)mapper_.segmentLength(1), config::toString(g.chipset),
            g.colorOrder, g.invertData ? ", inverted data" : "");

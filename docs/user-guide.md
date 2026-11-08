@@ -58,9 +58,12 @@ Every work light: on/off, brightness, and for color lights a color slider, a whi
 <img src="images/system.png" width="220" alt="System page" align="right">
 
 - Firmware, chip, uptime, **Last restart** (see [Troubleshooting](#troubleshooting)), free memory (and free PSRAM on a board with PSRAM), storage, and the inventory figures.
-- **Backup**: **Download backup** saves one `.tar` file with the parts database, every photo and the settings (any computer opens it: `tar -xf`, 7-Zip). **Database only** downloads the SQLite file.
+- **Backup**: **Download backup** saves one `.tar` file with the parts database, every photo and the settings (any computer opens it: `tar -xf`, 7-Zip). **Download DB only** downloads the SQLite file.
 - **Restore** takes a backup `.tar` (or a bare `.db`), replaces the parts, adds the photos and, if ticked, restores the settings. The database it replaces is kept and can be downloaded, so a restore can be undone.
-- **CSV export / import** for editing the parts in a spreadsheet (semicolon or comma separated; a row whose `id` matches a part updates it, other rows add parts; bins are written like `A1`).
+- **Save DB to SD card** (with a card in the slot) copies the parts database and the settings to the `backups` folder on the card, named by date and time. **Restore from SD card** (enabled once a copy exists) opens a list of the copies, newest first; the chosen one replaces the parts like a restore from a file, and the current database is kept.
+- **Also restore the settings** applies to a full backup and to an SD card copy; a bare `.db` file has no settings, and the page says they were kept.
+- **Delete DB** removes every part after a warning; bins, settings and photos stay. The deleted database is kept like the one before a restore, so it can still be downloaded until the next restore or delete. **Remove unused photos** then clears the photos.
+- **CSV export / import** for editing the parts in a spreadsheet (Export CSV asks for the separator, semicolon or comma, and the import reads either; a row whose `id` matches a part updates it, other rows add parts; bins are written like `A1`).
 - **Photo storage**: moves photos from flash to a microSD card, and removes photo files no part uses.
 - **Firmware update**: installs a release's `-update.bin` file (see [Installing the firmware](flashing.md#3-updating)).
 - **Restart device**.
@@ -101,7 +104,7 @@ Under Settings → **Work lights**, each of the five channels is one of:
 
 ### Microphone and pins
 
-- **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden.
+- **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden. The microphone and the music effects need a board with PSRAM (the 16 MB PSRAM build): on a board without it they are off and the choice is greyed out, so that the web server keeps enough memory, above all with a microSD card in the slot.
 - **Pins**: the GPIO of every function. Each list offers only the pins the board can use for that function, and a pin chosen twice is marked. **Default pins** puts back the reference map. On the PSRAM build, GPIO16 and 17 are not offered: the PSRAM uses them.
 
 If the board stops responding after a pin change, hold BOOT for 10s: the factory reset restores the default pins.

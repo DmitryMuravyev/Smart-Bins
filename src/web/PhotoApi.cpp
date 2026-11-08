@@ -171,6 +171,12 @@ void writePhotoStats(JsonObject out, PhotoStore &photos) {
   out["used"] = photos.usedBytes();
   out["total"] = photos.totalBytes();
   out["available"] = photos.availableBytes();
+  // The photos actually in flash. With a card, photos taken before it went
+  // in stay in flash until they are moved (System page), and the page tells
+  // the two apart. Without one, photos the database names but flash doesn't
+  // hold are on a card that is missing or failed to start: the page says so
+  // rather than counting them as in flash.
+  out["inFlash"] = photos.flashPhotoCount();
 }
 
 void registerPhotoApi(AsyncWebServer &server, PhotoStore &photos, InventoryDb &db, Security &security) {

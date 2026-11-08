@@ -49,6 +49,9 @@ async function api(path, opts = {}) {
     init.headers['Content-Type'] = 'application/json';
     init.body = typeof opts.json === 'string' ? opts.json : JSON.stringify(opts.json);
   }
+  // no-store: an answer must never come from the browser's cache (after a
+  // restore, /api/system has new counts under the same URL).
+  init.cache = 'no-store';
   const res = await fetch(path, init);
   let body = null;
   try { body = await res.json(); } catch (e) { /* not JSON: keep null */ }
@@ -881,8 +884,110 @@ async function loadSuggestions() {
   await Promise.all(['manufacturer', 'category', 'package', 'unit'].map(async field => {
     const res = await attempt(() => api(`/api/parts/values?field=${field}&limit=200`));
     if (!res) return;
-    $(`#dl-${field}`).replaceChildren(...res.values.map(v => new Option(v.value)));
+    suggest.values[field] = res.values.map(v => v.value);
   }));
+}
+
+// ---- Suggestion lists ----------------------------------------------------
+//
+// The fields with recurring values (data-suggest="category" and the like)
+// get their own list under the field, not the browser's <datalist>. On
+// phones a datalist choice is filled in by the browser's autofill, which
+// tells the system's autofill service (a password manager) that a form was
+// filled, and that popped up its window on every choice.
+//
+// The list shows the values containing what was typed, those starting with
+// it first. A tap or Enter takes one; Escape or leaving the field closes it.
+
+const SUGGEST_MAX = 8;
+const suggest = { values: {}, input: null, list: null, active: -1 };
+
+function suggestMatches(input) {
+  const all = suggest.values[input.dataset.suggest] || [];
+  const q = input.value.trim().toLowerCase();
+  if (!q) return [];
+  const starts = [], contains = [];
+  for (const v of all) {
+    const low = v.toLowerCase();
+    if (low === q) continue;  // already typed in full
+    if (low.startsWith(q)) starts.push(v);
+    else if (low.includes(q)) contains.push(v);
+  }
+  return starts.concat(contains).slice(0, SUGGEST_MAX);
+}
+
+function closeSuggest() {
+  if (suggest.list) suggest.list.remove();
+  suggest.list = null;
+  suggest.input = null;
+  suggest.active = -1;
+}
+
+function showSuggest(input) {
+  const matches = suggestMatches(input);
+  if (!matches.length) return closeSuggest();
+  if (!suggest.list || suggest.input !== input) {
+    closeSuggest();
+    const list = document.createElement('ul');
+    list.className = 'suggest';
+    list.setAttribute('role', 'listbox');
+    // pointerdown, not click: it comes before the field loses the focus, and
+    // preventDefault() keeps the focus (and a phone's keyboard) where it is.
+    list.addEventListener('pointerdown', e => {
+      const item = e.target.closest('li');
+      if (!item) return;
+      e.preventDefault();
+      pickSuggest(item.textContent);
+    });
+    // The field's label holds it, so it sits right under the field.
+    input.parentElement.append(list);
+    suggest.list = list;
+    suggest.input = input;
+  }
+  suggest.active = -1;
+  suggest.list.replaceChildren(...matches.map(v => {
+    const li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.textContent = v;
+    return li;
+  }));
+}
+
+function pickSuggest(value) {
+  const input = suggest.input;
+  closeSuggest();
+  if (!input) return;
+  input.value = value;
+  input.focus();
+}
+
+function moveSuggest(step) {
+  const items = suggest.list ? [...suggest.list.children] : [];
+  if (!items.length) return;
+  suggest.active = (suggest.active + step + items.length) % items.length;
+  items.forEach((li, i) => li.classList.toggle('active', i === suggest.active));
+  items[suggest.active].scrollIntoView({ block: 'nearest' });
+}
+
+function setupSuggest(root) {
+  for (const input of root.querySelectorAll('input[data-suggest]')) {
+    input.addEventListener('input', () => showSuggest(input));
+    input.addEventListener('blur', closeSuggest);
+    input.addEventListener('keydown', e => {
+      if (!suggest.list || suggest.input !== input) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveSuggest(e.key === 'ArrowDown' ? 1 : -1);
+      } else if (e.key === 'Enter' && suggest.active >= 0) {
+        e.preventDefault();  // a choice, not the form's submit
+        pickSuggest(suggest.list.children[suggest.active].textContent);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();  // closes the list, not the whole dialog
+        e.stopPropagation();
+        closeSuggest();
+      }
+    });
+  }
 }
 
 function binOptions(current) {
@@ -1784,6 +1889,11 @@ function renderPinFields() {
   const info = state.pins;
   const list = $('#hw-pin-list');
   $('#hw-mic').value = (state.config && state.config.microphone) || 'i2s';
+  // Boards without PSRAM run no microphone (see micAvailable in /api/pins):
+  // the choice is greyed out and its pins hidden, but kept as they are.
+  const micOff = !!info && info.micAvailable === false;
+  $('#hw-mic').disabled = micOff;
+  $('#hw-mic-psram').hidden = !micOff;
   if (!info) return list.replaceChildren();
   list.replaceChildren(...info.pins.map(p => {
     const row = document.createElement('label');
@@ -1811,9 +1921,10 @@ function renderPinFields() {
   checkPins();
 }
 
-// Only the pins of the chosen microphone are shown.
+// Only the pins of the chosen microphone are shown (none when the board
+// runs no microphone at all).
 function updateMicPins() {
-  const mic = $('#hw-mic').value;
+  const mic = $('#hw-mic').disabled ? 'none' : $('#hw-mic').value;
   for (const row of $$('#hw-pin-list .pin-row')) {
     const n = row.dataset.pin;
     if (n.startsWith('mic_i2s')) row.hidden = mic !== 'i2s';
@@ -1854,6 +1965,9 @@ async function savePins() {
   for (const row of $$('#hw-pin-list .pin-row')) {
     const sel = $('.pin-gpio', row);
     if (sel.disabled) continue;  // the BOOT button
+    // A board without a microphone keeps its microphone pins as they were,
+    // for the day the configuration moves to a board with PSRAM.
+    if (row.hidden && $('#hw-mic').disabled) continue;
     // A hidden microphone pin is set free, so it can't clash with anything.
     cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
   }
@@ -1863,6 +1977,26 @@ async function savePins() {
 function defaultPins() {
   for (const sel of $$('#hw-pin-list .pin-gpio')) sel.value = sel.dataset.default;
   checkPins();
+}
+
+// The Photos line of the System page: how many there are and where. With a
+// card, photos taken before it went in stay in flash until they are moved,
+// so the line counts the two places apart (inFlash, firmware 0.16.0 on).
+// The card's figures are the whole card: a new card shows some use for its
+// file system before any photo is on it.
+function photoSummary(s) {
+  const n = s.inventory.photos;
+  if (!s.photos) return String(n);
+  const sizes = { used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) };
+  const inFlash = Math.min(s.photos.inFlash ?? n, n);
+  if (s.photos.storage !== 'card') {
+    // Photos the database names but flash doesn't have: on a card that is
+    // out or didn't start.
+    if (inFlash < n) return t('system.photosMissing', { n, flash: inFlash, missing: n - inFlash });
+    return t('system.photosFlash', { n, ...sizes });
+  }
+  if (!inFlash) return t('system.photosCard', { n, ...sizes });
+  return t('system.photosSplit', { n, flash: inFlash, card: n - inFlash, ...sizes });
 }
 
 // ---------------------------------------------------------------------------
@@ -1937,7 +2071,6 @@ async function loadSystem() {
 }
 
 async function enterSystem() {
-  setCsvSeparator();
   await Promise.all([loadSystem(), loadBackupInfo()]);
 }
 
@@ -1951,6 +2084,12 @@ async function loadBackupInfo() {
   if (!info) return;
   backup.info = info;
   renderBackup();
+  // A job that just ended changed what is stored (a copy saved to the card,
+  // photos moved or removed): new storage figures on the System page. A
+  // restore from the card refreshes it itself (see renderCardDb()).
+  const job = info.job || {};
+  if (backup.wasRunning && !job.running && job.kind !== 'cardRestore') loadSystem();
+  backup.wasRunning = !!job.running;
   // A photo job reports its progress here; ask again while it runs.
   clearTimeout(backup.poll);
   if (info.job && info.job.running && $('#page-system').classList.contains('active')) {
@@ -1969,10 +2108,12 @@ function renderBackup() {
   // Moving makes sense only with a card and photos still in flash.
   $('#photos-move').hidden = !(info.card && info.flashPhotos);
   const job = info.job || {};
-  const line = $('#photo-job');
   const running = !!job.running;
-  for (const b of [$('#photos-move'), $('#photos-clean')]) b.disabled = running;
-  if (!job.kind || (!running && !backup.jobShown)) {
+  // One job at a time (photos and the card copies share the card and the flash).
+  for (const b of [$('#photos-move'), $('#photos-clean'), $('#card-db-save'), $('#delete-db')]) b.disabled = running;
+  renderCardDb(info, job);
+  const line = $('#photo-job');
+  if (!(job.kind === 'move' || job.kind === 'clean') || (!running && !backup.jobShown)) {
     line.hidden = true;
     return;
   }
@@ -1986,6 +2127,112 @@ function renderBackup() {
   } else {
     line.textContent = running ? t('photoTools.cleaning')
       : t('photoTools.cleaned', { n: job.done, size: formatBytes(job.bytes) });
+  }
+}
+
+// "inventory-2026-11-08-153012.db" -> "2026-11-08 15:30:12"; other names as they are.
+function cardCopyDate(name) {
+  const m = /^inventory-(\d{4}-\d{2}-\d{2})-(\d{2})(\d{2})(\d{2})\.db$/.exec(name);
+  return m ? `${m[1]} ${m[2]}:${m[3]}:${m[4]}` : name;
+}
+
+// The SD card parts of the Backup card: Save DB to SD card beside the
+// downloads, Restore from SD card beside Restore from file (enabled once a
+// copy exists), and the running copy's progress under each.
+function renderCardDb(info, job) {
+  const card = !!info.card;
+  for (const el of [$('#card-db-save'), $('#card-db-hint'), $('#card-db-restore')]) el.hidden = !card;
+  const copies = info.cardBackups || [];
+  $('#card-db-restore').disabled = !!job.running || !copies.length;
+  $('#card-db-restore').title = copies.length ? '' : t('cardDb.none');
+
+  const saving = job.kind === 'cardSave', restoring = job.kind === 'cardRestore';
+  const saveLine = $('#card-save-status');
+  saveLine.hidden = !(card && saving && (job.running || backup.cardShown));
+  if (!saveLine.hidden) {
+    saveLine.classList.toggle('err', !job.running && job.failed > 0);
+    const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
+    saveLine.textContent = job.running ? t('cardDb.saving', { pct })
+      : job.failed ? t('cardDb.failed', { error: job.error || '' })
+      : t('cardDb.saved', { file: job.file || '', size: formatBytes(job.bytes) });
+  }
+
+  // A restore from the card reports where a restore from a file does.
+  if (card && restoring && (job.running || backup.cardShown)) {
+    const line = $('#restore-status');
+    line.hidden = false;
+    line.classList.toggle('err', !job.running && (job.failed > 0 || !!job.settingsError || !!job.settingsMissing));
+    const pct = job.total ? Math.round(job.bytes / job.total * 100) : 0;
+    if (job.running) line.textContent = t('cardDb.restoring', { file: cardCopyDate(job.file || ''), pct });
+    else if (job.failed) line.textContent = t('cardDb.failed', { error: job.error || '' });
+    else {
+      // The count from the database as it is now (in the same answer), not
+      // only the one the job noted: one number for the page to trust.
+      const parts = info.parts ?? job.parts ?? 0;
+      if (job.settingsMissing) line.textContent = t('cardDb.restoredNoSettings', { parts });
+      else if (job.settingsError) line.textContent = t('cardDb.restoredSettingsFailed', { parts, error: job.settingsError });
+      else line.textContent = t('cardDb.restored', { parts });
+    }
+    // Just finished: new parts, so new counts on the System page (or a
+    // restart, when the settings came back too).
+    if (!job.running && backup.wasRunning) {
+      if (job.settings) waitForRestart();
+      else refreshAfterRestore();
+    }
+  }
+}
+
+// Restore from SD card: a window with the saved copies (newest first and
+// chosen), then a confirmation.
+function openCardRestore() {
+  const copies = (backup.info && backup.info.cardBackups) || [];
+  if (!copies.length) return;
+  $('#card-restore-list').replaceChildren(...copies.map((c, i) => {
+    const row = document.createElement('label');
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'card-copy';
+    radio.value = c.name;
+    radio.checked = i === 0;
+    const date = document.createElement('span');
+    date.textContent = cardCopyDate(c.name);
+    const size = document.createElement('span');
+    size.className = 'muted small';
+    size.textContent = c.settings === false ? `${formatBytes(c.size)}, ${t('cardDb.noSettings')}` : formatBytes(c.size);
+    row.append(radio, date, size);
+    return row;
+  }));
+  const dialog = $('#card-restore-dialog');
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('#card-restore-go').focus();
+}
+
+async function onCardRestoreClosed() {
+  if ($('#card-restore-dialog').returnValue !== 'restore') return;
+  const chosen = $('#card-restore-list input:checked');
+  if (!chosen) return;
+  const settings = $('#restore-settings').checked;
+  const date = cardCopyDate(chosen.value);
+  if (!confirm(t(settings ? 'cardDb.restoreConfirmSettings' : 'cardDb.restoreConfirm', { date }))) return;
+  backup.cardShown = true;
+  await startPhotoJob(`/api/backup/card/restore?name=${encodeURIComponent(chosen.value)}&settings=${settings ? 1 : 0}`);
+}
+
+// After a restore or Delete DB: the backup card first, then the System
+// page's counts. One request at a time, as the board is short of memory
+// right after a restore; a refused one is tried again a couple of times.
+async function refreshAfterRestore() {
+  await loadBackupInfo();
+  for (let i = 0; i < 3; i++) {
+    try {
+      const sys = await api('/api/system');
+      state.system = sys;
+      renderSystem();
+      return;
+    } catch (e) {
+      await new Promise(r => setTimeout(r, 1500));
+    }
   }
 }
 
@@ -2021,6 +2268,7 @@ async function restoreBackup(file) {
   if (!confirm(t(settings ? 'backup.restoreConfirmSettings' : 'backup.restoreConfirm', { file: file.name }))) return;
   const status = $('#restore-status');
   const pick = $('#restore-pick');
+  backup.cardShown = false;  // this line is the file restore's now
   status.hidden = false;
   status.classList.remove('err');
   pick.classList.add('busy');
@@ -2033,11 +2281,10 @@ async function restoreBackup(file) {
     if (r.photosFailed) text += ` ${t('backup.photosFailed', { n: r.photosFailed, error: r.photoError || '' })}`;
     if (r.settingsError) text += ` ${t('backup.settingsFailed', { error: r.settingsError })}`;
     status.textContent = text;
-    status.classList.toggle('err', !!(r.photosFailed || r.settingsError));
+    if (r.settingsMissing) text += ` ${t('backup.noSettings')}`;
+    status.classList.toggle('err', !!(r.photosFailed || r.settingsError || r.settingsMissing));
     if (r.restarting) return waitForRestart();
-    // (The inventory page searches afresh whenever it is opened.)
-    loadSystem();
-    loadBackupInfo();
+    refreshAfterRestore();
   } catch (e) {
     status.textContent = t('backup.restoreFailed', { error: e.message });
     status.classList.add('err');
@@ -2046,24 +2293,62 @@ async function restoreBackup(file) {
   }
 }
 
+async function saveDbToCard() {
+  backup.cardShown = true;
+  await startPhotoJob('/api/backup/card/save');
+}
+
+// Delete DB: a warning dialog first, with the number of parts that go.
+// Cancel holds the focus, so a stray Enter keeps the database.
+function deleteDb() {
+  const dialog = $('#delete-db-dialog');
+  const parts = backup.info && backup.info.parts !== undefined ? backup.info.parts : '?';
+  $('#delete-db-text').textContent = t('deleteDb.confirmText', { n: parts });
+  dialog.returnValue = '';
+  dialog.showModal();
+  // Cancel is the default: Enter or a stray tap keeps the database.
+  $('#delete-db-cancel').focus();
+}
+
+async function onDeleteDbClosed() {
+  if ($('#delete-db-dialog').returnValue !== 'delete') return;
+  if (!await attempt(() => api('/api/backup/delete-db', { method: 'POST' }))) return;
+  toast(t('deleteDb.done'));
+  refreshAfterRestore();
+}
+
 async function deletePreviousDb() {
   if (!confirm(t('backup.previousDeleteConfirm'))) return;
   if (await attempt(() => api('/api/backup/previous/delete', { method: 'POST' }))) loadBackupInfo();
 }
 
-// Semicolon unless this browser chose otherwise: what Excel expects in most
-// European settings (the comma is their decimal mark), and the import
-// accepts either anyway.
-function setCsvSeparator() {
+// Export CSV: a window asks for the separator, with the one this browser
+// chose last already picked (semicolon the first time: what Excel expects in
+// most European settings, where the comma is the decimal mark). The import
+// reads either, so nothing else needs to know.
+function openCsvExport() {
   let sep = null;
   try { sep = localStorage.getItem('csvSep'); } catch (e) { /* storage blocked */ }
   if (sep !== ';' && sep !== ',') sep = ';';
-  $('#csv-sep').value = sep;
-  updateCsvLink();
+  for (const r of document.querySelectorAll('input[name="csv-sep"]')) r.checked = r.value === sep;
+  const dialog = $('#csv-export-dialog');
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('#csv-export-go').focus();
 }
 
-function updateCsvLink() {
-  $('#csv-export').href = `/api/parts.csv?sep=${encodeURIComponent($('#csv-sep').value)}`;
+function onCsvExportClosed() {
+  if ($('#csv-export-dialog').returnValue !== 'export') return;
+  const chosen = document.querySelector('input[name="csv-sep"]:checked');
+  const sep = chosen ? chosen.value : ';';
+  try { localStorage.setItem('csvSep', sep); } catch (e) { /* storage blocked */ }
+  // A link with "download" starts the file download without leaving the page.
+  const link = document.createElement('a');
+  link.href = `/api/parts.csv?sep=${encodeURIComponent(sep)}`;
+  link.download = '';
+  document.body.append(link);
+  link.click();
+  link.remove();
 }
 
 async function importCsv(file) {
@@ -2133,9 +2418,7 @@ function renderSystem() {
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
       ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],
-      ['system.photos', !s.photos ? String(s.inventory.photos)
-        : t(s.photos.storage === 'card' ? 'system.photosCard' : 'system.photosFlash',
-          { n: s.inventory.photos, used: formatBytes(s.photos.used), total: formatBytes(s.photos.total) })],
+      ['system.photos', photoSummary(s)],
       ['system.bins', t('system.binsValue', { used: s.inventory.binsUsed, total: s.inventory.binsTotal })],
       ['system.categories', String(s.inventory.categories)],
       ['system.manufacturers', String(s.inventory.manufacturers)],
@@ -2352,10 +2635,14 @@ function bindControls() {
     if (file) restoreBackup(file);
   });
   $('#previous-db-delete').addEventListener('click', deletePreviousDb);
-  $('#csv-sep').addEventListener('change', () => {
-    try { localStorage.setItem('csvSep', $('#csv-sep').value); } catch (e) { /* storage blocked */ }
-    updateCsvLink();
-  });
+  $('#card-db-save').addEventListener('click', saveDbToCard);
+  $('#card-db-restore').addEventListener('click', openCardRestore);
+  $('#card-restore-dialog').addEventListener('close', onCardRestoreClosed);
+  $('#delete-db').addEventListener('click', deleteDb);
+  $('#delete-db-dialog').addEventListener('close', onDeleteDbClosed);
+  setupSuggest($('#part-form'));
+  $('#csv-export').addEventListener('click', openCsvExport);
+  $('#csv-export-dialog').addEventListener('close', onCsvExportClosed);
   $('#csv-file').addEventListener('change', e => {
     const file = e.target.files[0];
     e.target.value = '';

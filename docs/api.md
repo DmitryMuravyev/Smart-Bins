@@ -4,10 +4,10 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 
 | Endpoint | What it does |
 |---|---|
-| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage, Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
+| `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage (`photos`: where photos go, the space there and `inFlash`: the photos in flash, which with a microSD card are the ones not moved yet), Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
 | `POST /api/system/restart` | restarts the board |
 | `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
-| `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`) |
+| `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`), and `micAvailable` (false on a board without PSRAM, which runs no microphone) |
 | `POST /api/firmware` | installs new firmware: a multipart upload with the file in the field `firmware` (`curl -F firmware=@smartbins-1.0.0-esp32-8mb-update.bin ...`); restarts with it when the image is complete and valid, otherwise keeps the running one and answers the reason |
 | `/api/locate?x=3&y=2` | lights one bin; optional `color=FF0000`, `mode=steady\|slow-pulse\|fast-pulse`, `s=10` (0 = until cleared) |
 | `/api/locate/clear[?x=3&y=2]` | fades every located bin out, or just the one given |
@@ -34,9 +34,11 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `GET /photos/NAME.jpg`, `GET /photos/NAME-t.jpg` | a photo and its thumbnail (a missing thumbnail gives the photo); cached by browsers, since a new photo gets a new name |
 | `GET /api/backup` | the full backup as a `.tar` file: `smartbins-backup.json` (format, firmware, schema), `config.json`, `inventory.db`, `photos/*.jpg`. While the database file is being sent (a moment), changes to parts answer 503 |
 | `GET /api/backup/db` | the database file alone (SQLite; opens in DB Browser for SQLite and the like) |
-| `POST /api/backup/restore[?settings=1]` | body: a backup `.tar` or a `.db` file. `curl --data-binary @smartbins-backup.tar ...` Answers `{parts, photos, photosFailed, settings, restarting}` |
-| `GET /api/backup/previous`, `POST /api/backup/previous/delete` | the database kept from before the last restore |
-| `GET /api/backup/info` | database size, the kept database, whether photos are still in flash with a card in, and the photo job's progress |
+| `POST /api/backup/restore[?settings=1]` | body: a backup `.tar` or a `.db` file (`settingsMissing` in the answer when settings were asked for and the file has none). `curl --data-binary @smartbins-backup.tar ...` Answers `{parts, photos, photosFailed, settings, restarting}` |
+| `GET /api/backup/previous`, `POST /api/backup/previous/delete` | the database kept from before the last restore or delete |
+| `POST /api/backup/delete-db` | replaces the database with an empty one (Delete DB); the old one is kept as the previous database. 409 while a restore, a background job or a database download runs |
+| `POST /api/backup/card/save`, `POST /api/backup/card/restore?name=[&settings=1]` | copies the database to `/backups/inventory-YYYY-MM-DD-HHMMSS.db` on the microSD card, with the settings beside it as `.json` / puts such a copy back in place of the current one (kept as the previous database) and, with `settings=1`, its settings too, then restarts (`job.settings`; `job.settingsMissing` for a copy without them). Run in the background like the photo jobs (`job.kind` `cardSave`, `cardRestore`, with `file` and, after a restore, `parts`) |
+| `GET /api/backup/info` | database size, the kept database, whether photos are still in flash with a card in, the database copies on the card (`cardBackups`: `name`, `size`, `settings`, newest first), and the background job's progress |
 | `GET /api/parts.csv[?sep=;]` | every part as CSV (UTF-8 with BOM, `,` or `;`) |
 | `POST /api/parts/import` | body: CSV with a header line (`id`, `part_number`, ..., `quantity`, `bin`, ...); answers `{added, updated, failed, errors: [{line, error}]}` |
 | `POST /api/photos/move-to-card`, `POST /api/photos/clean` | move photos from flash to the microSD card / delete photo files no part uses; run in the background (progress in `/api/backup/info`) |

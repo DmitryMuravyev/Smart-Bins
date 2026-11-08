@@ -3,6 +3,7 @@
 #include <FFat.h>
 #include <SD.h>
 #include <SPI.h>
+#include <dirent.h>
 #include <esp_log.h>
 #include <esp_random.h>
 
@@ -27,18 +28,35 @@ const char *kMovePath = "/photos/move.tmp";
 // SD.begin() falls back to nothing slower on its own, so a card that fails
 // here is treated as absent (photos then go to flash).
 constexpr uint32_t kCardHz = 20000000;
-// Files open at once on the card: an upload and a photo being sent. Each slot
-// costs heap, as on the FAT partition (see mountFilesystem() in main.cpp).
+// Files open at once on the card: an upload (or a copy to or from the card)
+// and a photo being sent. Each slot costs about 4 KB of heap, as on the FAT
+// partition (see mountFilesystem() in main.cpp); a third one left boards
+// without PSRAM short enough of memory to crash on a page load. So nothing
+// else may hold a slot: the backups list is read without opening its files
+// (see listCardBackups() in BackupApi.cpp).
 constexpr uint8_t kCardMaxFiles = 2;
+// Mount attempts at boot, and the pause between them (see begin()).
+constexpr int kCardTries = 3;
+constexpr uint32_t kCardRetryMs = 25;
 }  // namespace
 
 void PhotoStore::begin(int sck, int miso, int mosi, int cs) {
   if (sck >= 0 && miso >= 0 && mosi >= 0 && cs >= 0) {
     static SPIClass spi(VSPI);
     spi.begin(sck, miso, mosi, cs);
-    if (SD.begin(cs, spi, kCardHz, "/sd", kCardMaxFiles) && SD.cardType() != CARD_NONE) {
-      card_ = true;
-    } else {
+    // A few tries: after a reset that doesn't cut the card's power (flashing
+    // over USB, the reset button), the card can still be in the middle of
+    // what it was doing and miss the first wake-up ("GO_IDLE_STATE failed").
+    // An absent card costs about 50 ms more at boot.
+    for (int attempt = 0; attempt < kCardTries && !card_; attempt++) {
+      if (attempt) {
+        SD.end();
+        ESP_LOGW(TAG, "microSD card not ready, trying again");
+        delay(kCardRetryMs);
+      }
+      card_ = SD.begin(cs, spi, kCardHz, "/sd", kCardMaxFiles) && SD.cardType() != CARD_NONE;
+    }
+    if (!card_) {
       // No card, or no slot at all: give the pins back.
       SD.end();
       spi.end();
@@ -320,17 +338,24 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
   return true;
 }
 
-bool PhotoStore::flashHasPhotos() const {
-  if (!card_) return false;
-  led::FlashGuard guard;  // walks the FAT directory (see find())
-  File dir = FFat.open(kDir);
-  if (!dir || !dir.isDirectory()) return false;
+// Only the folder's entries are read (readdir), never the files: no file is
+// opened, so the walk costs a few directory sectors per hundred entries and
+// leaves the file slots alone. It only depends on what is in flash, however
+// many photos the card holds.
+int PhotoStore::flashPhotoCount() const {
+  led::FlashGuard guard;  // reads the FAT directory from flash (see find())
+  const String path = String("/ffat") + kDir;  // FFat's mount point
+  DIR *dir = opendir(path.c_str());
+  if (!dir) return 0;
+  int count = 0;
   std::string name;
   Kind kind;
-  for (File f = dir.openNextFile(); f; f = dir.openNextFile()) {
-    if (!f.isDirectory() && parseFileName(f.name(), name, kind)) return true;
+  for (dirent *e = readdir(dir); e; e = readdir(dir)) {
+    // Photos only: a thumbnail belongs to the photo next to it.
+    if (e->d_type != DT_DIR && parseFileName(e->d_name, name, kind) && kind == Kind::Photo) count++;
   }
-  return false;
+  closedir(dir);
+  return count;
 }
 
 int PhotoStore::removeUnused(const std::function<bool(const std::string &name)> &inUse, uint64_t &freed) {

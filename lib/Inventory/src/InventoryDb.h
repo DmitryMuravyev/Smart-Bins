@@ -275,6 +275,10 @@ class InventoryDb {
   // everything is put back and the old database is opened again. False with
   // the reason; the database is open afterwards either way (unless even the
   // old file can't be opened again).
+  //
+  // `incoming` null: no file moves in, and a new, empty database is created
+  // at `path` (Delete DB on the System page). The old one is kept as
+  // `previous` all the same, so it can still be downloaded.
   bool replaceFile(const char *path, const char *incoming, const char *previous, std::string &err);
 
   // Inserts `count` generated parts, times a few typical queries, and removes

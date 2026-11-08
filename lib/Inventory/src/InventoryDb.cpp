@@ -1335,7 +1335,8 @@ bool InventoryDb::replaceFile(const char *path, const char *incoming, const char
     open(path, ignored, cache);
     return false;
   }
-  if (!files([&] { return std::rename(incoming, path) == 0; })) {
+  // No incoming file: open() below creates an empty database at `path`.
+  if (incoming && !files([&] { return std::rename(incoming, path) == 0; })) {
     err = "can't move the restored database into place";
     files([&] { return std::rename(previous, path) == 0; });
     open(path, ignored, cache);
@@ -1361,7 +1362,7 @@ bool InventoryDb::replaceFile(const char *path, const char *incoming, const char
     return std::rename(previous, path) == 0;
   });
   open(path, ignored, cache);
-  err = "the backup's database can't be used: " + why;
+  err = incoming ? "the backup's database can't be used: " + why : "can't create a new database: " + why;
   return false;
 }
 

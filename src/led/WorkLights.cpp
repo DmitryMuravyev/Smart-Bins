@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "MemoryProfile.h"
 #include "util/MutexLock.h"
 
 namespace sb {
@@ -133,7 +134,7 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
     ESP_LOGI(TAG, "Light %u: %s %s%s", i, name, config::toString(l.type), l.state.on ? ", on" : "");
   }
 
-  xTaskCreatePinnedToCore(taskEntry, "lights", 4096, this, 2, nullptr, 1);
+  xTaskCreatePinnedToCore(taskEntry, "lights", mem::kLedStack, this, 2, nullptr, 1);
   return ok;
 }
 

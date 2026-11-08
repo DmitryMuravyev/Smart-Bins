@@ -120,6 +120,11 @@ void Microphone::begin(const config::AppConfig &cfg, led::LedEngine &engine) {
   sd_ = pins["mic_i2s_sd"];
   adcPin_ = pins["mic_analog"];
   engine_ = &engine;
+  if (!mem::kMicrophone) {
+    // Boards without PSRAM: see kMicrophone in MemoryProfile.h.
+    ESP_LOGI(TAG, "Needs a board with PSRAM; music effects off");
+    return;
+  }
   if (cfg.microphone == config::MicType::Off) {
     ESP_LOGI(TAG, "Off in the configuration; music effects off");
     return;

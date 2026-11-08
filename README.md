@@ -23,7 +23,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable 
 - A photo per part, taken with the phone's camera, stored in flash or on a microSD card
 - Backup and restore of everything (parts, photos, settings) as one file, CSV export and import
 - Workspace lights: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus 2 white strips; every change fades
-- Lighting effects on the grid (fire, sparks, relax, demo) and music effects with an I2S or analog microphone
+- Lighting effects on the grid (fire, sparks, relax, demo) and music effects with an I2S or analog microphone (boards with PSRAM)
 - Wi-Fi setup page, `smartbins.local` address, firmware updates from the browser, optional password
 - English, Spanish and Russian; light and dark theme
 

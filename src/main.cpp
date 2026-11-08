@@ -37,6 +37,10 @@
 #define SB_FW_VERSION "dev"
 #endif
 
+// The loop task's stack (8 KB by default): smaller without PSRAM, see
+// kLoopStack in MemoryProfile.h.
+SET_LOOP_TASK_STACK_SIZE(sb::mem::kLoopStack);
+
 namespace {
 
 const char *TAG = "main";
@@ -68,15 +72,16 @@ volatile bool otaHashChanged = false;
 
 // Logs how much heap the last setup step took. A board without PSRAM has
 // little to spare, so the boot log shows where it goes (Wi-Fi, LED buffers,
-// the database...) instead of only the total at the end.
+// the database, the microSD card...) instead of only the total at the end.
+// At info level, so a log sent in from the field has the numbers.
 void logHeapStep(const char *step) {
   static uint32_t last = 0;
   const uint32_t now = sb::heapFree();
   if (last) {
-    ESP_LOGD(TAG, "Heap after %s: %s free (%s used by it)", step, sb::formatBytes(now),
+    ESP_LOGI(TAG, "Heap after %s: %s free (%s used by it)", step, sb::formatBytes(now),
              sb::formatBytes(last > now ? last - now : 0));
   } else {
-    ESP_LOGD(TAG, "Heap before %s: %s free", step, sb::formatBytes(now));
+    ESP_LOGI(TAG, "Heap before %s: %s free", step, sb::formatBytes(now));
   }
   last = now;
 }
