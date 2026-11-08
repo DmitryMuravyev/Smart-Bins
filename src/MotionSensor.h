@@ -12,8 +12,10 @@
 // mean the supply's main output goes off: nobody there, no power drawn.
 //
 // The board starts as if someone had just arrived (the off delay runs from
-// boot). Switching a light or an effect on from a page while nobody is
-// sensed counts as an arrival too (wake()): whoever did it is there.
+// boot). Switching a light or an effect on from a page, or the pages'
+// "Turn back on" button, brings the lights back and keeps them on until
+// the sensor has seen someone arrive and leave (hold()): whoever switched
+// them on may be anywhere, and they stay on for them.
 //
 // The sensor's digital output (high = someone there) is read on the analog
 // microphone's pin, pins.mic_analog (GPIO35 by default, an input-only pin,
@@ -48,10 +50,10 @@ class MotionSensor {
   // Does nothing unless config.motion.enabled and the pin is set.
   void begin(const config::AppConfig &cfg, led::WorkLights &lights, led::LedEngine &grid);
   void loop();
-  // Someone switched a light or an effect on from a page: an arrival if
-  // nobody was sensed, otherwise the off delay starts over. Safe from any
-  // task (picked up by the next loop()).
-  void wake() { wakeRequested_ = true; }
+  // Someone switched a light or an effect on from a page: the lights are
+  // on (back) until the sensor has seen someone arrive and leave. Safe from
+  // any task (picked up by the next loop()).
+  void hold() { holdRequested_ = true; }
 
   bool enabled() const { return pin_ >= 0; }
   // Someone is at the bench, by the delays (what the lights follow).
@@ -66,7 +68,7 @@ class MotionSensor {
   int pin_ = -1;
   led::WorkLights *lights_ = nullptr;
   led::LedEngine *grid_ = nullptr;
-  volatile bool wakeRequested_ = false;
+  volatile bool holdRequested_ = false;
   void setMaster(bool on);
   PresenceDetector detector_;
   volatile uint32_t version_ = 0;

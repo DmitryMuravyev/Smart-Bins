@@ -17,8 +17,11 @@
 //
 // The motion sensor uses them as a master switch (see MotionSensor.h): the
 // lights as the user set them while someone is there, all dark while nobody
-// is. wake() counts as an arrival without the sensor: at boot, and when a
-// light or effect is switched on from a page while nobody was sensed.
+// is. Two ways in without the sensor:
+//   - wake(): an arrival now, with the off delay running from now (boot);
+//   - hold(): present until the sensor has seen someone arrive and then
+//     leave (a light or effect switched on from a page: it stays on for
+//     whoever did that, wherever they are, until a real visit ends).
 //
 // Pure logic with the time passed in, so the host tests can drive it.
 
@@ -53,7 +56,11 @@ class PresenceDetector {
       present_ = true;
       return Event::Arrived;
     }
-    if (present_ && !high_ && held >= offDelayMs_) {
+    // Held on (hold()): an arrival the sensor confirms ends the hold, and
+    // from then on its departure counts as usual. Already present, so no
+    // Arrived event.
+    if (held_ && high_ && held >= onDelayMs_) held_ = false;
+    if (present_ && !held_ && !high_ && held >= offDelayMs_) {
       present_ = false;
       return Event::Left;
     }
@@ -72,6 +79,13 @@ class PresenceDetector {
     if (!high_) since_ = nowMs;
   }
 
+  // Present until the sensor sees someone arrive (high for the on delay) and
+  // then leave; no off delay runs until then.
+  void hold() {
+    present_ = true;
+    held_ = true;
+  }
+
   // Someone is at the bench (arrived and not yet left).
   bool present() const { return present_; }
   // The sensor's output at the last sample.
@@ -83,6 +97,7 @@ class PresenceDetector {
   bool started_ = false;
   bool high_ = false;
   bool present_ = false;
+  bool held_ = false;  // see hold()
   uint32_t since_ = 0;
 };
 

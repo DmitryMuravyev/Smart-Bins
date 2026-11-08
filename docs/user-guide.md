@@ -113,7 +113,9 @@ A motion sensor on the analog microphone's pin (GPIO35 by default) works as a ma
 - **Lights on after** (1–60s, 5 by default): the sensor has to see someone for this whole time. A person walking past or stopping for a moment doesn't keep it up, so the lights stay dark.
 - **Lights off after** (1–240 min, 5 by default): the lights go dark once the sensor has seen nobody for this long. With a PIR sensor, which only notices movement, make it longer.
 - The sensor never changes the lights' own settings. Which lights are on, their levels, colors and effects stay as you set them on the Lights page; a light you switched off stays off when you come back.
-- Located bins and test patterns still light up while nobody is sensed: you asked for them from a page. Switching a light or a grid effect on from a page counts as being there, and brings the lights back at once.
+- While the sensor has everything dark, the Lights page and the Grid page's Effects show a notice with a **Turn back on** button.
+- Located bins and test patterns still light up while nobody is sensed: you asked for them from a page.
+- Switching a light or a grid effect on from a page (or **Turn back on**) brings everything back at once, and it stays on, with nobody sensed, until someone arrives and leaves again (or you switch it off): you may be switching it on from elsewhere.
 - After a restart, the lights come on as they were and go dark after the off delay unless someone is sensed.
 - With the LED supply switched by PS-ON (below), dark lights also mean the supply's main output is off.
 - The Lights page shows whether someone counts as being at the bench and the sensor's output right now, which helps while aiming it.

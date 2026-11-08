@@ -195,6 +195,11 @@ function updateLights(data) {
 function renderMotion(m) {
   const line = $('#lights-motion');
   line.hidden = !m;
+  // Nobody there: the sensor's master switch has everything dark, whatever
+  // the cards and the effect chips say.
+  state.motionDark = !!m && !m.present;
+  $('#lights-dark').hidden = !state.motionDark;
+  renderEffectsDark();
   if (!m) return;
   line.textContent = t('lights.motion', {
     state: t(m.present ? 'lights.motionPresent' : 'lights.motionAbsent'),
@@ -1371,6 +1376,9 @@ function bindInventory() {
 // Grid
 
 async function enterGrid() {
+  // The lights carry the motion sensor's state, which the effects card
+  // shows (see renderMotion()).
+  loadLights();
   if (!state.config) state.config = await attempt(() => api('/api/config'));
   if (!state.config) return;
   const g = state.config.grid;
@@ -1438,8 +1446,17 @@ function showEffects(e) {
 
 // Marks the running effect and shows how long its timer has left. Also
 // called with the grid status pushed over the WebSocket.
+// The motion sensor's notice in the effects card: only while it keeps a
+// running effect dark. The effect runs on meanwhile, so its timer still
+// stops it on time.
+function renderEffectsDark() {
+  $('#effects-dark').hidden = !(state.motionDark && state.effectRunning);
+}
+
 function showEffectRunning(effect, remainingS) {
   for (const b of $$('#effect-pick button')) b.classList.toggle('on', b.dataset.effect === (effect || 'off'));
+  state.effectRunning = !!effect && effect !== 'off';
+  renderEffectsDark();
   const left = $('#effect-timer-left');
   left.hidden = !remainingS;
   if (remainingS) {
@@ -2618,6 +2635,16 @@ function bindControls() {
     if (state.system && name === state.system.device) return;
     if (confirm(t('settings.deviceNameConfirm', { name }))) saveDeviceName(name);
   });
+  // "Turn back on" in the motion sensor's notices: the lights and the effect
+  // come back until someone has come and gone.
+  for (const b of document.querySelectorAll('[data-master-on]')) {
+    b.addEventListener('click', async () => {
+      if (await attempt(() => api('/api/lights/master-on', { method: 'POST' }))) {
+        // The board applies it on its next pass; ask again a moment later.
+        setTimeout(loadLights, 300);
+      }
+    });
+  }
   $('#lights-off').addEventListener('click', async () => {
     const res = await attempt(() => api('/api/lights/off', { method: 'POST' }));
     if (res) updateLights(res);

@@ -43,8 +43,8 @@ MotionSensor *motionSensor = nullptr;
 
 void setMotionSensor(MotionSensor *sensor) { motionSensor = sensor; }
 
-void wakeMotionSensor() {
-  if (motionSensor && motionSensor->enabled()) motionSensor->wake();
+void holdMotionSensor() {
+  if (motionSensor && motionSensor->enabled()) motionSensor->hold();
 }
 
 uint32_t motionVersion() { return motionSensor && motionSensor->enabled() ? motionSensor->version() : 0; }
@@ -93,6 +93,11 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     sendLights(req, lights);
   });
 
+  server.on("/api/lights/master-on", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
+    holdMotionSensor();
+    sendLights(req, lights);
+  });
+
   server.on("/api/lights/set", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
     long id;
     if (lights.count() == 0) return sendError(req, 404, "no work lights are configured (see lights in /config)");
@@ -138,7 +143,7 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     if (const char *err = lights.set(static_cast<uint8_t>(id), c)) return sendError(req, 400, err);
     // Switched on (or left on with a new setting) by someone at a page.
     led::WorkLights::Info info;
-    if (lights.info(static_cast<uint8_t>(id), info) && info.state.on) wakeMotionSensor();
+    if (lights.info(static_cast<uint8_t>(id), info) && info.state.on) holdMotionSensor();
     sendLights(req, lights);
   });
 }

@@ -109,6 +109,12 @@
     </div>
     <!-- The motion sensor's state, when one is in use (Settings, Motion sensor). -->
     <p class="muted small" id="lights-motion" hidden></p>
+    <!-- Shown while the motion sensor has everything dark (its master switch):
+         the cards below keep showing the lights' own settings. -->
+    <div class="dark-notice" id="lights-dark" hidden>
+      <p data-i18n="lights.darkNotice">Nobody is at the bench, so the motion sensor has turned the lights off. Your settings below are kept, and everything comes back when someone is sensed.</p>
+      <button type="button" class="small" data-master-on data-i18n="lights.masterOn">Turn back on</button>
+    </div>
     <div id="lights-list" class="cards"></div>
     <p class="muted" id="lights-empty" hidden data-i18n="lights.none">No work lights are configured. Set them up in Settings, Work lights.</p>
   </section>
@@ -145,6 +151,10 @@
     <!-- Effects (Task 12): run under the located bins, which always show on top. -->
     <div class="card" id="effects-card">
       <h2 data-i18n="effects.title">Effects</h2>
+      <div class="dark-notice" id="effects-dark" hidden>
+        <p data-i18n="effects.darkNotice">Nobody is at the bench, so the motion sensor has turned the effect off. It comes back when someone is sensed.</p>
+        <button type="button" class="small" data-master-on data-i18n="lights.masterOn">Turn back on</button>
+      </div>
       <div class="chips" id="effect-pick">
         <button data-effect="off" data-i18n="effects.off">Off</button>
         <button data-effect="fire" data-i18n="effects.fire">Fire</button>

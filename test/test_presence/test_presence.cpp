@@ -96,6 +96,26 @@ static void test_wake() {
   TEST_ASSERT_EQUAL_UINT32(180000, at);
 }
 
+// hold(): present with nobody sensed for as long as it takes; a visit
+// (arrive, then leave) ends it.
+static void test_hold() {
+  PresenceDetector d;
+  d.configure(5000, 60000);
+  d.update(false, 0);
+  d.hold();
+  TEST_ASSERT_TRUE(feed(d, false, 0, 600000) == Event::None);
+  TEST_ASSERT_TRUE(d.present());
+  // Someone passing by (shorter than the on delay) doesn't end the hold.
+  TEST_ASSERT_TRUE(feed(d, true, 600000, 602000) == Event::None);
+  TEST_ASSERT_TRUE(feed(d, false, 602000, 900000) == Event::None);
+  TEST_ASSERT_TRUE(d.present());
+  // A real visit: arrives (no event, already present), then leaves.
+  TEST_ASSERT_TRUE(feed(d, true, 900000, 1000000) == Event::None);
+  uint32_t at = 0;
+  TEST_ASSERT_TRUE(feed(d, false, 1000000, 1100000, &at) == Event::Left);
+  TEST_ASSERT_EQUAL_UINT32(1060000, at);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_passing_by_is_ignored);
@@ -103,5 +123,6 @@ int main(int, char **) {
   RUN_TEST(test_leaving_after_off_delay);
   RUN_TEST(test_clock_wrap);
   RUN_TEST(test_wake);
+  RUN_TEST(test_hold);
   return UNITY_END();
 }

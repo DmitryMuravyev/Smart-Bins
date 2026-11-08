@@ -44,11 +44,11 @@ void MotionSensor::loop() {
   if (pin_ < 0) return;
   const bool wasSignal = detector_.signal(), wasPresent = detector_.present();
   const uint32_t now = millis();
-  if (wakeRequested_) {
-    wakeRequested_ = false;
-    detector_.wake(now);
+  if (holdRequested_) {
+    holdRequested_ = false;
+    detector_.hold();
     if (!wasPresent) {
-      ESP_LOGI(TAG, "Light switched on from a page: lights back");
+      ESP_LOGI(TAG, "Switched on from a page: lights back until someone comes and goes");
       setMaster(true);
     }
   }

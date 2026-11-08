@@ -187,7 +187,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
       const int i = settingsIndex(effect);
       engine.startEffect(effect, i < 0 ? led::EffectParams() : led::effectParams(cfg.effects[i]));
       // Someone at a page started it: it should show (see MotionSensor.h).
-      if (effect != led::GridEffect::Off) wakeMotionSensor();
+      if (effect != led::GridEffect::Off) holdMotionSensor();
     }
     JsonDocument doc;
     writeEffects(doc, engine, cfg);
