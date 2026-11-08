@@ -5,6 +5,7 @@
 
 #include "ApiUtil.h"
 #include "ConfigStore.h"
+#include "LightsApi.h"
 #include "led/LedEngine.h"
 
 namespace sb {
@@ -185,6 +186,8 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     if (start) {
       const int i = settingsIndex(effect);
       engine.startEffect(effect, i < 0 ? led::EffectParams() : led::effectParams(cfg.effects[i]));
+      // Someone at a page started it: it should show (see MotionSensor.h).
+      if (effect != led::GridEffect::Off) wakeMotionSensor();
     }
     JsonDocument doc;
     writeEffects(doc, engine, cfg);

@@ -1,7 +1,19 @@
 #pragma once
 
-// Motion sensor (Task 16): switches the work lights on when someone stays at
-// the bench and off when nobody has been there for a while.
+// Motion sensor (Task 16): a master switch over the lights. When nobody has
+// been at the bench for a while, every work light and the grid's effect fade
+// to dark; when someone stays, they come back as they were. The lights'
+// own settings (which are on, their levels, colors and effects) are never
+// changed by it: the Lights page keeps showing what the user set, and a
+// light switched off by hand stays off when someone arrives. Located bins
+// and test patterns are not affected: someone at a page asked for them.
+//
+// With the LED supply under PS-ON control (PowerSupply.h), dark lights also
+// mean the supply's main output goes off: nobody there, no power drawn.
+//
+// The board starts as if someone had just arrived (the off delay runs from
+// boot). Switching a light or an effect on from a page while nobody is
+// sensed counts as an arrival too (wake()): whoever did it is there.
 //
 // The sensor's digital output (high = someone there) is read on the analog
 // microphone's pin, pins.mic_analog (GPIO35 by default, an input-only pin,
@@ -27,14 +39,19 @@
 namespace sb {
 
 namespace led {
+class LedEngine;
 class WorkLights;
 }
 
 class MotionSensor {
  public:
   // Does nothing unless config.motion.enabled and the pin is set.
-  void begin(const config::AppConfig &cfg, led::WorkLights &lights);
+  void begin(const config::AppConfig &cfg, led::WorkLights &lights, led::LedEngine &grid);
   void loop();
+  // Someone switched a light or an effect on from a page: an arrival if
+  // nobody was sensed, otherwise the off delay starts over. Safe from any
+  // task (picked up by the next loop()).
+  void wake() { wakeRequested_ = true; }
 
   bool enabled() const { return pin_ >= 0; }
   // Someone is at the bench, by the delays (what the lights follow).
@@ -48,6 +65,9 @@ class MotionSensor {
  private:
   int pin_ = -1;
   led::WorkLights *lights_ = nullptr;
+  led::LedEngine *grid_ = nullptr;
+  volatile bool wakeRequested_ = false;
+  void setMaster(bool on);
   PresenceDetector detector_;
   volatile uint32_t version_ = 0;
 };

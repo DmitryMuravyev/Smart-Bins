@@ -48,6 +48,12 @@ constexpr PinAssignment kDefaultPins[] = {
     {"sd_cs", 5, PinUse::Output, false},
     {"button", 0, PinUse::Input, false},
     {"status_led", 2, PinUse::Output, true},
+    // LED supply remote control (EPP-300-12 and similar, hardware guide
+    // section 7): PS-ON switches its main output, PG reports it is up. Not
+    // wired by default; the guide uses GPIO2 (status LED then set to none)
+    // and GPIO39.
+    {"ps_on", kNoPin, PinUse::Output, true},
+    {"power_good", kNoPin, PinUse::Input, false},
 };
 
 constexpr size_t kDefaultPinCount = sizeof(kDefaultPins) / sizeof(kDefaultPins[0]);

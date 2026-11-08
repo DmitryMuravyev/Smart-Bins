@@ -25,6 +25,7 @@
 #include "web/BackupApi.h"
 #include "web/PhotoApi.h"
 #include "MotionSensor.h"
+#include "PowerSupply.h"
 #include "PhotoStore.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
@@ -61,6 +62,7 @@ sb::LiveUpdates live;
 sb::inventory::InventoryDb inventoryDb;
 sb::PhotoStore photos;
 sb::MotionSensor motion;
+sb::PowerSupply supply;  // PS-ON / PG of the LED supply, when wired
 AsyncWebServer server(80);
 
 // Restarts requested from the web API happen here, a second later, so the
@@ -265,12 +267,17 @@ void setup() {
     sb::led::RmtStrip::planStrips(strips);
   }
 
+  // The LED supply's PS-ON first: the grid and the work lights ask it for
+  // power before they switch their own rails on.
+  supply.begin(pins["ps_on"], pins["power_good"]);
+  leds.setSupply(&supply);
+  workLights.setSupply(&supply);
   leds.begin(configStore.get(), pins["grid_data_a"], pins["grid_data_b"], pins["grid_power"]);
   workLights.begin(configStore.get(), lightPins, pins["light_power"]);
   logHeapStep("LED strips and work lights");
-  // Optional: a motion sensor on the analog microphone's pin switches the
-  // work lights (see MotionSensor.h).
-  motion.begin(configStore.get(), workLights);
+  // Optional: a motion sensor on the analog microphone's pin, a master
+  // switch over the lights (see MotionSensor.h).
+  motion.begin(configStore.get(), workLights, leds);
   sb::setMotionSensor(&motion);
   // Optional: checks in the background whether a microphone answers, and
   // feeds the music effects if one does.
@@ -285,6 +292,7 @@ void setup() {
   logHeapStep("Wi-Fi");
   sb::registerWebUi(server, network);
   sb::registerSystemApi(server, configStore, network, security, inventoryDb, photos, scheduleRestart);
+  sb::setPowerSupply(&supply);
   sb::registerInventoryApi(server, inventoryDb, configStore.get().grid.cols, configStore.get().grid.rows,
                            [](const std::string &photo) { photos.remove(photo); });
   sb::registerPhotoApi(server, photos, inventoryDb, security);

@@ -15,6 +15,7 @@
 #include "PhotoApi.h"
 #include "Security.h"
 #include "PinMap.h"
+#include "PowerSupply.h"
 #include "WifiLink.h"
 #include "led/RmtStrip.h"
 
@@ -45,8 +46,24 @@ void writeAllowedPins(JsonArray out, board::PinUse use) {
 }
 }  // namespace
 
+namespace {
+PowerSupply *ledSupply = nullptr;
+}  // namespace
+
+void setPowerSupply(PowerSupply *supply) { ledSupply = supply; }
+
 void writeSystemStatus(JsonObject out, WifiLink &network) {
   out["uptimeS"] = millis() / 1000;
+  // The LED supply's main output, when PS-ON is wired: on (switched on) and
+  // ready (its output is up, by PG or by time).
+  if (ledSupply) {
+    const PowerSupply::Status s = ledSupply->status();
+    if (s.used) {
+      JsonObject supply = out["supply"].to<JsonObject>();
+      supply["on"] = s.on;
+      supply["ready"] = s.ready;
+    }
+  }
   out["heapFree"] = heapFree();
   out["heapMin"] = heapMin();
   // Why the board last restarted (see Health.h); `restartFault` marks the

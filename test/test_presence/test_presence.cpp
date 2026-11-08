@@ -78,11 +78,30 @@ static void test_clock_wrap() {
   TEST_ASSERT_EQUAL_UINT32(start + 10 + 5000, t - 10);
 }
 
+// wake(): present at once, and gone after the off delay counted from then.
+static void test_wake() {
+  PresenceDetector d;
+  d.configure(5000, 60000);
+  d.wake(1000);
+  TEST_ASSERT_TRUE(d.present());
+  uint32_t at = 0;
+  TEST_ASSERT_TRUE(feed(d, false, 1000, 70000, &at) == Event::Left);
+  TEST_ASSERT_EQUAL_UINT32(61000, at);
+  // A wake while present but with the output low restarts the off delay.
+  d.wake(80000);
+  TEST_ASSERT_TRUE(feed(d, false, 80000, 120000) == Event::None);
+  d.wake(120000);
+  TEST_ASSERT_TRUE(feed(d, false, 120000, 179990) == Event::None);
+  TEST_ASSERT_TRUE(feed(d, false, 179990, 190000, &at) == Event::Left);
+  TEST_ASSERT_EQUAL_UINT32(180000, at);
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_passing_by_is_ignored);
   RUN_TEST(test_arrival_after_on_delay);
   RUN_TEST(test_leaving_after_off_delay);
   RUN_TEST(test_clock_wrap);
+  RUN_TEST(test_wake);
   return UNITY_END();
 }

@@ -38,10 +38,14 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
 }  // namespace
 
 namespace {
-const MotionSensor *motionSensor = nullptr;
+MotionSensor *motionSensor = nullptr;
 }  // namespace
 
-void setMotionSensor(const MotionSensor *sensor) { motionSensor = sensor; }
+void setMotionSensor(MotionSensor *sensor) { motionSensor = sensor; }
+
+void wakeMotionSensor() {
+  if (motionSensor && motionSensor->enabled()) motionSensor->wake();
+}
 
 uint32_t motionVersion() { return motionSensor && motionSensor->enabled() ? motionSensor->version() : 0; }
 
@@ -132,6 +136,9 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
     }
 
     if (const char *err = lights.set(static_cast<uint8_t>(id), c)) return sendError(req, 400, err);
+    // Switched on (or left on with a new setting) by someone at a page.
+    led::WorkLights::Info info;
+    if (lights.info(static_cast<uint8_t>(id), info) && info.state.on) wakeMotionSensor();
     sendLights(req, lights);
   });
 }

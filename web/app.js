@@ -2475,6 +2475,8 @@ function renderSystem() {
     // Only on a board with PSRAM.
     ...(s.psramTotal ? [['system.psram', `${formatBytes(s.psramFree)} / ${formatBytes(s.psramTotal)}`]] : []),
     ['system.storage', `${formatBytes(s.fsUsed)} / ${formatBytes(s.fsTotal)}`],
+    // Only with the LED supply under PS-ON control.
+    ...(s.supply ? [['system.supply', t(!s.supply.on ? 'system.supplyOff' : s.supply.ready ? 'system.supplyOn' : 'system.supplyStarting')]] : []),
     // Inventory figures; missing when the database couldn't be opened.
     ...(s.inventory && s.inventory.parts !== undefined ? [
       ['system.parts', t('system.partsValue', { parts: s.inventory.parts, pieces: s.inventory.quantity })],

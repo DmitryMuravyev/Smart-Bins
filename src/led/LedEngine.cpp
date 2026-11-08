@@ -1,5 +1,7 @@
 #include "LedEngine.h"
 
+#include "PowerSupply.h"
+
 #include <Arduino.h>
 #include <esp_random.h>
 
@@ -228,6 +230,11 @@ void LedEngine::setBrightness(uint8_t level) {
   brightness_.set(level, effectMillis(), cfg_.fadeMs);
 }
 
+void LedEngine::setMaster(bool on) {
+  Lock lock(lock_);
+  master_.set(on ? 255 : 0, effectMillis(), cfg_.fadeMs);
+}
+
 LedEngine::Status LedEngine::status() {
   Lock lock(lock_);
   return {powered_,    static_cast<uint8_t>(highlights_.size()), test_, estimateMa_, limitLevel_, fps_,
@@ -259,12 +266,18 @@ void LedEngine::run() {
       // unsigned `now - stamp` could wrap around and skip a fade entirely.
       now = effectMillis();
       renderLayers(now);
-      wantPower = test_ != TestPattern::None || !highlights_.empty() || effects_.active();
+      // An effect needs power only while the master switch lets it show
+      // (its fade-out keeps the strips lit, which `lit` covers).
+      wantPower = test_ != TestPattern::None || !highlights_.empty() || (effects_.active() && master_.target() > 0);
     }
     const bool lit = anyLit();
     if (lit) lastLit_ = now;
 
-    if (wantPower && !powered_) setPower(true);
+    // The LED supply first (PS-ON): needed from the first request until the
+    // grid's own switch has opened again. The switch closes only once the
+    // supply's output is up.
+    const bool supplyUp = !supply_ || supply_->want(PowerSupply::Grid, wantPower || powered_);
+    if (wantPower && !powered_ && supplyUp) setPower(true);
     if (powered_ && !wantPower && !lit && now - lastLit_ > kPowerOffDelayMs) setPower(false);
 
     if (powered_ && now - poweredAt_ >= kPowerSettleMs) {
@@ -358,10 +371,16 @@ void LedEngine::renderLayers(uint32_t now) {
   }
 
   // The effect, one color per bin, under everything else.
-  if (effects_.render(now, esp_random(), effectFrame_.data())) {
+  // It keeps running while the master switch has it dark (its timer and
+  // its picture go on), so it comes back as it would have been.
+  const uint8_t master = master_.value(now);
+  if (effects_.render(now, esp_random(), effectFrame_.data()) && master > 0) {
     const uint8_t cols = mapper_.geometry().cols, rows = mapper_.geometry().rows;
     for (uint8_t y = 0; y < rows; y++) {
-      for (uint8_t x = 0; x < cols; x++) lightBin(x, y, effectFrame_[static_cast<size_t>(y) * cols + x]);
+      for (uint8_t x = 0; x < cols; x++) {
+        const Rgb c = effectFrame_[static_cast<size_t>(y) * cols + x];
+        lightBin(x, y, master == 255 ? c : scale(c, master));
+      }
     }
   }
   // The timer stopped it: tell the pages (the WebSocket pushes on version_).

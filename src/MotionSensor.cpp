@@ -4,6 +4,7 @@
 #include <Arduino.h>
 #include <esp_log.h>
 
+#include "led/LedEngine.h"
 #include "led/WorkLights.h"
 
 namespace sb {
@@ -12,7 +13,7 @@ namespace {
 const char *const TAG = "motion";
 }  // namespace
 
-void MotionSensor::begin(const config::AppConfig &cfg, led::WorkLights &lights) {
+void MotionSensor::begin(const config::AppConfig &cfg, led::WorkLights &lights, led::LedEngine &grid) {
   if (!cfg.motion.enabled) return;
   const int pin = cfg.pins["mic_analog"];
   if (pin < 0) {
@@ -25,27 +26,40 @@ void MotionSensor::begin(const config::AppConfig &cfg, led::WorkLights &lights) 
   pinMode(pin, INPUT);
   pin_ = pin;
   lights_ = &lights;
+  grid_ = &grid;
   detector_.configure(cfg.motion.onDelayS * 1000UL, cfg.motion.offDelayMin * 60000UL);
-  ESP_LOGI(TAG, "Motion sensor on GPIO%d: lights on after %us of presence, off after %u min without",
+  // As if someone had just arrived: the lights come up as saved, and go
+  // dark after the off delay unless someone is sensed by then.
+  detector_.wake(millis());
+  ESP_LOGI(TAG, "Motion sensor on GPIO%d: lights back after %us of presence, dark after %u min without",
            pin, cfg.motion.onDelayS, cfg.motion.offDelayMin);
+}
+
+void MotionSensor::setMaster(bool on) {
+  lights_->setMaster(on);
+  grid_->setMaster(on);
 }
 
 void MotionSensor::loop() {
   if (pin_ < 0) return;
   const bool wasSignal = detector_.signal(), wasPresent = detector_.present();
-  const PresenceDetector::Event e = detector_.update(digitalRead(pin_) == HIGH, millis());
+  const uint32_t now = millis();
+  if (wakeRequested_) {
+    wakeRequested_ = false;
+    detector_.wake(now);
+    if (!wasPresent) {
+      ESP_LOGI(TAG, "Light switched on from a page: lights back");
+      setMaster(true);
+    }
+  }
+  const PresenceDetector::Event e = detector_.update(digitalRead(pin_) == HIGH, now);
   if (detector_.signal() != wasSignal || detector_.present() != wasPresent) version_ = version_ + 1;
   if (e == PresenceDetector::Event::Arrived) {
-    // Every light on, at its own last level, color and effect (like the
-    // switch on the Lights page). Lights switched off by hand stay off
-    // until the next arrival (see PresenceDetector.h).
-    ESP_LOGI(TAG, "Someone at the bench: work lights on");
-    led::WorkLights::Change on;
-    on.power = led::WorkLights::Change::Power::On;
-    for (uint8_t i = 0; i < lights_->count(); i++) lights_->set(i, on);
+    ESP_LOGI(TAG, "Someone at the bench: lights back");
+    setMaster(true);
   } else if (e == PresenceDetector::Event::Left) {
-    ESP_LOGI(TAG, "Nobody at the bench: work lights off");
-    lights_->allOff();
+    ESP_LOGI(TAG, "Nobody at the bench: lights dark");
+    setMaster(false);
   }
 }
 

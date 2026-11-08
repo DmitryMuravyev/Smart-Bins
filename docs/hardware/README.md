@@ -232,8 +232,8 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 - **Cooling:** without a fan the EPP-300-12 delivers 200 W (16.7 A), far more than the reference grid needs (about 36 W at full white), so no fan is required. The AUX output can drive a small 12 V fan for the enclosure.
 - **Mains:** the EPP-300 is an open-frame supply with exposed mains. Mount it in a closed enclosure and feed it through an IEC inlet with a fuse and a switch. AC goes in on CN1 (JST VH): pin 1 N, pin 3 L, pin 5 protective earth (FG), which the datasheet requires to be connected. Also earth the mounting holes marked for grounding if the enclosure is metal.
 - **Fuses:** the main output can deliver 25 A into a short, so fuses F1–F3 are essential.
-- **Breadboard shortcut:** until the firmware drives PS-ON (see below), wire PS-ON to 5VSB to keep the main output on.
-- PS-ON and PG are on the firmware's list: the pins are reserved here, and the supply control (on before any light needs power, off after the last fade-out, PG checks) comes with the power-switch work in a later task.
+- **Breadboard shortcut:** without the firmware driving PS-ON (its pin not set), wire PS-ON to 5VSB to keep the main output on.
+- **Firmware:** set the pins in Settings, Pins: **LED supply on/off (PS-ON)** to GPIO2 (and the status LED to –), **LED supply power good (PG)** to GPIO39. The main output then goes on as soon as any light needs power and off once every light has been dark for about 2.5 seconds; the grid and work-strip switches close, and LED data goes out, only once PG is high (500 ms after PS-ON without PG). PG dropping while the output is on is logged as a supply fault; a PG that doesn't come up within 2 s is logged too, and the lights go on anyway.
 
 ### Option B: any other supply
 
@@ -271,7 +271,7 @@ Keep the wires under 20 cm. Digital I2S is immune to the ESP32 ADC's noise, whic
 
 **MAX9814 (analog, alternative):** VDD to 3V3, OUT to GPIO35, GAIN floating (60 dB) or to GND (50 dB). Use one microphone type or the other, not both.
 
-**Motion sensor (optional, instead of the analog microphone):** switches the work lights on when someone stays at the bench and off when nobody has been there for a while (Settings, Motion sensor). Its digital output goes to GPIO35, the analog microphone's pin, so the two can't be used together; the I2S microphone can.
+**Motion sensor (optional, instead of the analog microphone):** a master switch over the lights: they fade to dark when nobody has been at the bench for a while and come back as they were when someone stays (Settings, Motion sensor; user guide, Motion sensor). Its digital output goes to GPIO35, the analog microphone's pin, so the two can't be used together; the I2S microphone can.
 
 | Module | Supply | Notes |
 |---|---|---|

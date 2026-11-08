@@ -15,10 +15,10 @@
 //     A radar module (LD2410C) stays high while someone sits still; a PIR
 //     goes low between movements, which the long off delay rides over.
 //
-// Only these two moments cause an action. Switching the lights by hand in
-// between is left alone until the next arrival or departure: lights turned
-// off while someone is there stay off, and lights turned on with nobody
-// there stay on until someone comes and goes.
+// The motion sensor uses them as a master switch (see MotionSensor.h): the
+// lights as the user set them while someone is there, all dark while nobody
+// is. wake() counts as an arrival without the sensor: at boot, and when a
+// light or effect is switched on from a page while nobody was sensed.
 //
 // Pure logic with the time passed in, so the host tests can drive it.
 
@@ -58,6 +58,18 @@ class PresenceDetector {
       return Event::Left;
     }
     return Event::None;
+  }
+
+  // An arrival now, whatever the sensor says: present, and if the output is
+  // low, the off delay counts from now (the departure comes `offDelayMs`
+  // later unless the sensor picks someone up meanwhile).
+  void wake(uint32_t nowMs) {
+    if (!started_) {
+      started_ = true;
+      high_ = false;
+    }
+    present_ = true;
+    if (!high_) since_ = nowMs;
   }
 
   // Someone is at the bench (arrived and not yet left).

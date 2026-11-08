@@ -25,11 +25,16 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights);
 
 // Fills `doc` with {"version": n, "lights": [...], "stripPower": bool}, as returned by
 // /api/lights and pushed over the WebSocket. With a motion sensor in use,
-// also "motion": {"present": bool, "signal": bool}.
+// also "motion": {"present": bool, "signal": bool}; while nobody is present
+// the lights are dark under its master switch, whatever their "on" says.
 void writeLights(JsonDocument &doc, led::WorkLights &lights);
 
 // The motion sensor whose state writeLights() adds (nullptr: none).
-void setMotionSensor(const MotionSensor *sensor);
+void setMotionSensor(MotionSensor *sensor);
+// A light or a grid effect was switched on from a page: with a motion sensor
+// in use, that counts as someone at the bench (MotionSensor::wake()), so
+// the lights don't stay dark under its master switch.
+void wakeMotionSensor();
 // MotionSensor::version(), or 0 without one: the WebSocket pushes the lights
 // when it moves.
 uint32_t motionVersion();
