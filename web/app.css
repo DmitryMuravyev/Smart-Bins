@@ -8,7 +8,7 @@
 :root {
   color-scheme: light;
   --bg: #f4f5f7; --card: #fff; --text: #1d2330; --muted: #667085; --border: #d9dde3;
-  --accent: #2563eb; --accent-text: #fff; --ok: #15803d; --warn: #b45309; --err: #b42318;
+  --accent: #2563eb; --accent-text: #fff; --ok: #15803d; --warn: #b45309; --warn-button: #ea580c; --err: #b42318;
   --tab-active: #e6e9ee;
   --radius: 12px; --tabbar: 60px;
 }
@@ -16,14 +16,14 @@
   :root:not([data-theme=light]) {
     color-scheme: dark;
     --bg: #101317; --card: #1a1f26; --text: #e6e8eb; --muted: #9aa4b2; --border: #2e353f;
-    --accent: #60a5fa; --accent-text: #0b1220; --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+    --accent: #60a5fa; --accent-text: #0b1220; --ok: #4ade80; --warn: #fbbf24; --warn-button: #fbbf24; --err: #f87171;
     --tab-active: #262d37;
   }
 }
 :root[data-theme=dark] {
   color-scheme: dark;
   --bg: #101317; --card: #1a1f26; --text: #e6e8eb; --muted: #9aa4b2; --border: #2e353f;
-  --accent: #60a5fa; --accent-text: #0b1220; --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+  --accent: #60a5fa; --accent-text: #0b1220; --ok: #4ade80; --warn: #fbbf24; --warn-button: #fbbf24; --err: #f87171;
   --tab-active: #262d37;
 }
 * { box-sizing: border-box; }
@@ -266,7 +266,9 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 .dialog-buttons .spacer { flex: 1; }
 button.danger { background: var(--err); color: #fff; }
 /* Restart device: orange, between an everyday button and a destructive one. */
-button.warning { background: var(--warn); color: var(--accent-text); }
+/* Its own color: --warn (for text) is too dark a brown for a button in the
+   light theme. */
+button.warning { background: var(--warn-button); color: var(--accent-text); }
 
 /* Photos. Thumbnails are 128 px files; on a card they are shown at 64 px, the
    height of the three text lines beside them (23 + 20 + 20 px), sharp on 2x screens. */
