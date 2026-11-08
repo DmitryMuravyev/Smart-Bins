@@ -34,15 +34,28 @@ constexpr uint32_t kCardHz = 20000000;
 // else may hold a slot: the backups list is read without opening its files
 // (see listCardBackups() in BackupApi.cpp).
 constexpr uint8_t kCardMaxFiles = 2;
+// Mount attempts at boot, and the pause between them (see begin()).
+constexpr int kCardTries = 3;
+constexpr uint32_t kCardRetryMs = 25;
 }  // namespace
 
 void PhotoStore::begin(int sck, int miso, int mosi, int cs) {
   if (sck >= 0 && miso >= 0 && mosi >= 0 && cs >= 0) {
     static SPIClass spi(VSPI);
     spi.begin(sck, miso, mosi, cs);
-    if (SD.begin(cs, spi, kCardHz, "/sd", kCardMaxFiles) && SD.cardType() != CARD_NONE) {
-      card_ = true;
-    } else {
+    // A few tries: after a reset that doesn't cut the card's power (flashing
+    // over USB, the reset button), the card can still be in the middle of
+    // what it was doing and miss the first wake-up ("GO_IDLE_STATE failed").
+    // An absent card costs about 50 ms more at boot.
+    for (int attempt = 0; attempt < kCardTries && !card_; attempt++) {
+      if (attempt) {
+        SD.end();
+        ESP_LOGW(TAG, "microSD card not ready, trying again");
+        delay(kCardRetryMs);
+      }
+      card_ = SD.begin(cs, spi, kCardHz, "/sd", kCardMaxFiles) && SD.cardType() != CARD_NONE;
+    }
+    if (!card_) {
       // No card, or no slot at all: give the pins back.
       SD.end();
       spi.end();
@@ -325,7 +338,6 @@ bool PhotoStore::moveToCard(const std::string &name, uint64_t &moved, std::strin
 }
 
 int PhotoStore::flashPhotoCount() const {
-  if (!card_) return 0;
   led::FlashGuard guard;  // walks the FAT directory (see find())
   File dir = FFat.open(kDir);
   if (!dir || !dir.isDirectory()) return 0;

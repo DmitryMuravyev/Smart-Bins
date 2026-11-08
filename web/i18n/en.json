@@ -208,6 +208,7 @@
   "system.photosFlash": "{n}, in flash",
   "system.photosCard": "{n}, on the microSD card ({used} / {total})",
   "system.photosSplit": "{n}: {flash} in flash, {card} on the microSD card ({used} / {total})",
+  "system.photosMissing": "{n}: {flash} in flash, {missing} not found (on a microSD card that isn't working?)",
   "backup.title": "Backup",
   "backup.hint": "Parts, photos and settings in one .tar file. Keep it on your computer or in the cloud.",
   "backup.download": "Download backup",

@@ -1402,7 +1402,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
       doc["flashFree"] = flashFree();
       doc["card"] = photos.onCard();
       // Only worth the directory walk when there is a card to move them to.
-      doc["flashPhotos"] = photos.flashPhotoCount() > 0;
+      doc["flashPhotos"] = photos.onCard() && photos.flashPhotoCount() > 0;
       if (FFat.exists(kPreviousFile)) doc["previousBytes"] = fileSize(FFat, kPreviousFile);
     }
     if (photos.onCard()) listCardBackups(doc["cardBackups"].to<JsonArray>());
