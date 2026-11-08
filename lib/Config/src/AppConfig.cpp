@@ -264,6 +264,16 @@ bool validatePins(const AppConfig &cfg, std::string &error) {
       }
     }
   }
+  if (cfg.motion.enabled) {
+    if (cfg.pins["mic_analog"] == board::kNoPin) {
+      error = "pins.mic_analog: the motion sensor is read on this pin, so it needs one";
+      return false;
+    }
+    if (cfg.microphone == MicType::Analog) {
+      error = "motion.enabled: the motion sensor uses the analog microphone's pin; choose the I2S microphone or none";
+      return false;
+    }
+  }
   if (cfg.microphone == MicType::Analog) {
     // ADC1 only (GPIO32-39): ADC2 can't be read while Wi-Fi is on.
     const int g = cfg.pins["mic_analog"];
@@ -409,6 +419,11 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
 
   r.choice(doc["microphone"], "microphone", kMicTypes, cfg.microphone);
 
+  JsonVariantConst motion = doc["motion"];
+  r.boolean(motion["enabled"], "motion.enabled", cfg.motion.enabled);
+  r.integer(motion["onDelayS"], "motion.onDelayS", 1, 60, cfg.motion.onDelayS);
+  r.integer(motion["offDelayMin"], "motion.offDelayMin", 1, 240, cfg.motion.offDelayMin);
+
   if (!r.ok() || !validate(cfg, error)) return false;
   out = cfg;
   return true;
@@ -486,6 +501,11 @@ std::string serialize(const AppConfig &cfg) {
   }
 
   doc["microphone"] = toString(cfg.microphone);
+
+  JsonObject motion = doc["motion"].to<JsonObject>();
+  motion["enabled"] = cfg.motion.enabled;
+  motion["onDelayS"] = cfg.motion.onDelayS;
+  motion["offDelayMin"] = cfg.motion.offDelayMin;
 
   JsonObject pins = doc["pins"].to<JsonObject>();
   for (size_t i = 0; i < board::kDefaultPinCount; i++) {

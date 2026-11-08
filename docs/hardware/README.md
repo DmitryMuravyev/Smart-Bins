@@ -53,7 +53,7 @@ All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near
 | 3 | White channel W4 | 21 | out | N-MOSFET only |
 | 3 | White channel W5 | 22 | out | N-MOSFET only |
 | 3 | Microphone I2S SCK / WS / SD | 26 / 25 / 34 | out / out / in | INMP441 |
-| 3 | Analog microphone (instead of I2S) | 35 | in (ADC1) | MAX9814 |
+| 3 | Analog microphone (instead of I2S), or motion sensor | 35 | in (ADC1) | MAX9814; LD2410C, HC-SR501, AM312 (section 8) |
 | – | microSD SCK / MISO / MOSI / CS | 18 / 19 / 23 / 5 | SPI | optional |
 | – | Button (clear highlight, factory reset) | 0 | in | on-board BOOT button |
 | – | Status LED | 2 | out | on-board LED; set to – in Settings when PS-ON is wired to GPIO2 |
@@ -254,7 +254,7 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 
 ---
 
-## 8. Microphone (optional)
+## 8. Microphone and motion sensor (optional)
 
 **INMP441 (I2S, recommended)**
 
@@ -270,6 +270,16 @@ Besides its 12 V main output, the EPP-300-12 has a **5 V standby output (5VSB)**
 Keep the wires under 20 cm. Digital I2S is immune to the ESP32 ADC's noise, which is why it is preferred.
 
 **MAX9814 (analog, alternative):** VDD to 3V3, OUT to GPIO35, GAIN floating (60 dB) or to GND (50 dB). Use one microphone type or the other, not both.
+
+**Motion sensor (optional, instead of the analog microphone):** switches the work lights on when someone stays at the bench and off when nobody has been there for a while (Settings, Motion sensor). Its digital output goes to GPIO35, the analog microphone's pin, so the two can't be used together; the I2S microphone can.
+
+| Module | Supply | Notes |
+|---|---|---|
+| **LD2410C** (24 GHz radar, recommended) | 5 V | OUT is 3.3 V, straight to GPIO35. Also senses someone sitting still, which a PIR doesn't. Limit its range in the HLKRadarTool phone app (the gates past your chair off) so people elsewhere in the room don't count. |
+| HC-SR501 (PIR) | 5–20 V (the 12 V rail works) | OUT is 3.3 V. Set the jumper to repeat trigger (H) and the time pot to the minimum (about 3 s); turn the sensitivity pot down to shorten its range. Its output goes low between movements, so give the lights a longer off delay. |
+| AM312 (small PIR) | 2.7–12 V | OUT is 3.3 V; fixed range of a few meters and a 2 s hold. |
+
+Point the sensor at the chair rather than the room. The lights come on only once the output has stayed on for the whole on delay (5s by default), which a person walking past doesn't keep up.
 
 ---
 

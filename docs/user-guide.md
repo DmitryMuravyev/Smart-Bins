@@ -101,6 +101,16 @@ Under Settings → **Work lights**, each of the five channels is one of:
 
 **Maximum brightness** caps a channel that is too bright for the room. Addressable channels also take the number of pixels, LED type, color order and current limit.
 
+### Motion sensor
+
+A motion sensor on the analog microphone's pin (GPIO35 by default) switches the work lights on when someone stays at the bench and off when nobody has been there for a while. Wiring and suitable modules: [hardware guide, section 8](hardware/README.md#8-microphone-and-motion-sensor-optional).
+
+- **Lights on after** (1–60s, 5 by default): the sensor has to see someone for this whole time. A person walking past or stopping for a moment doesn't keep it up, so the lights stay off.
+- **Lights off after** (1–240 min, 5 by default): the lights go off once the sensor has seen nobody for this long. With a PIR sensor, which only notices movement, make it longer.
+- Every work light comes on at its last level and color. Lights switched by hand stay as they are until the next arrival or departure: turned off while you work, they stay off until you leave and come back.
+- The Lights page shows whether someone counts as being at the bench and the sensor's output right now, which helps while aiming it.
+- The sensor and the analog microphone share the pin, so turning the sensor on switches an analog microphone off.
+
 ### Microphone and pins
 
 - **Microphone**: digital (I2S, an INMP441 or similar), analog (a MAX9814 or similar, on an ADC1 pin, GPIO32–39) or none. The board checks for it at start-up; without one the music effects stay hidden. The microphone and the music effects need a board with PSRAM (the 16 MB PSRAM build): on a board without it they are off and the choice is greyed out, so that the web server keeps enough memory, above all with a microSD card in the slot.

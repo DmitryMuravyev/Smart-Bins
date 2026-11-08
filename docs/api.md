@@ -6,7 +6,7 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 |---|---|
 | `GET /api/system` | firmware, chip, memory (`heapFree`, `heapMin`; `psramFree`, `psramTotal` on a board with PSRAM), storage (`photos`: where photos go, the space there and, with a microSD card, `inFlash`: photos still in flash), Wi-Fi, password on/off, the last restart's reason (`restart`: `power-on`, `restart`, `crash`, `watchdog`, `hang`, `brownout`, `reset-pin`, `other`; `restartFault` is true for the ones that point at a problem) and whether a firmware upload is possible (`firmwareUpload`) |
 | `POST /api/system/restart` | restarts the board |
-| `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts |
+| `GET /api/config`, `POST /api/config` | reads / replaces `config.json` (JSON body), then restarts. `motion`: `enabled`, `onDelayS` (1..60), `offDelayMin` (1..240); the sensor is read on `pins.mic_analog` |
 | `GET /api/pins` | the pin map in use (`pins`), and the GPIOs each kind of function may take (`outputs`, `inputs`), and `micAvailable` (false on a board without PSRAM, which runs no microphone) |
 | `POST /api/firmware` | installs new firmware: a multipart upload with the file in the field `firmware` (`curl -F firmware=@smartbins-1.0.0-esp32-8mb-update.bin ...`); restarts with it when the image is complete and valid, otherwise keeps the running one and answers the reason |
 | `/api/locate?x=3&y=2` | lights one bin; optional `color=FF0000`, `mode=steady\|slow-pulse\|fast-pulse`, `s=10` (0 = until cleared) |
@@ -16,7 +16,7 @@ Everything the UI does goes through a small JSON API, handy for scripts and home
 | `/api/led/brightness?value=1..255` | brightness of located bins and test patterns (not of effects, which have their own), applied with a fade and saved |
 | `/api/effects` | without parameters: the running `effect` (`remainingS` until its timer stops it), `microphone` (whether one was found) and the running effect's settings. `effect=off\|fire\|sparks\|relax\|demo\|spectrum\|beat\|pulse` starts one with its own saved settings (the music effects answer 409 when `microphone` is false); `speed`, `intensity`, `brightness` (1..255), `palette=auto\|heat\|ocean\|forest\|lava\|rainbow\|party` and `timer` (minutes, 0 = keep running) change and save the settings of the effect named with them, or else of the running one (`effects.<name>` in `config.json`) |
 | `GET /api/led/status` | estimated grid current, frame rate, current limit active, the running `effect` and `effectRemainingS`, lit bins (`lit: [[x, y], ...]`) and their `version`; `/api/locate` and `/api/locate/clear` answer with the same status |
-| `GET /api/lights` | the work lights (`id`, name, type, state) |
+| `GET /api/lights` | the work lights (`id`, name, type, state); with a motion sensor, `motion`: `present` (someone counts as at the bench) and `signal` (the sensor's output now) |
 | `/api/lights/set?id=0&on=toggle` | changes one light: `on=1\|0\|toggle`, `level=1..255`, `color=FF8800`, `kelvin=2700`, `effect=solid\|breathe\|rainbow`. Without `on`, a change leaves the light on or off as it is (an off light uses the new setting when switched on) |
 | `/api/lights/off` | every light off |
 | `POST /api/security` | `password=...` sets the password (4–64 characters), empty removes it |

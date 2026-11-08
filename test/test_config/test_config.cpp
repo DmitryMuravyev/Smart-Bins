@@ -224,6 +224,31 @@ static void test_pins() {
   TEST_ASSERT_FALSE(parse("{\"lights\":[{},{},{},{},{\"mode\":\"white\"}],\"pins\":{\"light_w5\":-1}}", cfg, err));
 }
 
+// Motion sensor: off by default, on the analog microphone's pin, so not
+// together with the analog microphone.
+static void test_motion() {
+  AppConfig cfg;
+  std::string err;
+  TEST_ASSERT_TRUE(parse("{}", cfg, err));
+  TEST_ASSERT_FALSE(cfg.motion.enabled);
+  TEST_ASSERT_EQUAL(5, cfg.motion.onDelayS);
+  TEST_ASSERT_EQUAL(5, cfg.motion.offDelayMin);
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"motion\":{\"enabled\":true,\"onDelayS\":8,\"offDelayMin\":30}}", cfg, err),
+                           err.c_str());
+  TEST_ASSERT_TRUE(cfg.motion.enabled);
+  TEST_ASSERT_EQUAL(8, cfg.motion.onDelayS);
+  TEST_ASSERT_EQUAL(30, cfg.motion.offDelayMin);
+  AppConfig back;
+  TEST_ASSERT_TRUE_MESSAGE(parse(serialize(cfg).c_str(), back, err), err.c_str());
+  TEST_ASSERT_TRUE(back.motion.enabled);
+  TEST_ASSERT_EQUAL(30, back.motion.offDelayMin);
+  TEST_ASSERT_FALSE(parse("{\"motion\":{\"onDelayS\":0}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"motion\":{\"offDelayMin\":241}}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"motion\":{\"enabled\":true},\"microphone\":\"analog\"}", cfg, err));
+  TEST_ASSERT_FALSE(parse("{\"motion\":{\"enabled\":true},\"pins\":{\"mic_analog\":-1}}", cfg, err));
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"motion\":{\"enabled\":true},\"microphone\":\"off\"}", cfg, err), err.c_str());
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_object_gives_defaults);
@@ -235,5 +260,6 @@ int main(int, char **) {
   RUN_TEST(test_host_names);
   RUN_TEST(test_static_ip);
   RUN_TEST(test_pins);
+  RUN_TEST(test_motion);
   return UNITY_END();
 }

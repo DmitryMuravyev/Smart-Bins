@@ -4,6 +4,7 @@
 #include <ESPAsyncWebServer.h>
 
 #include "ApiUtil.h"
+#include "MotionSensor.h"
 #include "led/WorkLights.h"
 
 namespace sb {
@@ -36,6 +37,14 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
 
 }  // namespace
 
+namespace {
+const MotionSensor *motionSensor = nullptr;
+}  // namespace
+
+void setMotionSensor(const MotionSensor *sensor) { motionSensor = sensor; }
+
+uint32_t motionVersion() { return motionSensor && motionSensor->enabled() ? motionSensor->version() : 0; }
+
 void writeLights(JsonDocument &doc, led::WorkLights &lights) {
   // The change counter, read before the lights themselves: a change made in
   // between then shows up in the list under the older number, which is safe
@@ -51,6 +60,11 @@ void writeLights(JsonDocument &doc, led::WorkLights &lights) {
     if (lights.info(i, info)) addLight(arr, info);
   }
   doc["stripPower"] = lights.stripPower();
+  if (motionSensor && motionSensor->enabled()) {
+    JsonObject m = doc["motion"].to<JsonObject>();
+    m["present"] = motionSensor->present();
+    m["signal"] = motionSensor->signal();
+  }
 }
 
 namespace {

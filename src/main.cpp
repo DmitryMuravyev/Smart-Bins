@@ -24,6 +24,7 @@
 #include "web/InventoryApi.h"
 #include "web/BackupApi.h"
 #include "web/PhotoApi.h"
+#include "MotionSensor.h"
 #include "PhotoStore.h"
 #include "web/LedApi.h"
 #include "web/LightsApi.h"
@@ -59,6 +60,7 @@ sb::Security security;
 sb::LiveUpdates live;
 sb::inventory::InventoryDb inventoryDb;
 sb::PhotoStore photos;
+sb::MotionSensor motion;
 AsyncWebServer server(80);
 
 // Restarts requested from the web API happen here, a second later, so the
@@ -266,6 +268,10 @@ void setup() {
   leds.begin(configStore.get(), pins["grid_data_a"], pins["grid_data_b"], pins["grid_power"]);
   workLights.begin(configStore.get(), lightPins, pins["light_power"]);
   logHeapStep("LED strips and work lights");
+  // Optional: a motion sensor on the analog microphone's pin switches the
+  // work lights (see MotionSensor.h).
+  motion.begin(configStore.get(), workLights);
+  sb::setMotionSensor(&motion);
   // Optional: checks in the background whether a microphone answers, and
   // feeds the music effects if one does.
   microphone.begin(configStore.get(), leds);
@@ -345,6 +351,7 @@ void loop() {
     network.setOtaPasswordHash(security.otaHash());
   }
   network.loop();
+  motion.loop();
   live.loop();
   sb::sendGate().loop();  // starts file sends that waited for a free slot
   handleButton();

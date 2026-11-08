@@ -319,6 +319,8 @@ button.danger { background: var(--err); color: #fff; }
 .warn-dialog h2 .ico { font-size: 28px; line-height: 1; }
 
 /* ---- Hardware settings (Task 14) ---- */
+#hw-motion .buttons { margin-top: 12px; }
+#lights-motion { margin: 0 0 12px; }
 details.hw[open] summary { margin-bottom: 8px; }
 .hw-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
 .hw-fields label { font-size: 14px; color: var(--muted); min-width: 0; }

@@ -8,6 +8,7 @@ namespace sb {
 namespace led {
 class WorkLights;
 }
+class MotionSensor;
 
 // Work-light endpoints, used by the Lights page and handy for scripts:
 //   GET /api/lights                      all lights and their state
@@ -23,7 +24,14 @@ class WorkLights;
 void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights);
 
 // Fills `doc` with {"version": n, "lights": [...], "stripPower": bool}, as returned by
-// /api/lights and pushed over the WebSocket.
+// /api/lights and pushed over the WebSocket. With a motion sensor in use,
+// also "motion": {"present": bool, "signal": bool}.
 void writeLights(JsonDocument &doc, led::WorkLights &lights);
+
+// The motion sensor whose state writeLights() adds (nullptr: none).
+void setMotionSensor(const MotionSensor *sensor);
+// MotionSensor::version(), or 0 without one: the WebSocket pushes the lights
+// when it moves.
+uint32_t motionVersion();
 
 }  // namespace sb

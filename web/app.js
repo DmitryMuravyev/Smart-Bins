@@ -184,6 +184,19 @@ function isStale(kind, version) {
 function updateLights(data) {
   if (!isStale('lights', data.version)) state.lights = data.lights;
   renderLights(false);
+  renderMotion(data.motion);
+}
+
+// The motion sensor's line on the Lights page: whether someone counts as at
+// the bench, and the sensor's output right now (handy while aiming it).
+function renderMotion(m) {
+  const line = $('#lights-motion');
+  line.hidden = !m;
+  if (!m) return;
+  line.textContent = t('lights.motion', {
+    state: t(m.present ? 'lights.motionPresent' : 'lights.motionAbsent'),
+    signal: t(m.signal ? 'lights.motionSignalOn' : 'lights.motionSignalOff'),
+  });
 }
 
 // A light with a change still on its way (being sent, or waiting to be sent
@@ -1576,6 +1589,7 @@ function renderHardware() {
   renderGridPreview();
   renderLightFields();
   renderPinFields();
+  renderMotionFields();
 }
 
 // The grid as the form describes it now (not yet saved).
@@ -1816,14 +1830,20 @@ function renderPinFields() {
   checkPins();
 }
 
+// The motion sensor is on in the saved configuration: it reads the analog
+// microphone's pin, which then stays in the pin list.
+function motionOn() {
+  return !!(state.config && state.config.motion && state.config.motion.enabled);
+}
+
 // Only the pins of the chosen microphone are shown (none when the board
-// runs no microphone at all).
+// runs no microphone at all), and the analog one while the motion sensor uses it.
 function updateMicPins() {
   const mic = $('#hw-mic').disabled ? 'none' : $('#hw-mic').value;
   for (const row of $$('#hw-pin-list .pin-row')) {
     const n = row.dataset.pin;
     if (n.startsWith('mic_i2s')) row.hidden = mic !== 'i2s';
-    if (n === 'mic_analog') row.hidden = mic !== 'analog';
+    if (n === 'mic_analog') row.hidden = mic !== 'analog' && !motionOn();
   }
   checkPins();
 }
@@ -1863,8 +1883,48 @@ async function savePins() {
     // A board without a microphone keeps its microphone pins as they were,
     // for the day the configuration moves to a board with PSRAM.
     if (row.hidden && $('#hw-mic').disabled) continue;
+    // The motion sensor's pin is kept even with no analog microphone.
+    if (row.dataset.pin === 'mic_analog' && motionOn()) {
+      cfg.pins.mic_analog = Number(sel.value);
+      continue;
+    }
     // A hidden microphone pin is set free, so it can't clash with anything.
     cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
+  }
+  await saveAndRestart(cfg);
+}
+
+// Motion sensor (Settings): on/off and the two delays. Its output is read on
+// the analog microphone's pin, so turning it on with the analog microphone
+// chosen warns that the microphone goes.
+function renderMotionFields() {
+  const m = (state.config && state.config.motion) || { enabled: false, onDelayS: 5, offDelayMin: 5 };
+  $('#hw-motion-on').checked = !!m.enabled;
+  $('#hw-motion-delay-on').value = m.onDelayS;
+  $('#hw-motion-delay-off').value = m.offDelayMin;
+  updateMotionFields();
+}
+
+function updateMotionFields() {
+  const on = $('#hw-motion-on').checked;
+  for (const el of [$('#hw-motion-delay-on'), $('#hw-motion-delay-off')]) el.disabled = !on;
+  const analogMic = state.config && state.config.microphone === 'analog';
+  $('#hw-motion-mic').hidden = !(on && analogMic);
+}
+
+async function saveMotion() {
+  const onS = Number($('#hw-motion-delay-on').value), offMin = Number($('#hw-motion-delay-off').value);
+  if (!(onS >= 1 && onS <= 60) || !(offMin >= 1 && offMin <= 240)) return toast(t('hw.motionRange'), true);
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  const on = $('#hw-motion-on').checked;
+  cfg.motion = { enabled: on, onDelayS: Math.round(onS), offDelayMin: Math.round(offMin) };
+  // The sensor takes the analog microphone's pin.
+  if (on && cfg.microphone === 'analog') cfg.microphone = 'off';
+  // A pin for the sensor: the default one if the microphone had freed it.
+  if (on && cfg.pins && cfg.pins.mic_analog === -1) {
+    const def = state.pins && state.pins.pins.find(p => p.name === 'mic_analog');
+    if (def) cfg.pins.mic_analog = def.default;
   }
   await saveAndRestart(cfg);
 }
@@ -2445,6 +2505,8 @@ function bindControls() {
   $('#hw-lights-save').addEventListener('click', saveLights);
   $('#hw-mic').addEventListener('change', updateMicPins);
   $('#hw-pins-save').addEventListener('click', savePins);
+  $('#hw-motion-on').addEventListener('change', updateMotionFields);
+  $('#hw-motion-save').addEventListener('click', saveMotion);
   $('#hw-pins-defaults').addEventListener('click', defaultPins);
   $('#firmware-file').addEventListener('change', pickFirmware);
   $('#firmware-upload').addEventListener('click', installFirmware);

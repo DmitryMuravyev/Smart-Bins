@@ -125,6 +125,10 @@ void Microphone::begin(const config::AppConfig &cfg, led::LedEngine &engine) {
     ESP_LOGI(TAG, "Needs a board with PSRAM; music effects off");
     return;
   }
+  if (cfg.microphone == config::MicType::Analog && cfg.motion.enabled) {
+    ESP_LOGW(TAG, "The motion sensor uses the analog microphone's pin; microphone off");
+    return;
+  }
   if (cfg.microphone == config::MicType::Off) {
     ESP_LOGI(TAG, "Off in the configuration; music effects off");
     return;
