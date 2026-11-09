@@ -32,13 +32,22 @@ const char *readLocateParams(AsyncWebServerRequest *req, config::LocateConfig &o
   return nullptr;
 }
 
-void sendLocateDefaults(AsyncWebServerRequest *req, const config::LocateConfig &d) {
+// See ledSettingsVersion(). Written on the web server's task, read by the
+// live updates on the main loop: a 32-bit load is atomic.
+volatile uint32_t settingsVersion = 0;
+void settingsChanged() { settingsVersion = settingsVersion + 1; }
+
+// The locate defaults, with the bin brightness (grid.brightness): the page
+// shows them in one card, "How a bin lights up".
+void sendLocateDefaults(AsyncWebServerRequest *req, const config::AppConfig &cfg) {
+  const config::LocateConfig &d = cfg.locate;
   JsonDocument doc;
   char hex[8];
   snprintf(hex, sizeof(hex), "%06lX", static_cast<unsigned long>(d.color & 0xFFFFFF));
   doc["color"] = static_cast<const char *>(hex);  // cast: copy the text, see LightsApi.cpp
   doc["mode"] = config::toString(d.mode);
   doc["s"] = d.durationS;
+  doc["brightness"] = cfg.grid.brightness;
   sendJson(req, 200, doc);
 }
 
@@ -130,7 +139,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
   // its own time), and is saved to config.json (locate.*), no restart needed.
   server.on("/api/locate/defaults", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     const bool change = hasParam(req, "color") || hasParam(req, "mode") || hasParam(req, "s");
-    if (!change) return sendLocateDefaults(req, config.get().locate);
+    if (!change) return sendLocateDefaults(req, config.get());
     config::AppConfig cfg = config.get();
     if (const char *err = readLocateParams(req, cfg.locate)) return sendError(req, 400, err);
     // Applied at once, also to the bins lit now; written to flash a moment
@@ -138,7 +147,8 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     std::string err;
     if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
     engine.setLocateDefaults(cfg.locate);
-    sendLocateDefaults(req, cfg.locate);
+    settingsChanged();
+    sendLocateDefaults(req, cfg);
   });
 
   // Without x and y every located bin fades out; with them, just that one.
@@ -187,6 +197,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
         // Written to flash a moment later (see ConfigStore::update()).
         std::string err;
         if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
+        settingsChanged();
         if (!start) engine.setEffectParams(led::effectParams(e));
       }
     }
@@ -222,6 +233,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
       // Written to flash a moment later (see ConfigStore::update()).
       std::string err;
       if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
+      settingsChanged();
     }
     req->send(200, "application/json", "{\"ok\":true}");
   });
@@ -233,7 +245,10 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
   });
 }
 
+uint32_t ledSettingsVersion() { return settingsVersion; }
+
 void writeLedStatus(JsonDocument &doc, led::LedEngine &engine) {
+  doc["settingsVersion"] = ledSettingsVersion();
   const led::LedEngine::Status s = engine.status();
   doc["powered"] = s.powered;
   doc["test"] = led::toString(s.test);
