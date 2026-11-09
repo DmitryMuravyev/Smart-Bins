@@ -44,6 +44,7 @@ class LiveUpdates {
   WifiLink *network_ = nullptr;
   uint32_t sentVersion_ = 0;      // WorkLights::version() at the last lights push
   uint32_t sentMotionVersion_ = 0;  // motionVersion() at the last lights push
+  uint32_t sentLedSettings_ = 0;   // ledSettingsVersion() at the last grid push
   uint32_t sentPowerVersion_ = 0;  // WorkLights::powerVersion() at the last lights push
   uint32_t lastLightsPower_ = 0;   // when the lights were last pushed (for the power figures)
   uint32_t sentLedsVersion_ = 0;  // LedEngine::version() at the last grid push

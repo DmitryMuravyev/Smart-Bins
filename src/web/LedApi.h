@@ -41,4 +41,10 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
 // (LedEngine::version()).
 void writeLedStatus(JsonDocument &doc, led::LedEngine &engine);
 
+// Counts changes to the grid's saved settings (how a bin lights up, the bin
+// brightness, an effect's settings). It travels in the grid status
+// (settingsVersion), so every open page notices a change made on another
+// one and fetches the new settings.
+uint32_t ledSettingsVersion();
+
 }  // namespace sb

@@ -246,7 +246,7 @@ function buildLightCard(light) {
   });
   // Kept on the card so fillLightCard() can move the hue thumb to the light's color.
   card.hueSlider = makeSlider(card.querySelector('.hue'), 0, 359, 1, v => sendLight(id, { color: hueToHex(v) }));
-  makeSlider(card.querySelector('.kelvin'), 1500, 10000, 100, v => {
+  card.kelvinSlider = makeSlider(card.querySelector('.kelvin'), 1500, 10000, 100, v => {
     card.querySelector('.light-kelvin-out').textContent = `${v} K`;
     sendLight(id, { kelvin: v });
   });
@@ -275,6 +275,13 @@ function fillLightCard(card, l) {
     // pastel tones the thumb stays where it was.
     const hue = hexToHue(l.color);
     if (hue !== null) card.hueSlider.set(hue);
+    // A white tone set here or on another page: the board keeps only the
+    // color, so the tone is found back from it (see colorToKelvin()).
+    const kelvin = colorToKelvin(l.color);
+    if (kelvin !== null) {
+      card.kelvinSlider.set(kelvin);
+      card.querySelector('.light-kelvin-out').textContent = `${kelvin} K`;
+    }
   }
   for (const b of $$('.presets button', card)) b.title = t(`lights.preset.${b.dataset.preset}`);
   for (const b of $$('.effects button', card)) b.classList.toggle('on', b.dataset.effect === l.effect);
@@ -289,6 +296,34 @@ function setIfIdle(input, value) {
 }
 
 function percent(level) { return `${Math.max(1, Math.round(level * 100 / 255))} %`; }
+
+// The same black-body curve as kelvinToRgb() in the firmware
+// (lib/Led/src/WorkEffects.h), as [r, g, b].
+function kelvinToRgb(kelvin) {
+  const t = kelvin / 100;
+  const c = v => Math.round(Math.min(255, Math.max(0, v)));
+  const r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+  const g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+  const b = t >= 66 ? 255 : t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307;
+  return [c(r), c(g), c(b)];
+}
+
+// The white tone (1500..10000 K, in the slider's 100 K steps) a "#rrggbb"
+// color was made from, or null when it isn't one: the board stores a white
+// tone as its color, so another page can only tell the tone from the color.
+// The closest step wins (above 7000 K neighboring steps differ by a single
+// unit), and only a near-exact match counts, so a color picked on the hue
+// slider or a preset never moves the white-tone thumb.
+function colorToKelvin(hex) {
+  const rgb = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16));
+  let best = null, bestErr = 3;
+  for (let k = 1500; k <= 10000; k += 100) {
+    const c = kelvinToRgb(k);
+    const err = c.reduce((sum, v, i) => sum + Math.abs(v - rgb[i]), 0);
+    if (err < bestErr) { best = k; bestErr = err; }
+  }
+  return best;
+}
 
 // Hue (0..359) of a "#rrggbb" color, or null when it is too close to white or
 // grey to have a meaningful hue (saturation below 50 %).
@@ -1573,6 +1608,12 @@ async function saveEffects(params) {
 // page, the inventory, the API). Each change is saved on the board at once.
 function showLocateDefaults(d) {
   state.locate = d;
+  // The bin brightness comes with the defaults (it sits in the same card).
+  if (d.brightness !== undefined) {
+    setIfIdle($('#grid-brightness'), d.brightness);
+    $('#grid-brightness-out').textContent = percent($('#grid-brightness').value);
+    if (state.config) state.config.grid.brightness = d.brightness;
+  }
   for (const b of $$('#locate-mode button')) b.classList.toggle('on', b.dataset.mode === d.mode);
   const duration = $('#locate-duration');
   // A duration set in config.json that isn't in the list gets its own entry.
@@ -1597,7 +1638,9 @@ async function saveLocateDefaults(params) {
   // answer (a slow one, or one overtaken while the color slider moves on)
   // would put an earlier setting back on screen for a moment.
   const seq = ++locateSaves;
+  locateSavesOpen++;
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
+  locateSavesOpen--;
   if (seq !== locateSaves || locateHueTimer) return;
   // Failed: show what the board has.
   showLocateDefaults(d || await attempt(() => api('/api/locate/defaults')) || state.locate);
@@ -1609,6 +1652,7 @@ async function saveLocateDefaults(params) {
 let locateHue;
 let locateHueTimer = 0;  // a color waiting to be saved; 0 when none
 let locateSaves = 0;     // saves started, see saveLocateDefaults()
+let locateSavesOpen = 0; // saves not yet answered, see refreshGridSettings()
 function onLocateHue(hue) {
   const hex = hueToHex(hue);
   $('#locate-swatch').style.background = `#${hex}`;
@@ -2658,6 +2702,26 @@ function setTheme(theme) {
 let socket = null;
 let retryMs = 1000;
 
+// Another page (or the API) changed a grid setting: how a bin lights up,
+// the bin brightness or the running effect's settings. The grid status over
+// the WebSocket carries a counter of such changes (settingsVersion); when it
+// moves, the settings are fetched again. A change of this page's own moves
+// it too, which only fetches what is already shown. Skipped while a save of
+// ours is unanswered or the color slider is about to save: their answers
+// are newer than what the fetch could bring.
+async function refreshGridSettings() {
+  if (locateSavesOpen === 0 && !locateHueTimer) {
+    const seq = locateSaves;
+    const d = await attempt(() => api('/api/locate/defaults'));
+    if (d && seq === locateSaves && locateSavesOpen === 0 && !locateHueTimer) showLocateDefaults(d);
+  }
+  if (effectSavesOpen === 0) {
+    const seq = effectSaves;
+    const e = await attempt(() => api('/api/effects'));
+    if (e && seq === effectSaves && effectSavesOpen === 0) showEffects(e);
+  }
+}
+
 async function connectLive() {
   // With a password set, the socket needs a session token: browsers can't
   // answer a digest-auth challenge on a WebSocket, so /api/session (which is
@@ -2670,6 +2734,7 @@ async function connectLive() {
     retryMs = 1000;
     // A new connection may be to a restarted board, whose numbers start over.
     state.versions = { lights: -1, leds: -1 };
+    state.ledSettings = undefined;
     $('#live-dot').classList.add('live');
     $('#live-dot').title = t('status.live');
   };
@@ -2689,6 +2754,13 @@ async function connectLive() {
       renderSystem();
     } else if (msg.type === 'leds') {
       updateLitBins(msg);
+      // The first status after connecting only sets the mark: the page
+      // loaded the settings itself (enterGrid()).
+      if (msg.settingsVersion !== undefined) {
+        const changed = state.ledSettings !== undefined && msg.settingsVersion !== state.ledSettings;
+        state.ledSettings = msg.settingsVersion;
+        if (changed && state.config) refreshGridSettings();
+      }
       if (msg.effect !== undefined) {
         showEffectRunning(msg.effect, msg.effectRemainingS);
         // Another effect now (its timer ran out, another page or the API

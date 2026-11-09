@@ -74,6 +74,7 @@ void LiveUpdates::loop() {
     sentPowerVersion_ = lights_->powerVersion();
     sentLedsVersion_ = leds_->version();
     sentMotionVersion_ = motionVersion();
+    sentLedSettings_ = ledSettingsVersion();
     return;
   }
 
@@ -98,8 +99,12 @@ void LiveUpdates::loop() {
   // Lit bins changed (located, cleared, timed out): push the grid status now
   // rather than at the next 2 s tick, so the bin buttons follow at once.
   const uint32_t ledsVersion = leds_->version();
-  const bool ledsChanged = ledsVersion != sentLedsVersion_;
+  // A grid setting changed (on another page, or through the API): push now,
+  // and the pages fetch the new settings (see ledSettingsVersion()).
+  const uint32_t settings = ledSettingsVersion();
+  const bool ledsChanged = ledsVersion != sentLedsVersion_ || settings != sentLedSettings_;
   sentLedsVersion_ = ledsVersion;
+  sentLedSettings_ = settings;
 
   if (ledsChanged || now - lastStatus_ >= kStatusPeriodMs) ws_.textAll(ledsMessage());
   if (now - lastStatus_ >= kStatusPeriodMs) {
