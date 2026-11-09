@@ -54,8 +54,20 @@ static void printFlashInfo() {
   // Compare against the build environment: ESP.getFlashChipSize() can report the
   // physical size even when a smaller partition layout was flashed.
   const uint32_t built = (uint32_t)SB_FLASH_MB * 1024 * 1024;
-  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb), %lu MHz", fmt(physical), fmt(built),
-           SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000));
+  // The mode the flash is read in now, from the SPI controller's settings.
+  // The ROM's own line before the log ("mode:DIO") always says DIO: the
+  // chip's ROM loads the bootloader in DIO, and the bootloader then
+  // switches to QIO when the firmware was built for it.
+  const char *mode = "?";
+  switch (ESP.getFlashChipMode()) {
+    case FM_QIO: mode = "QIO"; break;
+    case FM_QOUT: mode = "QOUT"; break;
+    case FM_DIO: mode = "DIO"; break;
+    case FM_DOUT: mode = "DOUT"; break;
+    default: break;
+  }
+  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb), %lu MHz, %s", fmt(physical), fmt(built),
+           SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000), mode);
   if (physical == 0 || built == 0 || physical == built) {
     return;
   }
