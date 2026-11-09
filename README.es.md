@@ -29,7 +29,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 
 ## Hardware
 
-- Una ESP32-DevKitC con un módulo **ESP32-WROOM-32E/UE-N16R2** (16 MB de flash, 2 MB de PSRAM), o un ESP32-WROOM-32 normal con 4, 8 o 16 MB de flash
+- Una ESP32-DevKitC con un módulo **ESP32-WROOM-32E/UE-N16R2** (16 MB de flash, 2 MB de PSRAM), o un ESP32-WROOM-32 normal con 4, 8 o 16 MB de flash. El firmware lee la flash a 80 MHz en modo QIO, que admiten todos los módulos WROOM-32 / WROOM-32E de Espressif; en una placa con un chip ESP32 suelto y otra flash, o que usa GPIO9/10 para otra cosa, pon `board_build.flash_mode = dio` (y si hace falta `board_build.f_flash = 40000000L`) en `platformio.ini` ([guía de hardware](docs/hardware/README.md#flash-mode))
 - Tiras LED direccionables: WS2812 / WS2812B / SK6812 (5 V) o WS2811 / WS2815 (12/24 V)
 - Un adaptador de nivel 74HCT245, interruptores MOSFET, una fuente para los LED (5, 12 o 24 V)
 - Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD, sensor de movimiento LD2410C o PIR
