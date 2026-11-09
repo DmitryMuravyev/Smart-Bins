@@ -1586,18 +1586,21 @@ function showLocateDefaults(d) {
   if (hue !== null) locateHue.set(hue);
 }
 
-// `quiet`: no "saved" message, for the color slider, which saves as it moves.
-async function saveLocateDefaults(params, quiet = false) {
+// The page shows a change at once, and the board applies it as soon as the
+// request arrives, also to the bins lit now; it writes the flash a moment
+// later on its own (see ConfigStore::update() in the firmware). So there is
+// nothing to wait for and no "saved" message: an error still shows as a
+// toast, and the board's answer then puts the real settings back.
+async function saveLocateDefaults(params) {
+  if (state.locate) showLocateDefaults({ ...state.locate, ...params, s: Number(params.s ?? state.locate.s) });
   // Numbered so that only the answer to the newest save is shown: an older
   // answer (a slow one, or one overtaken while the color slider moves on)
   // would put an earlier setting back on screen for a moment.
   const seq = ++locateSaves;
   const d = await attempt(() => api('/api/locate/defaults', { form: params }));
   if (seq !== locateSaves || locateHueTimer) return;
-  if (d) {
-    showLocateDefaults(d);
-    if (!quiet) toast(t('grid.saved'));
-  }
+  // Failed: show what the board has.
+  showLocateDefaults(d || await attempt(() => api('/api/locate/defaults')) || state.locate);
 }
 
 // The locate color slider. Every save writes the board's flash, so a drag is
@@ -1612,7 +1615,7 @@ function onLocateHue(hue) {
   clearTimeout(locateHueTimer);
   locateHueTimer = setTimeout(() => {
     locateHueTimer = 0;
-    saveLocateDefaults({ color: hex }, true);
+    saveLocateDefaults({ color: hex });
   }, 400);
 }
 

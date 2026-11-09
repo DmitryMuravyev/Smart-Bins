@@ -74,8 +74,11 @@ class LedEngine {
 
   // Lights a bin with the configured locate color, mode and duration.
   bool locate(uint8_t x, uint8_t y);
-  // durationMs 0 = until cleared.
-  bool locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs);
+  // durationMs 0 = until cleared. followColor / followMode: the color or the
+  // pattern came from the locate defaults, and changes with them while the
+  // bin is lit (see setLocateDefaults()).
+  bool locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs, bool followColor = false,
+              bool followMode = false);
   void clearLocates();
   // Fades one located bin out; false when it wasn't lit.
   bool clearLocate(uint8_t x, uint8_t y);
@@ -91,6 +94,8 @@ class LedEngine {
   // out); the WebSocket pushes the new set when it moves.
   uint32_t version() const { return version_; }
   // Changes the color, mode and duration used by locate(x, y) from now on.
+  // Bins lit now take the new color and pattern too (unless they were lit
+  // with their own); each keeps the time it was lit for.
   void setLocateDefaults(const config::LocateConfig &locate);
 
   // Starts an effect under the highlights with its settings, fading over
@@ -133,7 +138,17 @@ class LedEngine {
     uint32_t durationMs;  // 0 = until cleared
     bool released;        // fading out (cleared, or its duration ran out)
     uint32_t releasedAt;  // when the fade-out started; valid only when `released`
+    bool followColor;     // the color is the locate default's (see setLocateDefaults())
+    bool followMode;      // the pattern is the locate default's
+    // A color change cross-fades over fadeMs, as the work lights' colors do:
+    // the bin shows colorFrom blended into color, starting at colorAt.
+    Rgb colorFrom;
+    uint32_t colorAt;
   };
+  // The color a highlight shows at `now` (mid cross-fade, or `color`).
+  Rgb highlightColor(const Highlight &h, uint32_t now) const;
+  // Gives a lit highlight a new color, cross-fading from what it shows now.
+  void recolor(Highlight &h, Rgb color, uint32_t now);
 
   struct Segment {
     RmtStrip strip;

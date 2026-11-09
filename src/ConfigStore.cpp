@@ -83,6 +83,41 @@ void ConfigStore::begin() {
 // restores it from the .tmp or .bak file. Never a half-written config.
 bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
   if (!config::validate(cfg, error)) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!write(cfg, error)) return false;
+  cfg_ = cfg;
+  // `cfg` was built from get(), so it carries any change update() held back.
+  pending_ = false;
+  return true;
+}
+
+bool ConfigStore::update(const config::AppConfig &cfg, std::string &error) {
+  if (!config::validate(cfg, error)) return false;
+  std::lock_guard<std::mutex> lock(mutex_);
+  cfg_ = cfg;
+  changedAt_ = millis();
+  pending_ = true;
+  return true;
+}
+
+void ConfigStore::loop() {
+  // 1.5s: long enough for a few quick taps or slider moves to end up in one
+  // write, short enough that a power cut right after a change rarely loses it.
+  constexpr uint32_t kSaveDelayMs = 1500;
+  if (pending_ && millis() - changedAt_ >= kSaveDelayMs) flush();
+}
+
+void ConfigStore::flush() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  if (!pending_) return;
+  pending_ = false;
+  std::string err;
+  // Not retried: a full or failing flash would fail again. The settings stay
+  // in use until the next restart, and the next change tries again.
+  if (!write(cfg_, err)) ESP_LOGE(TAG, "Saving %s failed: %s", kPath, err.c_str());
+}
+
+bool ConfigStore::write(const config::AppConfig &cfg, std::string &error) {
   const std::string json = config::serialize(cfg);
   // LED strips pause while the file is written (see led::FlashGuard).
   led::FlashGuard guard;
@@ -110,12 +145,13 @@ bool ConfigStore::save(const config::AppConfig &cfg, std::string &error) {
     return false;
   }
   removeIfThere(kBackupPath);
-  cfg_ = cfg;
   ESP_LOGI(TAG, "Saved %s (%u bytes)", kPath, (unsigned)json.size());
   return true;
 }
 
 void ConfigStore::erase() {
+  std::lock_guard<std::mutex> lock(mutex_);
+  pending_ = false;  // a held-back change must not bring the file back
   led::FlashGuard guard;
   removeIfThere(kPath);
   ESP_LOGW(TAG, "Config erased; defaults apply after restart");
