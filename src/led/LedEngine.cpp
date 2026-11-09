@@ -119,15 +119,28 @@ bool LedEngine::locate(uint8_t x, uint8_t y) {
     Lock lock(lock_);
     d = cfg_.locate;
   }
-  return locate(x, y, Rgb::fromHex(d.color), pulseMode(d.mode), static_cast<uint32_t>(d.durationS) * 1000);
+  return locate(x, y, Rgb::fromHex(d.color), pulseMode(d.mode), static_cast<uint32_t>(d.durationS) * 1000, true,
+                true);
 }
 
 void LedEngine::setLocateDefaults(const config::LocateConfig &locate) {
   Lock lock(lock_);
   cfg_.locate = locate;
+  // The bins lit now follow, so a new color or pattern shows straight away
+  // instead of only on the next bin located. Their start time stays, so a
+  // pulse keeps its rhythm and a timed bin still goes out on time. Bins
+  // already fading out are left to finish.
+  const Rgb color = Rgb::fromHex(locate.color);
+  const PulseMode mode = pulseMode(locate.mode);
+  for (Highlight &h : highlights_) {
+    if (h.released) continue;
+    if (h.followColor) h.color = color;
+    if (h.followMode) h.mode = mode;
+  }
 }
 
-bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs) {
+bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs, bool followColor,
+                       bool followMode) {
   PixelSpan span;
   if (!mapper_.binSpan(x, y, span)) return false;
   Lock lock(lock_);
@@ -150,7 +163,7 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   if (durationMs) durationMs += now - start;
   // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
-  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0});
+  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0, followColor, followMode});
   version_ = version_ + 1;
   return true;
 }

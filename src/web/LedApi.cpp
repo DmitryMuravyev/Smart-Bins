@@ -112,8 +112,11 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     // Anything not given comes from the configured locate defaults.
     config::LocateConfig opts = config.get().locate;
     if (const char *err = readLocateParams(req, opts)) return sendError(req, 400, err);
+    // A color or pattern taken from the defaults follows them while the bin
+    // is lit (see LedEngine::setLocateDefaults()); one given here stays.
     const bool ok = engine.locate(x, y, led::Rgb::fromHex(opts.color), led::pulseMode(opts.mode),
-                                  static_cast<uint32_t>(opts.durationS) * 1000);
+                                  static_cast<uint32_t>(opts.durationS) * 1000, !hasParam(req, "color"),
+                                  !hasParam(req, "mode"));
     // The answer carries the new grid status (lit bins and their version), so
     // the page can show the result without waiting for the WebSocket.
     JsonDocument doc;
@@ -123,14 +126,17 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
   });
 
   // The default color, mode and duration of a locate. A change applies at
-  // once and is saved to config.json (locate.*), no restart needed.
+  // once, to the bins lit now as well (their color and pattern; each keeps
+  // its own time), and is saved to config.json (locate.*), no restart needed.
   server.on("/api/locate/defaults", HTTP_GET | HTTP_POST, [&engine, &config](AsyncWebServerRequest *req) {
     const bool change = hasParam(req, "color") || hasParam(req, "mode") || hasParam(req, "s");
     if (!change) return sendLocateDefaults(req, config.get().locate);
     config::AppConfig cfg = config.get();
     if (const char *err = readLocateParams(req, cfg.locate)) return sendError(req, 400, err);
+    // Applied at once, also to the bins lit now; written to flash a moment
+    // later (see ConfigStore::update()), so the page doesn't wait for it.
     std::string err;
-    if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+    if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
     engine.setLocateDefaults(cfg.locate);
     sendLocateDefaults(req, cfg.locate);
   });
@@ -178,8 +184,9 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
       if (const char *err = readEffectParams(req, e)) return sendError(req, 400, err);
       if (e.speed != before.speed || e.intensity != before.intensity || e.palette != before.palette ||
           e.brightness != before.brightness || e.timerMin != before.timerMin) {
+        // Written to flash a moment later (see ConfigStore::update()).
         std::string err;
-        if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+        if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
         if (!start) engine.setEffectParams(led::effectParams(e));
       }
     }
@@ -212,8 +219,9 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
     config::AppConfig cfg = config.get();
     if (cfg.grid.brightness != v) {
       cfg.grid.brightness = static_cast<uint8_t>(v);
+      // Written to flash a moment later (see ConfigStore::update()).
       std::string err;
-      if (!config.save(cfg, err)) return sendError(req, 500, err.c_str());
+      if (!config.update(cfg, err)) return sendError(req, 400, err.c_str());
     }
     req->send(200, "application/json", "{\"ok\":true}");
   });

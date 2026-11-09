@@ -353,7 +353,11 @@ void logStacks() {
 
 void loop() {
   sb::health::loopAlive();
-  if (restartAt && (int32_t)(millis() - restartAt) >= 0) ESP.restart();
+  if (restartAt && (int32_t)(millis() - restartAt) >= 0) {
+    configStore.flush();  // a change a page made just before (see ConfigStore::update())
+    ESP.restart();
+  }
+  configStore.loop();
   if (otaHashChanged) {
     otaHashChanged = false;
     network.setOtaPasswordHash(security.otaHash());
