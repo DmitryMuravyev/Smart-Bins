@@ -36,6 +36,9 @@ class ConfigStore {
   // Writes a held-back change now, e.g. before a restart.
   void flush();
 
+  // Deletes the config file; defaults apply after the next boot.
+  void erase();
+
  private:
   // The file write itself; the caller holds mutex_.
   bool write(const config::AppConfig &cfg, std::string &error);
