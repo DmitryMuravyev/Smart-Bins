@@ -132,11 +132,25 @@ void LedEngine::setLocateDefaults(const config::LocateConfig &locate) {
   // already fading out are left to finish.
   const Rgb color = Rgb::fromHex(locate.color);
   const PulseMode mode = pulseMode(locate.mode);
+  const uint32_t now = effectMillis();
   for (Highlight &h : highlights_) {
     if (h.released) continue;
-    if (h.followColor) h.color = color;
+    if (h.followColor) recolor(h, color, now);
     if (h.followMode) h.mode = mode;
   }
+}
+
+Rgb LedEngine::highlightColor(const Highlight &h, uint32_t now) const {
+  return lerp(h.colorFrom, h.color, rampUp(now - h.colorAt, cfg_.fadeMs));
+}
+
+void LedEngine::recolor(Highlight &h, Rgb color, uint32_t now) {
+  if (color == h.color) return;
+  // From the color on show now, so a change during a cross-fade carries on
+  // smoothly instead of jumping back to where the first one started.
+  h.colorFrom = highlightColor(h, now);
+  h.color = color;
+  h.colorAt = now;
 }
 
 bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs, bool followColor,
@@ -152,9 +166,18 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   // erase() returns the next element, so the iterator only advances when
   // nothing was removed.
   uint32_t start = now;
+  // A bin that stays lit and changes color cross-fades to the new one.
+  Rgb colorFrom = color;
+  uint32_t colorAt = now;
   for (auto it = highlights_.begin(); it != highlights_.end();) {
     if (it->x == x && it->y == y) {
-      if (!it->released) start = it->start;
+      if (!it->released) {
+        start = it->start;
+        Highlight h = *it;
+        recolor(h, color, now);
+        colorFrom = h.colorFrom;
+        colorAt = h.colorAt;
+      }
       it = highlights_.erase(it);
     } else {
       ++it;
@@ -163,7 +186,7 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   if (durationMs) durationMs += now - start;
   // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
-  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0, followColor, followMode});
+  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0, followColor, followMode, colorFrom, colorAt});
   version_ = version_ + 1;
   return true;
 }
@@ -427,7 +450,7 @@ void LedEngine::renderLayers(uint32_t now) {
       }
       level = level * rampDown(since, fade) / 255;
     }
-    overlayBin(h.x, h.y, scale(h.color, binLevel), static_cast<uint8_t>(level));
+    overlayBin(h.x, h.y, scale(highlightColor(h, now), binLevel), static_cast<uint8_t>(level));
     ++it;
   }
 }

@@ -140,7 +140,15 @@ class LedEngine {
     uint32_t releasedAt;  // when the fade-out started; valid only when `released`
     bool followColor;     // the color is the locate default's (see setLocateDefaults())
     bool followMode;      // the pattern is the locate default's
+    // A color change cross-fades over fadeMs, as the work lights' colors do:
+    // the bin shows colorFrom blended into color, starting at colorAt.
+    Rgb colorFrom;
+    uint32_t colorAt;
   };
+  // The color a highlight shows at `now` (mid cross-fade, or `color`).
+  Rgb highlightColor(const Highlight &h, uint32_t now) const;
+  // Gives a lit highlight a new color, cross-fading from what it shows now.
+  void recolor(Highlight &h, Rgb color, uint32_t now);
 
   struct Segment {
     RmtStrip strip;
