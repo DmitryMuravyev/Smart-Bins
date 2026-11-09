@@ -6,6 +6,10 @@ The grid's LED supply can be **5, 12 or 24 V**, depending on the strips (section
 
 The default pin map lives in [`lib/Board/src/PinMap.h`](../../lib/Board/src/PinMap.h). The firmware checks it at compile time and prints it at boot. From Task 14 on, pins and channel modes can be changed from the web UI.
 
+### Flash mode
+
+The firmware reads the module's flash at **80 MHz in QIO mode** (`board_build.f_flash` and `board_build.flash_mode` in `platformio.ini`), about four times as fast as the 40 MHz DIO most ESP32 boards default to. Every Espressif ESP32-WROOM-32 (D/U/E/UE) and WROVER module supports it. A board that doesn't is one with a bare ESP32 chip and a third-party flash chip that lacks quad mode, or one that uses GPIO9/10 (the flash's two extra data lines) for something else. The symptom is a boot loop or flash read errors right after flashing. For such a board set `board_build.flash_mode = dio`, and if it still fails, `board_build.f_flash = 40000000L`. The bootloader applies both, so flash over USB after changing them; an update over the network keeps the old bootloader. The boot report shows what is in use (`Flash: … 80 MHz, QIO`).
+
 > **Safety first:** LED strips draw many amps. Fuse every supply branch, use wire rated for the current, and never power a grid through the DevKitC's USB port.
 
 ---
