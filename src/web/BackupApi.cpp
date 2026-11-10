@@ -153,6 +153,9 @@ bool writesHeld() {
   return writeHolders > 0;
 }
 
+// The answer to anything that would replace the database file meanwhile.
+const char *const kDownloadBusy = "the database is being downloaded, try again when it is done";
+
 // True while a background job (photos, or the database to or from the
 // card) runs; defined with the jobs below.
 bool backgroundBusy();
@@ -553,6 +556,9 @@ void onRestoreBody(AsyncWebServerRequest *req, uint8_t *data, size_t len, size_t
     if (!security.allows(req)) restoreFail(*restoreJob, 401, "password required");
     // A copy to or from the microSD card (or a photo job) is using the files.
     else if (backgroundBusy()) restoreFail(*restoreJob, 409, "another job is running, try again when it ends");
+    // A download reads the database file that the restore would replace.
+    // Refused here to spare the upload; checked again before the swap.
+    else if (writesHeld()) restoreFail(*restoreJob, 409, kDownloadBusy);
     wireReader(*restoreJob, photos);
     req->onDisconnect([req, &photos]() {
       if (restoreJob && restoreJob->req == req) endRestore(photos, true);
@@ -623,6 +629,11 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
     led::FlashGuard guard;
     job->dbFile.close();
   }
+
+  // A download that started while the backup was arriving still reads the
+  // database file: swapping it now would corrupt the download, and the
+  // database couldn't be written to finish the restore.
+  if (writesHeld()) return fail(409, kDownloadBusy);
 
   // The swap. The database it replaces stays as kPreviousFile.
   // (No FlashGuard here: replaceFile() takes the database's write hooks,
@@ -881,7 +892,12 @@ bool importRow(ImportJob &job, InventoryDb &db, const std::vector<std::string> &
       case kColText: row.fields.text[c.field] = v; break;
       case kColId:
         if (v.empty()) break;
-        if (!parseCount(v, INT64_MAX / 16, n)) return importError(job, line, "id must be a number"), true;
+        // The same range as the API's part ids (readPartId()): a part with
+        // a larger id could not be opened, edited or deleted from the page,
+        // and every part added after it would get a larger id still.
+        if (!parseCount(v, 0x7FFFFFFF, n)) {
+          return importError(job, line, "id must be a whole number up to 2147483647"), true;
+        }
         row.id = n;
         break;
       case kColQuantity:
@@ -1321,6 +1337,11 @@ void photoTask(void *) {
 bool startJob(JobKind kind, InventoryDb &db, PhotoStore &photos, const char *file, std::string &err,
               bool settings = false) {
   if (photoJob.running) return err = "another job is running, try again when it ends", false;
+  // A restore from a file is writing the database and the photos: a job
+  // beside it would work on files that are about to change (the cleanup
+  // would delete photos the restore has just written, as no part uses them
+  // until the database is swapped in).
+  if (restoreJob) return err = "a restore is running, try again when it ends", false;
   photoJob.settingsWanted = settings;
   photoJob.settingsRestored = false;
   photoJob.settingsMissing = false;
@@ -1543,7 +1564,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
     if (!name || !validBackupName(name->value())) return sendError(req, 400, "bad backup name");
     if (restoreJob) return sendError(req, 409, "another restore is running");
     // A download reads the database file while the swap would replace it.
-    if (writesHeld()) return sendError(req, 409, "the database is being downloaded, try again when it is done");
+    if (writesHeld()) return sendError(req, 409, kDownloadBusy);
     std::string err;
     // settings=1: also the settings saved beside the copy (the board restarts).
     const bool settings = hasParam(req, "settings") && param(req, "settings")->value() == "1";
@@ -1563,7 +1584,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
     if (restoreJob) return sendError(req, 409, "a restore is running");
     if (backgroundBusy()) return sendError(req, 409, "another job is running, try again when it ends");
     // A download of the database holds writes while it reads the file.
-    if (writesHeld()) return sendError(req, 409, "the database is being downloaded, try again when it is done");
+    if (writesHeld()) return sendError(req, 409, kDownloadBusy);
     std::string err;
     // No FlashGuard here: replaceFile() takes the database's write hooks
     // (see onRestoreDone()).
