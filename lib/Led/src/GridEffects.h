@@ -556,6 +556,7 @@ class EffectPlayer {
     fromPalette_ = t < 128 ? fromPalette_ : params_.palette;
     params_ = p;
     paramsAt_ = nowMs;
+    paramsDone_ = false;
   }
   // The settings as set (where a fade in progress is heading).
   const EffectParams &params() const { return params_; }
@@ -582,6 +583,7 @@ class EffectPlayer {
     from_ = params_;
     fromPalette_ = params_.palette;
     paramsAt_ = nowMs - paramFadeMs_;
+    paramsDone_ = true;
     selected_ = effect;
     demoIndex_ = 0;
     demoSince_ = nowMs;
@@ -622,6 +624,7 @@ class EffectPlayer {
     }
     // The settings of this frame, part way through a settings fade.
     const uint8_t pt = paramProgress(nowMs);
+    if (pt == 255) paramsDone_ = true;
     const EffectParams shown = shownParams(pt);
     current_.render(shown, nowMs, audio_, a_.data());
     if (pt < 255 && fromPalette_ != params_.palette) {
@@ -637,7 +640,7 @@ class EffectPlayer {
     }
     for (size_t i = 0; i < cells; i++) a_[i] = scale(a_[i], shown.brightness);
     const uint32_t since = nowMs - changedAt_;
-    const bool fading = since < kFadeMs;
+    const bool fading = !changeDone_ && since < kFadeMs;
     if (fading) {
       const uint8_t t = rampUp(since, kFadeMs);
       if (previous_.effect() != GridEffect::Off) {
@@ -648,6 +651,7 @@ class EffectPlayer {
       }
       for (size_t i = 0; i < cells; i++) a_[i] = lerp(b_[i], a_[i], t);
     } else {
+      changeDone_ = true;
       fadingOut_ = false;
       if (previous_.effect() != GridEffect::Off) previous_.begin(GridEffect::Off, cols_, rows_, nowMs, 0);
     }
@@ -658,14 +662,20 @@ class EffectPlayer {
  private:
   static constexpr GridEffect kDemoOrder[] = {GridEffect::Fire, GridEffect::Sparks, GridEffect::Relax};
   static constexpr uint8_t kDemoCount = 3;
+  // A clock reading up to this much earlier than a change counts as taken
+  // just before it (see paramProgress()).
+  static constexpr uint32_t kEarlyMs = 10000;
 
   // 0..255: how far the settings fade has got (255 = the new settings in full).
   uint8_t paramProgress(uint32_t nowMs) const {
-    // Signed: a time from just before the change (another task's clock
-    // reading) counts as "not started", not as long finished.
-    const int32_t since = static_cast<int32_t>(nowMs - paramsAt_);
-    if (since < 0) return 0;
-    return rampUp(static_cast<uint32_t>(since), paramFadeMs_);
+    // A fade seen to finish stays finished, however long the effect then
+    // runs: the clock wraps after 49.7 days.
+    if (paramsDone_) return 255;
+    // A time from just before the change (another task's clock reading)
+    // counts as "not started", not as long finished.
+    const uint32_t since = nowMs - paramsAt_;
+    if (since > UINT32_MAX - kEarlyMs) return 0;
+    return rampUp(since, paramFadeMs_);
   }
 
   // The settings showing at fade progress `t`: speed, intensity and
@@ -694,6 +704,7 @@ class EffectPlayer {
     outgoing_ = params_;  // start() replaces this with the settings from before
     current_.begin(effect, cols_, rows_, nowMs, seed);
     changedAt_ = nowMs;
+    changeDone_ = false;
     fadingOut_ = effect == GridEffect::Off && previous_.effect() != GridEffect::Off;
     return true;
   }
@@ -706,10 +717,12 @@ class EffectPlayer {
   EffectParams from_;
   Palette fromPalette_ = Palette::Auto;
   uint32_t paramsAt_ = 0;
+  bool paramsDone_ = true;  // the settings fade has been seen to finish
   uint32_t paramFadeMs_ = 400;
   GridEffect selected_ = GridEffect::Off;
   EffectState current_, previous_;
   uint32_t changedAt_ = 0;
+  bool changeDone_ = true;  // the cross-fade between effects has been seen to finish
   bool fadingOut_ = false;
   uint32_t stopAt_ = 0;  // effect time at which the timer stops it; 0 = no timer
   uint8_t demoIndex_ = 0;
