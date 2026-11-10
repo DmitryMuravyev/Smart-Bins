@@ -27,7 +27,7 @@ namespace {
 const char *TAG = "inventory";
 
 // Page size limits for /api/parts. The answer is sent part by part (see
-// PartsStream), so the page size no longer costs RAM; the cap only bounds
+// PartsStream), so the page size doesn't cost RAM; the cap only bounds
 // how long one request keeps the database busy.
 constexpr long kDefaultLimit = 50;
 constexpr long kMaxLimit = 100;
@@ -69,10 +69,10 @@ void writePartJson(JsonObject out, const Part &p) {
 // The search runs first and leaves only the ids of the page (findPartIds(),
 // a few hundred bytes). The parts are then read from the database a few at
 // a time and turned into JSON when the previous ones have been handed to
-// the network, so only a few parts' text is in RAM at a time. Before, the whole page was built
-// first: 50 parts are some 15 KB, held until the last byte was sent, and
-// two phones searching at once took two of those on top of the network
-// buffers (the 2.8 KB lows in the log).
+// the network, so only a few parts' text is in RAM at a time. Building the
+// whole page first would hold some 15 KB for 50 parts until the last byte is
+// sent, and two phones searching at once would take two of those on top of
+// the network buffers.
 //
 // A part deleted between the search and its turn is left out (the total is
 // then one too high until the next search, which is harmless).
@@ -409,7 +409,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
 
   // Distinct values of one text field with their part counts, most used
   // first: the choices for the category and manufacturer filters, and
-  // autocomplete in the part form (Task 9).
+  // autocomplete in the part form.
   server.on(AsyncURIMatcher::exact("/api/parts/values"), HTTP_GET, [&db, ready](AsyncWebServerRequest *req) {
     if (!ready(req)) return;
     const AsyncWebParameter *fieldName = param(req, "field");
@@ -560,7 +560,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
     sendJson(req, 200, doc);
   });
 
-  // The Task 7 check on the real board: inserts n generated parts (default
+  // A speed check on the real board: inserts n generated parts (default
   // 2,000), times typical queries and removes the parts again. LED strips
   // pause while the inserts are written (one long write transaction).
   bench.db = &db;

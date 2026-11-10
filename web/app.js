@@ -336,8 +336,8 @@ function hexToHue(hex) {
 }
 
 // A slider on a gradient track (hue and white tone), built by hand because
-// restyled range inputs proved unreliable on phones: the drag was taken by the
-// browser as a back-swipe or scroll and the thumb stuck. Here:
+// restyled range inputs are unreliable on phones: the drag is taken by the
+// browser as a back-swipe or scroll and the thumb sticks. Here:
 //   - CSS touch-action: pan-y leaves vertical moves to the browser (the page
 //     scrolls as usual) and keeps sideways ones for the slider, so a sideways
 //     drag is never taken as a back-swipe;
@@ -641,12 +641,12 @@ function searchKey() {
 //
 // At most one search is on its way to the board at a time. The board works
 // through requests one after another, and every search reads the whole
-// parts table, so typing "stm32" letter by letter used to queue a search
-// for "s", "st", "stm"... and the last one waited behind all of them, each
-// also holding its answer in the board's RAM until sent. Now a search asked
-// for while one is running only marks that another is needed; when the
-// running one returns, its answer is dropped and one search for whatever
-// the field says by then follows.
+// parts table, so typing "stm32" letter by letter would otherwise queue a
+// search for "s", "st", "stm"... with the last one waiting behind all of
+// them, each also holding its answer in the board's RAM until sent. So a
+// search asked for while one is running only marks that another is needed;
+// when the running one returns, its answer is dropped and one search for
+// whatever the field says by then follows.
 async function search(more = false) {
   clearTimeout(inv.searchTimer);
   if (inv.searching) {
@@ -1531,7 +1531,7 @@ async function enterGrid() {
 }
 
 // ---------------------------------------------------------------------------
-// Grid effects (Task 12)
+// Grid effects
 //
 // The board runs one effect at a time under the located bins. Every effect
 // keeps its own settings on the board (config.json effects.<name>.*) and
@@ -1800,7 +1800,7 @@ async function waitForRestart() {
 }
 
 // ---------------------------------------------------------------------------
-// Hardware settings (Task 14): the LED grid with a live preview of its
+// Hardware settings: the LED grid with a live preview of its
 // wiring, the work-light channels, the microphone and the pin map. Each
 // section saves into config.json, which the board checks field by field
 // (the same rules as below, and more) and then restarts to apply: strips
@@ -2190,7 +2190,7 @@ function defaultPins() {
 
 // The Photos line of the System page: how many there are and where. With a
 // card, photos taken before it went in stay in flash until they are moved,
-// so the line counts the two places apart (inFlash, firmware 0.16.0 on).
+// so the line counts the two places apart (inFlash).
 // The card's figures are the whole card: a new card shows some use for its
 // file system before any photo is on it.
 function photoSummary(s) {

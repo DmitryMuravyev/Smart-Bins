@@ -81,7 +81,7 @@ class PhotoStore {
   bool find(const std::string &name, Kind kind, fs::FS *&fs, String &path, size_t &size,
             bool fallback = true) const;
 
-  // ---- Maintenance (Task 11) ----
+  // ---- Maintenance ----
 
   // Copies a photo's files from flash to the card, checks each copy's size,
   // then deletes the flash copy. Adds the bytes freed in flash to `moved`.

@@ -1,11 +1,11 @@
 #pragma once
 
-// Lighting effects for the bin grid: fire, sparks, relax and demo (Task 12),
-// and the music effects spectrum, beat and pulse (Task 13), which draw from
+// Lighting effects for the bin grid: fire, sparks, relax and demo,
+// and the music effects spectrum, beat and pulse, which draw from
 // the microphone through AudioAnalyzer.
 //
 // Effects work on bins, not pixels: the grid is a few dozen bins (10 x 6 on
-// Dmitry's build), and every pixel of a bin shows the bin's color. That
+// the reference build), and every pixel of a bin shows the bin's color. That
 // keeps the pictures readable on such a coarse "screen" and the arithmetic
 // small enough to run 60 times a second next to everything else.
 //
@@ -343,7 +343,7 @@ class EffectState {
     // Fade: about 8 % per step, roughly a second from full to dark.
     for (uint8_t &l : sparkLevel_) l = static_cast<uint8_t>(l * 235u / 256u);
     // New sparks: on average cells x intensity / 6000 per step, i.e. with 60
-    // bins and intensity 128, one new spark every second step.
+    // bins and intensity 128, about 1.3 new sparks per step.
     const uint32_t chance = static_cast<uint32_t>(cells()) * intensity;  // out of 6000
     uint32_t budget = chance;
     while (budget > 0) {

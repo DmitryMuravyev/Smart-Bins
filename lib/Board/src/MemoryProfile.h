@@ -1,13 +1,13 @@
 #pragma once
 
-// Memory profile: every setting that was sized for a board without PSRAM,
+// Memory profile: every setting that is sized for a board without PSRAM,
 // in one place, with the larger values a board with PSRAM can afford.
 //
 // SB_PSRAM (set by the PSRAM builds in platformio.ini, e.g. esp32-16mb-psram
 // for the ESP32-WROOM-32E/UE-N16R2) switches all of them at once. Without
-// it (the default, and the host tests) the values are the ones the firmware
-// was tuned with on a WROOM-32: about 300 KB of internal RAM, of which some
-// 45 KB stays free while the web server runs.
+// it (the default, and the host tests) the values fit a WROOM-32: about
+// 300 KB of internal RAM, of which some 45 KB stays free while the web
+// server runs.
 //
 // How PSRAM helps: the ESP-IDF heap puts every allocation larger than 4 KB
 // (CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL) in PSRAM and keeps smaller ones in
@@ -35,8 +35,8 @@ constexpr bool kPsram = SB_PSRAM != 0;
 
 // Page size of a new database file. 4 KB matches a flash sector (one page
 // write = one sector rewrite), but SQLite holds several pages at once while
-// it splits or merges B-tree pages, and that peak (40 KB and more) didn't fit
-// without PSRAM; 2 KB pages halve it. An existing file keeps its page size
+// it splits or merges B-tree pages, and that peak (40 KB and more) doesn't
+// fit without PSRAM; 2 KB pages halve it. An existing file keeps its page size
 // unless it is small enough to convert (kDbMaxConvertBytes).
 constexpr int kDbPageSize = kPsram ? 4096 : 2048;
 // Largest database file converted to kDbPageSize when it opens. The
@@ -44,9 +44,9 @@ constexpr int kDbPageSize = kPsram ? 4096 : 2048;
 constexpr int64_t kDbMaxConvertBytes = kPsram ? 1024 * 1024 : 64 * 1024;
 // RAM the page cache may use, in KiB: the more of the file it holds, the
 // fewer flash reads a search does (and the fewer pauses of the LED strips,
-// see FlashGuard). 8 KB without PSRAM (16 until 0.16.0): a page load with a
-// microSD card in ran the heap out, and a search reads a few more pages from
-// flash instead.
+// see FlashGuard). 8 KB without PSRAM: a larger cache leaves too little heap
+// for a page load with a microSD card in, so a search reads a few more pages
+// from flash instead.
 constexpr int kDbCacheKiB = kPsram ? 512 : 8;
 
 // ---- Web server ----
@@ -69,13 +69,13 @@ constexpr int kMaxOpenFiles = kPsram ? 8 : 4;
 
 // ---- Tasks (stacks are always in internal RAM) ----
 //
-// Sizes without PSRAM come from the "Unused stack" line of the 60-second
-// debug report (the least that was ever left over), plus a margin.
+// Sizes without PSRAM follow the "Unused stack" line of the 60-second debug
+// report (the least a task ever leaves unused), plus a margin.
 
 // The microphone task: 3 KB leaves about 1 KB unused.
 constexpr uint32_t kMicStack = kPsram ? 4096 : 3072;
 // The Arduino loop task (Wi-Fi housekeeping, OTA updates, the BOOT button):
-// 8 KB by default, of which 4 KB was never touched. 6 KB without PSRAM.
+// 8 KB by default, of which 4 KB is never touched. 6 KB without PSRAM.
 constexpr uint32_t kLoopStack = kPsram ? 8192 : 6144;
 // The LED and work-light tasks: 4 KB each, about 2.3 KB never touched.
 // 3.5 KB each without PSRAM.
@@ -86,7 +86,7 @@ constexpr uint32_t kLedStack = kPsram ? 4096 : 3584;
 // The microphone and the music effects. Without PSRAM they would take about
 // 3 KB of RAM for good (the task's stack) and 6 KB more while music plays,
 // and with a microSD card in the slot (about 13 KB for its file system)
-// the web server was left with too little to answer requests. So they run
+// the web server is left with too little to answer requests. So they run
 // only on boards with PSRAM; the other effects need under 1 KB and stay.
 constexpr bool kMicrophone = kPsram;
 

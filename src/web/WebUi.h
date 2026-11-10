@@ -13,7 +13,7 @@ namespace sb {
 class WifiLink;
 
 // Registers one route per bundled file, plus "/" (index.html) and "/config"
-// (an old address, now a redirect to the settings page).
+// (a redirect to the settings page, for old bookmarks).
 void registerWebUi(AsyncWebServer &server, WifiLink &network);
 
 }  // namespace sb

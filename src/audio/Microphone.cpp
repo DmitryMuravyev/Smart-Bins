@@ -137,8 +137,9 @@ void Microphone::begin(const config::AppConfig &cfg, led::LedEngine &engine) {
     ESP_LOGI(TAG, "Not wired (no pins assigned)");
     return;
   }
-  // 3 KB of stack is enough now the log lines print whole numbers (with
-  // floating point it needed 4 KB); 4 KB with PSRAM (MemoryProfile.h).
+  // 3 KB of stack is enough because the log lines print whole numbers
+  // (formatting floating point would need 4 KB); 4 KB with PSRAM
+  // (MemoryProfile.h).
   // Core 1 with the LED task, below it in priority: the analysis takes well
   // under a millisecond per block, and core 0 can be busy for a long time
   // with a database query in the web server, which would drop audio.

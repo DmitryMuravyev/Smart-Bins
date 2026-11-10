@@ -626,7 +626,7 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
 
   // The swap. The database it replaces stays as kPreviousFile.
   // (No FlashGuard here: replaceFile() takes the database's write hooks,
-  // which are the same guard, and it isn't recursive.)
+  // which are the same guard.)
   std::string err;
   if (!db.replaceFile(kDbPath, kIncomingPath, kPreviousPath, err)) return fail(400, err);
   db.syncBins(gridCols, gridRows, err);
@@ -1007,7 +1007,7 @@ struct PhotoJob {
 bool backgroundBusy() { return photoJob.running; }
 
 
-// Database backups on the card: /backups/inventory-2026-11-08-1530.db.
+// Database backups on the card: /backups/inventory-2026-11-08-153012.db.
 const char *kCardDir = "/backups";
 // Where SD.begin() mounts the card (see PhotoStore::begin()), for the
 // POSIX calls of listCardBackups().
@@ -1045,8 +1045,8 @@ bool validBackupName(const String &name) {
 // Read with opendir()/readdir()/stat() rather than SD.open() and
 // openNextFile(): those open every entry as a file, and the card has only
 // two file slots (each costs about 4 KB of heap, see PhotoStore.cpp). A walk
-// that took them made a restore's own opens fail now and then ("no free file
-// descriptors"). A folder handle and stat() take no file slot, so this list
+// that takes them makes a restore's own opens fail now and then ("no free
+// file descriptors"). A folder handle and stat() take no file slot, so this list
 // can be read at any time, even while a job copies to or from the card. The
 // settings files beside the copies are noted in the same walk.
 void listCardBackups(JsonArray out) {
@@ -1079,7 +1079,7 @@ void listCardBackups(JsonArray out) {
     JsonObject o = out.add<JsonObject>();
     o["name"] = e.name;
     o["size"] = e.size;
-    // Copies saved by 0.16.0 and later carry the settings beside them.
+    // A copy may carry the settings beside it (see cardSave()).
     o["settings"] = std::find(settings.begin(), settings.end(), stem) != settings.end();
   }
 }

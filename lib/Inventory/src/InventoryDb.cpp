@@ -84,8 +84,6 @@ const char *const kMigrations[kSchemaVersion] = {
     "CREATE INDEX parts_bin ON parts(bin_id);",
 };
 
-// Leading and trailing spaces (and tabs/newlines) are dropped from every text
-// field, so " 10k" and "10k" don't end up as two values in a filter list.
 // ---- Search helpers ----------------------------------------------------
 //
 // SQLite's own LIKE and NOCASE ignore case only for A-Z, so "резистор" would
@@ -235,6 +233,8 @@ const SortColumn kSortColumns[] = {
 static_assert(sizeof(kSortColumns) / sizeof(kSortColumns[0]) == static_cast<int>(SortKey::Updated) + 1,
               "one entry per SortKey");
 
+// Leading and trailing spaces (and tabs/newlines) are dropped from every text
+// field, so " 10k" and "10k" don't end up as two values in a filter list.
 std::string trimmed(const std::string &s) {
   const char *ws = " \t\r\n";
   const size_t a = s.find_first_not_of(ws);
@@ -501,9 +501,9 @@ bool InventoryDb::open(const char *path, std::string &err, int cacheKiB) {
   return true;
 }
 
-// A file whose page size differs from kPageSize (one made by firmware 0.5.0,
-// which used 4 KB pages, or a database moved between a board with PSRAM and
-// one without, e.g. through a backup) is converted. VACUUM rewrites the file
+// A file whose page size differs from kPageSize (a database moved between a
+// board with PSRAM and one without, e.g. through a backup, or one made by an
+// early firmware with 4 KB pages) is converted. VACUUM rewrites the file
 // with the page_size set above, but it builds the new copy in RAM
 // (temp_store = MEMORY), so it only runs while the file is small enough for
 // the memory profile (mem::kDbMaxConvertBytes: 64 KB without PSRAM, 1 MB

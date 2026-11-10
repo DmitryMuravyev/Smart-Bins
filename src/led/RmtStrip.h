@@ -70,8 +70,8 @@ class RmtStrip {
 // that keeps refilling the transmit buffer. A frame that is on the wire at
 // that moment stops half way: the strip latches what it got and the rest of
 // the pixels take the next bits as a new frame, which shows as a flash on the
-// far end of a long strip (seen about 3 s after every light change, when the
-// light state was saved).
+// far end of a long strip (for example about 3 s after a light change, when
+// the light state is saved).
 //
 // While a FlashGuard exists, write() waits instead of starting a frame, and
 // the constructor returns only once frames already on the wire have finished:

@@ -430,10 +430,10 @@ void LedEngine::renderLayers(uint32_t now) {
     Highlight &h = *it;
     const uint32_t age = now - h.start;
     // A timed highlight releases itself; from then on it fades out like a manual clear.
-    // A separate flag rather than "releasedAt != 0": an earlier version used
-    // `now | 1` to keep the time non-zero, which lands 1 ms in the future on even
-    // milliseconds. `now - releasedAt` then wrapped around to ~4 billion, looked
-    // like a finished fade, and the bin went dark at once instead of fading.
+    // A separate flag rather than "releasedAt != 0": keeping the time non-zero
+    // with `now | 1` would land it 1 ms in the future on even milliseconds.
+    // `now - releasedAt` would then wrap around to ~4 billion and look like a
+    // finished fade, and the bin would go dark at once instead of fading.
     if (!h.released && h.durationMs && age >= h.durationMs) {
       h.released = true;
       h.releasedAt = now;

@@ -69,7 +69,7 @@ struct Part {
   std::string text[kTextFieldCount];
   int32_t quantity = 0;
   BinRef bin;
-  std::string photo;       // file name, set by the photo store (Task 10); empty when none
+  std::string photo;       // file name, set by the photo store; empty when none
   int64_t createdAt = 0;   // Unix seconds; 0 when the board's clock wasn't set
   int64_t updatedAt = 0;
 };
@@ -179,7 +179,7 @@ class InventoryDb {
   // Opens (or creates) the database file and brings its schema up to date.
   // `cacheKiB` is SQLite's page cache size: the main RAM cost of the database.
   // The default follows the memory profile (MemoryProfile.h). Without PSRAM,
-  // 16 KiB (eight 2 KB pages) holds the top of both tables' B-trees, which
+  // 8 KiB (four 2 KB pages) holds the top of both tables' B-trees, which
   // is what lookups touch most: such a board has only some 40 KB of heap left
   // once Wi-Fi and the web server run, and a large write (the benchmark, a
   // restore) briefly needs tens of KB more on top of the cache. With PSRAM,
@@ -248,7 +248,7 @@ class InventoryDb {
 
   Result stats(Stats &out, std::string &err);
 
-  // ---- Backup and restore (Task 11) ----
+  // ---- Backup and restore ----
 
   // While held, every write fails with Result::Busy, so the database file
   // can be copied byte for byte while the board keeps answering searches:

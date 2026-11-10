@@ -148,7 +148,7 @@
       <label class="row"><span data-i18n="grid.brightness">Bin brightness</span><output id="grid-brightness-out"></output></label>
       <input type="range" id="grid-brightness" min="1" max="255">
     </div>
-    <!-- Effects (Task 12): run under the located bins, which always show on top. -->
+    <!-- Effects: run under the located bins, which always show on top. -->
     <div class="card" id="effects-card">
       <h2 data-i18n="effects.title">Effects</h2>
       <div class="dark-notice" id="effects-dark" hidden>
@@ -278,7 +278,7 @@
       <button id="ip-save" data-i18n="settings.saveRestart">Save and restart</button>
       <p class="muted small" data-i18n="settings.ipHint">If the board can't be reached after a change, hold its BOOT button for 5s: it forgets the Wi-Fi network and goes back to an automatic address.</p>
     </div>
-    <!-- Hardware (Task 14): the grid, the work lights, the microphone and the
+    <!-- Hardware: the grid, the work lights, the microphone and the
          pin map. Each section is folded until opened; saving any of them
          writes config.json (the board checks every field again) and
          restarts, since strips and pins are set up at boot. -->
@@ -347,7 +347,7 @@
       </div>
       <p class="notice"><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.pinsWarn">If the board stops responding after a pin change, hold its BOOT button for 10s: that restores all settings, including the default pins.</span></p>
     </details>
-    <!-- Motion sensor (Task 16) on the analog microphone's pin: switches the
+    <!-- Motion sensor on the analog microphone's pin: switches the
          work lights on when someone stays and off when everyone has left. -->
     <details class="card hw" id="hw-motion">
       <summary data-i18n="hw.motion">Motion sensor</summary>
@@ -440,7 +440,7 @@
       <p class="small" id="photo-job" aria-live="polite" hidden></p>
     </div>
 
-    <!-- Firmware update from the browser (Task 14): the .bin goes to the
+    <!-- Firmware update from the browser: the .bin goes to the
          board's second app slot as it uploads; the board checks it and
          restarts into it. Hidden on 4 MB boards, which have one slot. -->
     <div class="card" id="firmware-card" hidden>

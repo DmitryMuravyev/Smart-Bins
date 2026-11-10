@@ -500,7 +500,7 @@ static int rawPageSize() {
   return size;
 }
 
-// A file from the earlier 0.5.0 builds (4 KB pages) is rewritten with 2 KB
+// A file with another page size (4 KB pages here) is rewritten with 2 KB
 // pages on open, keeping its contents.
 static void test_converts_old_page_size() {
   Part p;

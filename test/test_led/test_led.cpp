@@ -201,7 +201,7 @@ static void test_pwm_duty() {
   }
 }
 
-// ---- Grid effects (Task 12) ----
+// ---- Grid effects ----
 
 static void test_effect_and_palette_names() {
   for (int i = 0; i < kGridEffectCount; i++) {
@@ -370,7 +370,7 @@ static void test_player_brightness_and_speed_zero() {
   for (const Rgb &c : out) TEST_ASSERT_TRUE(c.isBlack());
 }
 
-// ---- Music (Task 13) ----
+// ---- Music ----
 
 // One block of a sine at `hz`, amplitude `amp`, continuing from sample `t`.
 static void sineBlock(float *out, float hz, float amp, long t, uint32_t rate = 16000) {

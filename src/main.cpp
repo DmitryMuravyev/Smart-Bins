@@ -91,12 +91,12 @@ void logHeapStep(const char *step) {
 }
 
 bool mountFilesystem() {
-  // formatOnFail = true: a blank partition (first boot, or after switching
-  // from the old LittleFS layout) is formatted. "ffat" is the partition label
+  // formatOnFail = true: a blank partition (first boot, or one that holds
+  // another file system) is formatted. "ffat" is the partition label
   // in partitions/*.csv; FAT runs on ESP-IDF's wear levelling layer there.
   // 4 files open at once without PSRAM: the database, its journal,
   // config.json and one spare. Each slot can cost a sector-sized (4 KB)
-  // buffer of heap, so the default of 10 wasted around 24 KB. With PSRAM 8,
+  // buffer of heap, so the default of 10 would waste around 24 KB. With PSRAM 8,
   // so photo sends and a backup can run beside the database.
   if (!FFat.begin(true, "/ffat", sb::mem::kMaxOpenFiles, "ffat")) {
     ESP_LOGE(TAG, "FAT partition mount failed");

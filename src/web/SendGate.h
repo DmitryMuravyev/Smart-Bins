@@ -7,7 +7,8 @@
 // yet acknowledged (both sizes are fixed by the framework's build settings).
 // A browser opens up to six connections at once, so one phone loading the
 // page, or a screen of part cards loading their thumbnails, could take some
-// 50 KB of the 50-60 KB the board has free; two phones at once ran it out.
+// 50 KB of the 50-60 KB the board has free; two phones at once would run
+// it out.
 //
 // With the gate, at most kMaxActive such responses run at a time. A request
 // that finds the gate full is paused (the library's request continuation)
