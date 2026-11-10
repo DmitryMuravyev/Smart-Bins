@@ -331,6 +331,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.integer(grid["splitRow"], "grid.splitRow", 0, 64, g.splitRow);
   r.integer(grid["brightness"], "grid.brightness", 0, 255, g.brightness);
   r.integer(grid["currentLimitMa"], "grid.currentLimitMa", 100, 30000, g.currentLimitMa);
+  r.integer(grid["pixelMa"], "grid.pixelMa", 0, 255, g.pixelMa);
   r.boolean(grid["invertData"], "grid.invertData", g.invertData);
 
   JsonVariantConst lights = doc["lights"];
@@ -357,6 +358,8 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
       r.boolean(ch["invertData"], field, l.invertData);
       snprintf(field, sizeof(field), "lights[%d].currentLimitMa", i);
       r.integer(ch["currentLimitMa"], field, 100, 30000, l.currentLimitMa);
+      snprintf(field, sizeof(field), "lights[%d].pixelMa", i);
+      r.integer(ch["pixelMa"], field, 0, 255, l.pixelMa);
     }
   }
 
@@ -466,6 +469,7 @@ std::string serialize(const AppConfig &cfg) {
   grid["splitRow"] = g.splitRow;
   grid["brightness"] = g.brightness;
   grid["currentLimitMa"] = g.currentLimitMa;
+  grid["pixelMa"] = g.pixelMa;
   grid["invertData"] = g.invertData;
 
   JsonArray lights = doc["lights"].to<JsonArray>();
@@ -478,6 +482,7 @@ std::string serialize(const AppConfig &cfg) {
     ch["colorOrder"] = l.colorOrder;
     ch["invertData"] = l.invertData;
     ch["currentLimitMa"] = l.currentLimitMa;
+    ch["pixelMa"] = l.pixelMa;
   }
 
   doc["fadeMs"] = cfg.fadeMs;

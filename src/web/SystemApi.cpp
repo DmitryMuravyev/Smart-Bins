@@ -17,6 +17,7 @@
 #include "PinMap.h"
 #include "PowerSupply.h"
 #include "WifiLink.h"
+#include "led/Chips.h"
 #include "led/RmtStrip.h"
 
 #ifndef SB_FW_VERSION
@@ -160,6 +161,13 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     // False on boards without PSRAM: the microphone is off there whatever the
     // setting says (kMicrophone in MemoryProfile.h), so the page greys it out.
     doc["micAvailable"] = mem::kMicrophone;
+    // Each LED type's typical current per pixel at full white, in mA: what
+    // pixelMa = 0 stands for, shown in the empty field.
+    JsonObject ma = doc["pixelMa"].to<JsonObject>();
+    for (int c = 0; c <= static_cast<int>(config::Chipset::WS2815); c++) {
+      const auto chip = static_cast<config::Chipset>(c);
+      ma[config::toString(chip)] = led::defaultPixelMa(chip);
+    }
     writeAllowedPins(doc["outputs"].to<JsonArray>(), board::PinUse::Output);
     writeAllowedPins(doc["inputs"].to<JsonArray>(), board::PinUse::Input);
     sendJson(req, 200, doc);

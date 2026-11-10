@@ -45,6 +45,10 @@ struct GridConfig {
   uint8_t splitRow = 3;  // with 2 segments: first row driven by data B
   uint8_t brightness = 128;
   uint16_t currentLimitMa = 1000;
+  // Current of one pixel at full white, in mA, for the current estimate and
+  // limit. 0 = the LED type's typical figure (led::defaultPixelMa()); a
+  // figure measured on the real strip makes the estimate match it.
+  uint8_t pixelMa = 0;
   bool invertData = false;  // for single-transistor (inverting) level shifters
 };
 
@@ -68,6 +72,7 @@ struct LightConfig {
   char colorOrder[4] = "GRB";
   bool invertData = false;          // single-transistor (inverting) level shifter
   uint16_t currentLimitMa = 2000;   // addressable strips are dimmed to stay under this
+  uint8_t pixelMa = 0;              // as GridConfig::pixelMa
 };
 
 struct LocateConfig {

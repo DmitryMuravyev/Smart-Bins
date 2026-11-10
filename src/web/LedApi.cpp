@@ -215,7 +215,7 @@ void registerLedApi(AsyncWebServer &server, led::LedEngine &engine, ConfigStore 
   server.on("/api/led/test", HTTP_GET | HTTP_POST, [&engine](AsyncWebServerRequest *req) {
     led::TestPattern p;
     if (!hasParam(req, "pattern") || !led::parseTestPattern(param(req, "pattern")->value().c_str(), p)) {
-      return sendError(req, 400, "pattern must be walk, chain, rows, columns, colors or off");
+      return sendError(req, 400, "pattern must be walk, chain, rows, columns, colors, white or off");
     }
     engine.startTest(p);
     req->send(200, "application/json", "{\"ok\":true}");

@@ -65,8 +65,9 @@ class WorkLights {
     config::LightMode type;
     uint16_t pixels;  // addressable only
     State state;
-    uint32_t estimateMa;  // addressable only, after the current limit
+    uint32_t estimateMa;  // addressable only, before the current limit
     bool currentLimited;
+    bool whiteTest;       // the full-white test is running (see whiteTest())
   };
 
   static constexpr uint8_t kMaxLights = config::kLightChannels;
@@ -80,6 +81,13 @@ class WorkLights {
   // Returns nullptr on success, otherwise a message for the user.
   const char *set(uint8_t id, const Change &change);
   void allOff();
+  // Full white on the addressable strip of `channel` (0 = W1), past the
+  // light's level, the maximum brightness and the current limit, to measure
+  // what the strip really draws (config pixelMa). Stops by itself after
+  // kWhiteTestMs, or with on = false. The light's own state is untouched and
+  // shows again afterwards. Returns nullptr on success, otherwise a message.
+  const char *whiteTest(uint8_t channel, bool on);
+  static constexpr uint32_t kWhiteTestMs = 120000;
   bool stripPower();
   // The LED supply's PS-ON control (see PowerSupply.h); nullptr: none. Set
   // before begin().
@@ -135,6 +143,9 @@ class WorkLights {
     uint8_t limitLevel = 255;
     uint32_t lastSent = 0;
     bool finalFrame = false;  // a fade just ended and its last frame is not sent yet
+    bool whiteTest = false;   // see whiteTest()
+    uint32_t whiteTestStart = 0;
+    Fader white;              // the white test's level over the picture, 0..255
   };
 
   static void taskEntry(void *arg);

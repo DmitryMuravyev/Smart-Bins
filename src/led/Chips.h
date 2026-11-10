@@ -26,6 +26,9 @@ struct ChipInfo {
 //   WS2812/B, SK6812: about 60 mA per pixel at full white (3 x 20 mA), 5 V
 //   WS2811 (12 V):    one IC drives a 3-LED segment in series, ~20 mA per segment
 //   WS2815 (12 V):    ~25 mA per pixel at full white
+// These are datasheet figures. A real strip often draws less (LEDs driven
+// below their rating, voltage drop along the strip), so the configuration
+// can replace them with a measured figure (pixelMa, see chipCurrent()).
 inline ChipInfo chipInfo(config::Chipset chip) {
   switch (chip) {
     case config::Chipset::SK6812: return {{300, 900, 600, 600}, 3, {200, 10}};
@@ -36,6 +39,19 @@ inline ChipInfo chipInfo(config::Chipset chip) {
     case config::Chipset::WS2812B:
     default: return {{400, 850, 800, 450}, 3, {200, 10}};
   }
+}
+
+// Current of one pixel of `chip` at full white by the table above, in mA.
+inline uint8_t defaultPixelMa(config::Chipset chip) {
+  const ChipInfo c = chipInfo(chip);
+  return static_cast<uint8_t>(fullWhiteMa(c.current, c.channels));
+}
+
+// The current model for `chip`, with a pixel at full white drawing `pixelMa`
+// as measured on the real strip (config pixelMa); 0 keeps the table's.
+inline ChipCurrent chipCurrent(config::Chipset chip, uint8_t pixelMa) {
+  const ChipInfo c = chipInfo(chip);
+  return pixelMa ? withFullWhiteMa(c.current, c.channels, pixelMa) : c.current;
 }
 
 // Turns a color order such as "GRB" into a byte map: output byte i of a pixel

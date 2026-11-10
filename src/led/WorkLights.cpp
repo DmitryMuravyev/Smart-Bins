@@ -89,6 +89,7 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
       colorOrderMap(lc.colorOrder, l.order);
       l.pixels = lc.pixels;
       l.currentLimitMa = lc.currentLimitMa;
+      l.chip.current = chipCurrent(lc.chipset, lc.pixelMa);
       l.out.assign(static_cast<size_t>(l.pixels) * l.chip.channels, 0);
       const bool started = pins[ch] >= 0 && l.strip.begin(pins[ch], l.chip.timing, lc.invertData);
       ok &= started;
@@ -152,7 +153,24 @@ bool WorkLights::info(uint8_t id, Info &out) {
   out.state = l.state;
   out.estimateMa = l.estimateMa;
   out.currentLimited = l.limitLevel < 255;
+  out.whiteTest = l.whiteTest;
   return true;
+}
+
+const char *WorkLights::whiteTest(uint8_t channel, bool on) {
+  Lock lock(lock_);
+  for (uint8_t i = 0; i < count_; i++) {
+    Light &l = lights_[i];
+    if (l.channel != channel || l.type != config::LightMode::Addressable) continue;
+    if (!on && !l.whiteTest) return nullptr;  // nothing to stop
+    const uint32_t now = effectMillis();
+    l.whiteTest = on;
+    l.whiteTestStart = now;
+    l.white.set(on ? 255 : 0, now, fadeMs_);  // fades like any other change
+    version_ = version_ + 1;
+    return nullptr;
+  }
+  return "not an addressable strip";
 }
 
 const char *WorkLights::set(uint8_t id, const Change &change) {
@@ -175,7 +193,14 @@ void WorkLights::allOff() {
   Change off;
   off.power = Change::Power::Off;
   const uint32_t now = effectMillis();
-  for (uint8_t i = 0; i < count_; i++) applyChange(lights_[i], off, now);
+  for (uint8_t i = 0; i < count_; i++) {
+    Light &l = lights_[i];
+    applyChange(l, off, now);
+    if (l.whiteTest) {
+      l.whiteTest = false;
+      l.white.set(0, now, fadeMs_);
+    }
+  }
 }
 
 bool WorkLights::stripPower() {
@@ -261,7 +286,7 @@ Rgb WorkLights::effectColor(const Light &l, uint16_t index, uint32_t now) const 
 // True while the output still changes by itself: a fade, a color or effect
 // cross-fade, or an animated effect on a light that is (or is becoming) visible.
 bool WorkLights::moving(const Light &l, uint32_t now) const {
-  if (!l.level.settled(now)) return true;
+  if (!l.level.settled(now) || !l.white.settled(now)) return true;
   if (now - l.colorStart < fadeMs_ || now - l.effectStart < fadeMs_) return true;
   return isAnimated(l.state.effect) && l.level.value(now) > 0;
 }
@@ -288,6 +313,9 @@ void WorkLights::renderStrip(Light &l, uint32_t now) {
   if (!l.strip.ready()) return;
   // Divide by 257 (not 256) so that 65535 maps to exactly 255.
   const uint8_t level = static_cast<uint8_t>(l.level.value(now) / 257);
+  // The white test: full white laid over the light's own picture at its
+  // fade level, past the light's level and maximum brightness.
+  const uint8_t white = l.white.value(now);
   l.strip.waitDone(50);  // the previous frame must be out before `out` changes
   uint8_t *o = l.out.data();
   // Solid and breathe give every pixel the same color, so it is computed once
@@ -296,10 +324,14 @@ void WorkLights::renderStrip(Light &l, uint32_t now) {
   const Rgb same = effectColor(l, 0, now);
   for (uint16_t i = 0; i < l.pixels; i++) {
     const Rgb c = uniform ? same : effectColor(l, i, now);
-    o = encodePixel(gamma_(scale(c, level)), l.chip.channels, l.order, o);
+    Rgb px = scale(c, level);
+    if (white) px = lerp(px, Rgb(255, 255, 255), white);
+    o = encodePixel(gamma_(px), l.chip.channels, l.order, o);
   }
   const uint32_t estimate = estimateMilliamps(l.out.data(), l.pixels, l.chip.channels, l.chip.current);
-  const uint8_t limit = limitLevel(estimate, l.currentLimitMa);
+  // While any of the white test shows, the limit stays out: the test
+  // measures the full draw.
+  const uint8_t limit = white ? 255 : limitLevel(estimate, l.currentLimitMa);
   // Only a change the page would show counts: the figure in mA, or the
   // "limited" note appearing or going away.
   if (estimate != l.estimateMa || (limit < 255) != (l.limitLevel < 255)) powerVersion_ = powerVersion_ + 1;
@@ -358,8 +390,15 @@ void WorkLights::run() {
           plainLit |= l.level.target() > 0 || l.level.value(now) > 0;
           continue;
         }
-        wantStrips |= l.level.target() > 0;
-        stripsLit |= l.level.value(now) > 0;
+        // Signed: `now` is read before the lock, so a test started just
+        // after it has a start time a little later than `now`.
+        if (l.whiteTest && static_cast<int32_t>(now - l.whiteTestStart) >= static_cast<int32_t>(kWhiteTestMs)) {
+          l.whiteTest = false;
+          l.white.set(0, now, fadeMs_);
+          version_ = version_ + 1;
+        }
+        wantStrips |= l.level.target() > 0 || l.white.target() > 0;
+        stripsLit |= l.level.value(now) > 0 || l.white.value(now) > 0;
         // Send while moving, plus one more frame after the movement stops:
         // `moving` turns false on the first pass where the fade has ended, and
         // the frame sent on the pass before still shows the last in-between
