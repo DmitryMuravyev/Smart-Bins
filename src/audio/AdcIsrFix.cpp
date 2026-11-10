@@ -1,6 +1,6 @@
-// Fix for the analog microphone crashing the board ("Cache disabled but
-// cached memory region accessed" on core 1) whenever flash was read or
-// written while it listened.
+// Keeps the analog microphone from crashing the board ("Cache disabled but
+// cached memory region accessed" on core 1) whenever flash is read or
+// written while it listens.
 //
 // The ADC's DMA interrupt (esp_adc, adc_continuous.c) is allocated with
 // ESP_INTR_FLAG_IRAM, so it keeps running while the flash cache is off, and

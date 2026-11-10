@@ -164,7 +164,7 @@ class LedEngine {
   void overlayBin(uint8_t x, uint8_t y, Rgb color, uint8_t level);
   bool anyLit() const;
   void encodeAndSend(uint32_t now);
-  void setPower(bool on);
+  void setPower(bool on, uint32_t now);
 
   config::AppConfig cfg_;
   GridMapper mapper_;

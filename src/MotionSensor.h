@@ -1,6 +1,6 @@
 #pragma once
 
-// Motion sensor (Task 16): a master switch over the lights. When nobody has
+// Motion sensor: a master switch over the lights. When nobody has
 // been at the bench for a while, every work light and the grid's effect fade
 // to dark; when someone stays, they come back as they were. The lights'
 // own settings (which are on, their levels, colors and effects) are never

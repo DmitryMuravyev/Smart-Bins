@@ -1,6 +1,6 @@
 #pragma once
 
-// Sound analysis for the music effects (Task 13): turns blocks of microphone
+// Sound analysis for the music effects: turns blocks of microphone
 // samples into what the effects draw from, 16 frequency bands, the overall
 // loudness and a beat counter.
 //

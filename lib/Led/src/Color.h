@@ -32,12 +32,12 @@ constexpr Rgb blendMax(Rgb a, Rgb b) {
 
 // Gamma correction table so that fades look even to the eye (LEDs are linear, eyes are not).
 //
-// Plain rounding, so the darkest inputs (1..14) map to 0. An earlier
-// version forced every non-zero input up to at least 1, which on 8-bit strips
-// was worse: the tail of each fade-out sat at value 1 (clearly visible in
-// a dark room), and a dim rainbow broke into blocks where one or two channels
-// were 1 and the others 0. With rounding, colors fade out in their own
-// proportions and dark parts of a gradient go off evenly.
+// Plain rounding, so the darkest inputs (1..14) map to 0. Forcing every
+// non-zero input up to at least 1 looks worse on 8-bit strips: the tail of
+// each fade-out sits at value 1 (clearly visible in a dark room), and a dim
+// rainbow breaks into blocks where one or two channels are 1 and the others
+// 0. With rounding, colors fade out in their own proportions and dark parts
+// of a gradient go off evenly.
 class Gamma {
  public:
   explicit Gamma(float gamma = 2.2f) {

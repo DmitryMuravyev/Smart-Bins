@@ -1,6 +1,6 @@
 #pragma once
 
-// Backup and restore (Task 11).
+// Backup and restore.
 //
 //   GET  /api/backup/info                  what there is to back up, the database kept from
 //                                          the last restore, and the photo job's progress

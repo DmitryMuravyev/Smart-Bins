@@ -28,7 +28,7 @@ enum class Layout : uint8_t { Serpentine, Progressive };
 enum class StartCorner : uint8_t { TopLeft, TopRight, BottomLeft, BottomRight };
 enum class LightMode : uint8_t { Off, White, Rgb, Addressable };
 enum class LocateMode : uint8_t { Steady, SlowPulse, FastPulse };
-// Which microphone feeds the music effects (Task 14): the I2S INMP441 on
+// Which microphone feeds the music effects: the I2S INMP441 on
 // pins.mic_i2s_*, an analog module (MAX9814) on pins.mic_analog, or none.
 enum class MicType : uint8_t { Off, I2s, Analog };
 
@@ -76,7 +76,7 @@ struct LocateConfig {
   LocateMode mode = LocateMode::Steady;
 };
 
-// Grid effects (Task 12): each effect keeps its own settings, the ones it
+// Grid effects: each effect keeps its own settings, the ones it
 // last ran with, and gets them back whenever it is started from the UI or
 // the API. Which effect runs is not saved: after a restart the grid comes
 // back dark, as with located bins.
@@ -110,7 +110,7 @@ struct NetworkConfig {
   Ipv4 dns = {0, 0, 0, 0};  // 0.0.0.0 = use the gateway
 };
 
-// Motion sensor (Task 16): switches the work lights on when someone stays at
+// Motion sensor: switches the work lights on when someone stays at
 // the bench and off once nobody has been there for a while. Any sensor with
 // a digital "someone is here" output works: a 24 GHz radar such as the
 // LD2410C (it also notices a person sitting still) or a PIR module such as
@@ -126,7 +126,7 @@ struct MotionConfig {
   uint16_t offDelayMin = 5;
 };
 
-// Which GPIO each function uses (Task 14), in the order of board::kDefaultPins;
+// Which GPIO each function uses, in the order of board::kDefaultPins;
 // -1 = not wired. Starts as the default pin map. Changes apply after a
 // restart. The BOOT button (GPIO0) is fixed and not part of config.json.
 struct PinsConfig {

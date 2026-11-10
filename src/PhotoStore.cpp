@@ -30,8 +30,8 @@ const char *kMovePath = "/photos/move.tmp";
 constexpr uint32_t kCardHz = 20000000;
 // Files open at once on the card: an upload (or a copy to or from the card)
 // and a photo being sent. Each slot costs about 4 KB of heap, as on the FAT
-// partition (see mountFilesystem() in main.cpp); a third one left boards
-// without PSRAM short enough of memory to crash on a page load. So nothing
+// partition (see mountFilesystem() in main.cpp); a third one leaves boards
+// without PSRAM too short of memory to survive a page load. So nothing
 // else may hold a slot: the backups list is read without opening its files
 // (see listCardBackups() in BackupApi.cpp).
 constexpr uint8_t kCardMaxFiles = 2;
@@ -291,7 +291,7 @@ bool PhotoStore::find(const std::string &name, Kind kind, fs::FS *&fs, String &p
   // the flash cache off like a write does: no LED frame may be on the wire
   // meanwhile (see FlashGuard). Every thumbnail a list of search results asks
   // for comes through here, so without the guard a long search with photos
-  // lit the far end of the strip now and then. Harmless for the card.
+  // lights the far end of the strip now and then. Harmless for the card.
   led::FlashGuard guard;
   // The thumbnail first, then the photo itself, which the page then scales.
   const Kind second = fallback ? Kind::Photo : kind;

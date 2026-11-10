@@ -348,7 +348,7 @@ button.danger-outline { background: transparent; color: var(--err); border: 1px 
 .warn-dialog h2 { display: flex; align-items: center; gap: 8px; margin-top: 0; color: var(--err); }
 .warn-dialog h2 .ico { font-size: 28px; line-height: 1; }
 
-/* ---- Hardware settings (Task 14) ---- */
+/* ---- Hardware settings ---- */
 #hw-motion .buttons { margin-top: 12px; }
 #lights-motion { margin: 0 0 12px; }
 details.hw[open] summary { margin-bottom: 8px; }

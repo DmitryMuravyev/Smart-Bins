@@ -77,7 +77,7 @@ void registerWebUi(AsyncWebServer &server, WifiLink &network) {
     else req->send(500, "text/plain", "web UI missing from the build");
   });
 
-  // The plain config editor used to live here; it is now under Settings.
+  // Kept for old bookmarks: the configuration is edited under Settings.
   server.on(AsyncURIMatcher::exact("/config"), HTTP_GET,
             [](AsyncWebServerRequest *req) { req->redirect("/#settings"); });
 }

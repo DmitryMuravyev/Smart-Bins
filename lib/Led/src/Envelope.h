@@ -62,9 +62,19 @@ inline uint8_t pulseLevel(PulseMode mode, uint32_t elapsedMs) {
 // T is uint8_t for 8-bit outputs (addressable pixels) or uint16_t for the
 // 12-bit PWM work lights, where 256 steps would show visible stairs at the dark
 // end of a slow fade.
+//
+// The millisecond clock wraps after 49.7 days, and a value can sit at its
+// target for much longer than that. So a fade that has been seen to finish
+// is remembered as finished (done_) and the clock is not consulted again
+// until the next set(): a light left on for months stays at its level.
 template <typename T>
 class BasicFader {
  public:
+  // A `nowMs` up to this much earlier than the fade's start counts as "not
+  // started yet" (see value()). Far more than any caller holds a clock
+  // reading for, and far less than the clock's range.
+  static constexpr uint32_t kEarlyMs = 10000;
+
   explicit BasicFader(T value = 0) : from_(value), to_(value) {}
 
   void set(T target, uint32_t nowMs, uint32_t durationMs) {
@@ -72,22 +82,28 @@ class BasicFader {
     to_ = target;
     start_ = nowMs;
     duration_ = durationMs;
+    done_ = false;
   }
 
   // Jumps straight to `target` (used on start-up before anything is visible).
   void reset(T target) {
     from_ = to_ = target;
     duration_ = 0;
+    done_ = true;
   }
 
   T value(uint32_t nowMs) const {
-    // A caller may hold a `nowMs` read just before another task called set();
-    // then start_ is a little later than nowMs and the unsigned difference would
-    // wrap to ~4 billion, which reads as "fade finished". Treat it as "not
-    // started yet" instead (signed difference below zero -> still at from_).
-    if (static_cast<int32_t>(nowMs - start_) < 0) return from_;
+    if (done_) return to_;
     const uint32_t elapsed = nowMs - start_;
-    if (duration_ == 0 || elapsed >= duration_) return to_;
+    // A caller may hold a `nowMs` read just before another task called set();
+    // then start_ is a little later than nowMs and the unsigned difference
+    // wraps to just under 2^32, which would read as "fade finished". Treat
+    // that as "not started yet" instead: still at from_.
+    if (elapsed > UINT32_MAX - kEarlyMs) return from_;
+    if (duration_ == 0 || elapsed >= duration_) {
+      done_ = true;
+      return to_;
+    }
     // 64-bit intermediate: for uint16_t, 65535 x 5000 ms already exceeds int32.
     const int64_t delta = static_cast<int64_t>(to_) - from_;
     return static_cast<T>(from_ + delta * static_cast<int64_t>(elapsed) / static_cast<int64_t>(duration_));
@@ -101,6 +117,9 @@ class BasicFader {
   T to_;
   uint32_t start_ = 0;
   uint32_t duration_ = 0;
+  // The fade has been seen to reach to_. Set from value(), which is const
+  // for its callers: it changes nothing they can observe.
+  mutable bool done_ = true;
 };
 
 using Fader = BasicFader<uint8_t>;

@@ -1,7 +1,7 @@
 #pragma once
 
 // Turns a motion sensor's digital output into "someone arrived" and "everyone
-// left" (Task 16), the moments the work lights switch on and off.
+// left", the moments the work lights switch on and off.
 //
 // A sensor's output is high while it senses someone. A person walking past,
 // or stopping at the bench for a moment, gives a short high pulse (a PIR

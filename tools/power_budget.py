@@ -4,7 +4,7 @@
 Estimates current draw for the addressable bin grid and an addressable work strip
 and suggests the LED supply size, fuse and firmware current limit.
 
-Example (Dmitry's grid: 10 x 6 bins, 2 pixels per bin, 12 V WS2815):
+Example (the reference grid: 10 x 6 bins, 2 pixels per bin, 12 V WS2815):
     python3 tools/power_budget.py --cols 10 --rows 6 --pixels-per-bin 2 --chip ws2815
 """
 

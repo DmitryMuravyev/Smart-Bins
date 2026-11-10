@@ -128,6 +128,36 @@ static void test_envelopes() {
   TEST_ASSERT_TRUE(f.settled(2000));
 }
 
+// A value keeps its level for as long as the board runs: the millisecond
+// clock passing half its range (24.9 days) or wrapping (49.7 days) after a
+// fade must not bring the old value back.
+static void test_fader_survives_clock_wrap() {
+  const uint32_t day = 24u * 60 * 60 * 1000;
+  // Sampled along the way, as a light that stays on is.
+  Fader16 light(0);
+  light.set(4095, 1000, 400);
+  TEST_ASSERT_EQUAL(4095, light.value(2000));
+  TEST_ASSERT_EQUAL(4095, light.value(1000 + 25 * day));
+  TEST_ASSERT_EQUAL(4095, light.value(1000 + 49 * day));
+  TEST_ASSERT_EQUAL(4095, light.value(500));  // 49.7 days on: the clock has wrapped
+  TEST_ASSERT_EQUAL(4095, light.value(1200));
+  TEST_ASSERT_TRUE(light.settled(1200));
+  // Not sampled since the change (a brightness set while the grid is dark).
+  Fader level(128);
+  level.set(40, 1000, 400);
+  TEST_ASSERT_EQUAL(40, level.value(1000 + 25 * day));
+  // A new change after the wrap fades as usual.
+  light.set(0, 2000, 400);
+  TEST_ASSERT_EQUAL(4095, light.value(2000));
+  TEST_ASSERT_EQUAL(0, light.value(2400));
+  // A fade that starts just before the wrap and ends after it.
+  Fader f(0);
+  f.set(200, UINT32_MAX - 199, 400);
+  TEST_ASSERT_EQUAL(0, f.value(UINT32_MAX - 199));
+  TEST_ASSERT_EQUAL(100, f.value(0));
+  TEST_ASSERT_EQUAL(200, f.value(200));
+}
+
 static void test_power_limit() {
   uint8_t white[3 * 10];
   for (uint8_t &b : white) b = 255;
@@ -201,7 +231,7 @@ static void test_pwm_duty() {
   }
 }
 
-// ---- Grid effects (Task 12) ----
+// ---- Grid effects ----
 
 static void test_effect_and_palette_names() {
   for (int i = 0; i < kGridEffectCount; i++) {
@@ -370,7 +400,7 @@ static void test_player_brightness_and_speed_zero() {
   for (const Rgb &c : out) TEST_ASSERT_TRUE(c.isBlack());
 }
 
-// ---- Music (Task 13) ----
+// ---- Music ----
 
 // One block of a sine at `hz`, amplitude `amp`, continuing from sample `t`.
 static void sineBlock(float *out, float hz, float amp, long t, uint32_t rate = 16000) {
@@ -651,6 +681,28 @@ static void test_player_settings_fade() {
 // A new palette cross-fades, and rendering the old colors along the way
 // doesn't disturb the effect: once the fade is over, the picture is exactly
 // the one of an effect that had the new palette all along.
+// Settings changed long ago stay as set when the clock passes half its range.
+static void test_player_settings_survive_clock_wrap() {
+  EffectPlayer player;
+  player.configure(10, 6);
+  player.setParamFadeMs(400);
+  EffectParams p;
+  p.brightness = 255;
+  player.start(GridEffect::Relax, p, 0, 1);
+  Rgb out[60];
+  for (uint32_t t = 0; t <= 3000; t += 16) player.render(t, 1, out);
+  int full = 0;
+  for (const Rgb &c : out) full += level(c);
+  p.brightness = 25;
+  player.setParams(p, 3000);
+  for (uint32_t t = 3000; t <= 4000; t += 16) player.render(t, 1, out);
+  const uint32_t later = 4000 + 25u * 24 * 60 * 60 * 1000;
+  player.render(later, 1, out);
+  int dim = 0;
+  for (const Rgb &c : out) dim += level(c);
+  TEST_ASSERT_TRUE(dim < full * 15 / 100);
+}
+
 static void test_player_palette_fade() {
   EffectParams party, ocean;
   party.palette = Palette::Party;
@@ -690,6 +742,7 @@ int main(int, char **) {
   RUN_TEST(test_envelopes);
   RUN_TEST(test_power_limit);
   RUN_TEST(test_fader16);
+  RUN_TEST(test_fader_survives_clock_wrap);
   RUN_TEST(test_hue_and_kelvin);
   RUN_TEST(test_work_effects);
   RUN_TEST(test_pwm_duty);
@@ -712,6 +765,7 @@ int main(int, char **) {
   RUN_TEST(test_beat_splashes);
   RUN_TEST(test_player_settings_per_effect);
   RUN_TEST(test_player_settings_fade);
+  RUN_TEST(test_player_settings_survive_clock_wrap);
   RUN_TEST(test_player_palette_fade);
   return UNITY_END();
 }
