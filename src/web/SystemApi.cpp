@@ -35,6 +35,10 @@ constexpr size_t kMaxConfigBody = 8192;
 // answer sent when the upload ends.
 bool updateRunning = false;
 String updateError;
+// The request whose upload is being written. Chunks of any other request
+// (one without the password, or one that a newer upload has replaced) are
+// dropped. Only compared, never dereferenced.
+const AsyncWebServerRequest *updateOwner = nullptr;
 
 // Every GPIO of the WROOM-32 that a function of `use` may take, by the same
 // rules config validation applies (flash, console, GPIO12, input-only).
@@ -169,6 +173,10 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
   server.on(
       AsyncURIMatcher::exact("/api/firmware"), HTTP_POST,
       [scheduleRestart](AsyncWebServerRequest *req) {
+        // Not the request that uploaded: it sent no file, or a newer upload
+        // took its place. The update in progress, if any, is not its to end.
+        if (req != updateOwner) return sendError(req, 400, "no firmware file received");
+        updateOwner = nullptr;
         if (updateRunning) {  // the body ended without the upload's last part
           Update.abort();
           updateRunning = false;
@@ -184,8 +192,16 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
         doc["restarting"] = true;
         sendJson(req, 200, doc);
       },
-      [](AsyncWebServerRequest *req, const String &filename, size_t index, uint8_t *data, size_t len, bool final) {
+      [&security](AsyncWebServerRequest *req, const String &filename, size_t index, uint8_t *data, size_t len,
+                  bool final) {
         if (index == 0) {
+          // The password middleware only runs once the whole body is in, so
+          // check here before anything is written. A refused request never
+          // becomes the owner, so the rest of its body is dropped and an
+          // upload already running is left alone; the middleware then
+          // answers 401.
+          if (!security.allows(req)) return;
+          updateOwner = req;
           if (updateRunning) Update.abort();  // a previous upload that was cut off
           updateError = "";
           updateRunning = true;
@@ -197,7 +213,8 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
             return;
           }
         }
-        if (!updateRunning) return;  // failed earlier: ignore the rest
+        if (req != updateOwner) return;  // refused, or replaced by a newer upload
+        if (!updateRunning) return;      // failed earlier: ignore the rest
         if (len) {
           // Writing flash switches the cache off; the guard keeps the LED
           // strips from flashing random colors meanwhile (see RmtStrip.h).
