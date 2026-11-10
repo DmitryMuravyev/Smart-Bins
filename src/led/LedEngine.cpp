@@ -258,8 +258,12 @@ void LedEngine::setAudio(const AudioFrame &frame) {
 
 void LedEngine::startTest(TestPattern pattern) {
   Lock lock(lock_);
+  const uint32_t now = effectMillis();
+  // The white test fades in and out like every other change on the grid.
+  if (pattern == TestPattern::White) white_.set(255, now, cfg_.fadeMs);
+  else if (test_ == TestPattern::White) white_.set(0, now, cfg_.fadeMs);
   test_ = pattern;
-  testStart_ = effectMillis();
+  testStart_ = now;
   ESP_LOGI(TAG, "Test pattern: %s", toString(pattern));
 }
 
@@ -385,7 +389,9 @@ bool LedEngine::anyLit() const {
 
 // Builds this frame's pixels from scratch. Called with the lock held.
 // A running test pattern replaces the highlights entirely (it returns early),
-// so highlights keep their timers and reappear when the test ends.
+// so highlights keep their timers and reappear when the test ends. The white
+// test is laid over whatever shows instead (see mixWhite()), so it fades in
+// from the picture and back to it.
 void LedEngine::renderLayers(uint32_t now) {
   for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), Rgb());
   uncapped_ = false;
@@ -398,15 +404,16 @@ void LedEngine::renderLayers(uint32_t now) {
 
   if (test_ != TestPattern::None) {
     if (now - testStart_ > kTestTimeoutMs) {
+      if (test_ == TestPattern::White) white_.set(0, now, cfg_.fadeMs);
       test_ = TestPattern::None;
-    } else {
+    } else if (test_ != TestPattern::White) {
       renderTest(now);
-      uncapped_ = test_ == TestPattern::White;
-      if (binLevel < 255 && !uncapped_) {
+      if (binLevel < 255) {
         for (Segment &seg : segments_) {
           for (Rgb &c : seg.pixels) c = scale(c, binLevel);
         }
       }
+      mixWhite(now);  // a white test still fading out
       return;
     }
   }
@@ -458,6 +465,20 @@ void LedEngine::renderLayers(uint32_t now) {
     overlayBin(h.x, h.y, scale(highlightColor(h, now), binLevel), static_cast<uint8_t>(level));
     ++it;
   }
+  mixWhite(now);
+}
+
+// The white test: full white laid over the frame at its fade level, past the
+// bin brightness. While any of it shows, the frame goes out without the
+// current limit (see encodeAndSend()): the test measures the full draw.
+void LedEngine::mixWhite(uint32_t now) {
+  const uint8_t w = white_.value(now);
+  uncapped_ = w > 0;
+  if (!w) return;
+  const Rgb white(255, 255, 255);
+  for (Segment &seg : segments_) {
+    for (Rgb &c : seg.pixels) c = lerp(c, white, w);
+  }
 }
 
 void LedEngine::renderTest(uint32_t now) {
@@ -493,9 +514,7 @@ void LedEngine::renderTest(uint32_t now) {
       for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), c);
       break;
     }
-    case TestPattern::White:
-      for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), white);
-      break;
+    case TestPattern::White:  // drawn by mixWhite()
     case TestPattern::None:
       break;
   }

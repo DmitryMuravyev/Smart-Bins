@@ -162,6 +162,7 @@ class LedEngine {
   void run();
   void renderLayers(uint32_t now);
   void renderTest(uint32_t now);
+  void mixWhite(uint32_t now);
   void lightBin(uint8_t x, uint8_t y, Rgb color);
   void overlayBin(uint8_t x, uint8_t y, Rgb color, uint8_t level);
   bool anyLit() const;
@@ -190,9 +191,12 @@ class LedEngine {
   bool microphone_ = false;
   TestPattern test_ = TestPattern::None;
   uint32_t testStart_ = 0;
-  // The frame renderLayers() just drew is the white test: encodeAndSend()
-  // sends it without the current limit. Set and read on the LED task, so the
-  // two always agree about one frame even if the test changes in between.
+  // The white test's level over the picture (see mixWhite()).
+  Fader white_;
+  // The frame renderLayers() just drew shows some of the white test:
+  // encodeAndSend() sends it without the current limit. Set and read on the
+  // LED task, so the two always agree about one frame even if the test
+  // changes in between.
   bool uncapped_ = false;
 
   bool powered_ = false;

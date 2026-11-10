@@ -145,6 +145,7 @@ class WorkLights {
     bool finalFrame = false;  // a fade just ended and its last frame is not sent yet
     bool whiteTest = false;   // see whiteTest()
     uint32_t whiteTestStart = 0;
+    Fader white;              // the white test's level over the picture, 0..255
   };
 
   static void taskEntry(void *arg);
