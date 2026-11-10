@@ -48,7 +48,9 @@ inline EffectParams effectParams(const config::EffectSettings &c) {
   return p;
 }
 
-enum class TestPattern : uint8_t { None, Walk, Chain, Rows, Columns, Colors };
+// White: every pixel at full white, past the bin brightness and the
+// current limit, to measure what the grid really draws (config pixelMa).
+enum class TestPattern : uint8_t { None, Walk, Chain, Rows, Columns, Colors, White };
 
 const char *toString(TestPattern p);
 bool parseTestPattern(const char *name, TestPattern &out);
@@ -188,6 +190,10 @@ class LedEngine {
   bool microphone_ = false;
   TestPattern test_ = TestPattern::None;
   uint32_t testStart_ = 0;
+  // The frame renderLayers() just drew is the white test: encodeAndSend()
+  // sends it without the current limit. Set and read on the LED task, so the
+  // two always agree about one frame even if the test changes in between.
+  bool uncapped_ = false;
 
   bool powered_ = false;
   uint32_t poweredAt_ = 0;

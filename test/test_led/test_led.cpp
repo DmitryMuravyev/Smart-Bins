@@ -167,6 +167,25 @@ static void test_power_limit() {
   TEST_ASSERT_EQUAL(127, limitLevel(1000, 500));
 }
 
+// A measured figure per pixel replaces the datasheet one: full white then
+// estimates exactly that.
+static void test_measured_pixel_current() {
+  const ChipCurrent ws2812b{200, 10};
+  TEST_ASSERT_EQUAL(61, fullWhiteMa(ws2812b, 3));
+  const ChipCurrent measured = withFullWhiteMa(ws2812b, 3, 17);
+  TEST_ASSERT_EQUAL(53, measured.channelTenthsMa);  // (170 - 10) / 3
+  TEST_ASSERT_EQUAL(10, measured.idleTenthsMa);
+  uint8_t white[3 * 150];
+  for (uint8_t &b : white) b = 255;
+  TEST_ASSERT_UINT32_WITHIN(150, 2550, estimateMilliamps(white, 150, 3, measured));
+  // RGBW: full white lights the white LED alone.
+  const ChipCurrent rgbw{200, 10};
+  TEST_ASSERT_EQUAL(21, fullWhiteMa(rgbw, 4));
+  TEST_ASSERT_EQUAL(140, withFullWhiteMa(rgbw, 4, 15).channelTenthsMa);
+  // Below the idle current nothing is left for the LEDs.
+  TEST_ASSERT_EQUAL(0, withFullWhiteMa(ChipCurrent{200, 20}, 3, 1).channelTenthsMa);
+}
+
 static void test_fader16() {
   Fader16 f(0);
   f.set(65535, 0, 5000);  // 65535 x 5000 overflows int32: checks the 64-bit maths
@@ -742,6 +761,7 @@ int main(int, char **) {
   RUN_TEST(test_envelopes);
   RUN_TEST(test_power_limit);
   RUN_TEST(test_fader16);
+  RUN_TEST(test_measured_pixel_current);
   RUN_TEST(test_fader_survives_clock_wrap);
   RUN_TEST(test_hue_and_kelvin);
   RUN_TEST(test_work_effects);

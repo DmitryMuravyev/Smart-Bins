@@ -39,14 +39,14 @@ constexpr uint32_t kTestTimeoutMs = 120000;
 
 using Lock = MutexLock;
 
-const char *const kTestNames[] = {"off", "walk", "chain", "rows", "columns", "colors"};
+const char *const kTestNames[] = {"off", "walk", "chain", "rows", "columns", "colors", "white"};
 
 }  // namespace
 
 const char *toString(TestPattern p) { return kTestNames[static_cast<int>(p)]; }
 
 bool parseTestPattern(const char *name, TestPattern &out) {
-  for (int i = 0; i < 6; i++) {
+  for (size_t i = 0; i < sizeof(kTestNames) / sizeof(kTestNames[0]); i++) {
     if (name && strcmp(name, kTestNames[i]) == 0) {
       out = static_cast<TestPattern>(i);
       return true;
@@ -72,7 +72,7 @@ bool LedEngine::begin(const config::AppConfig &cfg, int dataPinA, int dataPinB, 
 
   const ChipInfo chip = chipInfo(g.chipset);
   channels_ = chip.channels;
-  current_ = chip.current;
+  current_ = chipCurrent(g.chipset, g.pixelMa);
   colorOrderMap(g.colorOrder, order_);
 
   powerPin_ = powerPin;
@@ -388,6 +388,7 @@ bool LedEngine::anyLit() const {
 // so highlights keep their timers and reappear when the test ends.
 void LedEngine::renderLayers(uint32_t now) {
   for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), Rgb());
+  uncapped_ = false;
 
   // The grid brightness (the "Bin brightness" slider under "How a bin lights up")
   // is the brightness of located bins and of the test patterns. Effects have
@@ -400,7 +401,8 @@ void LedEngine::renderLayers(uint32_t now) {
       test_ = TestPattern::None;
     } else {
       renderTest(now);
-      if (binLevel < 255) {
+      uncapped_ = test_ == TestPattern::White;
+      if (binLevel < 255 && !uncapped_) {
         for (Segment &seg : segments_) {
           for (Rgb &c : seg.pixels) c = scale(c, binLevel);
         }
@@ -491,6 +493,9 @@ void LedEngine::renderTest(uint32_t now) {
       for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), c);
       break;
     }
+    case TestPattern::White:
+      for (Segment &seg : segments_) std::fill(seg.pixels.begin(), seg.pixels.end(), white);
+      break;
     case TestPattern::None:
       break;
   }
@@ -510,7 +515,8 @@ void LedEngine::encodeAndSend(uint32_t) {
     estimate += estimateMilliamps(seg.out.data(), seg.pixels.size(), channels_, current_);
   }
 
-  const uint8_t limit = limitLevel(estimate, cfg_.grid.currentLimitMa);
+  // The white test measures the full draw, so the limit stays out of it.
+  const uint8_t limit = uncapped_ ? 255 : limitLevel(estimate, cfg_.grid.currentLimitMa);
   for (uint8_t s = 0; s < mapper_.segmentCount(); s++) {
     Segment &seg = segments_[s];
     if (limit < 255) {

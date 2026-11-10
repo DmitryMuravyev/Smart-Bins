@@ -318,15 +318,20 @@
         <label><span data-i18n="hw.voltage">Supply</span>
           <select id="hw-voltage"><option value="5">5V</option><option value="12">12V</option><option value="24">24V</option></select></label>
         <label><span class="label-long" data-i18n="hw.current">Current limit, mA</span><span class="label-short" data-i18n="hw.currentShort">Max. current, mA</span><input type="number" id="hw-current" min="100" max="30000" step="100" inputmode="numeric"></label>
+        <label><span class="label-long" data-i18n="hw.pixelMa">Current per pixel, mA</span><span class="label-short" data-i18n="hw.pixelMaShort">mA per pixel</span><input type="number" id="hw-pixel-ma" min="1" max="255" inputmode="numeric"></label>
         <label><span class="label-long" data-i18n="hw.fade">Fade time, ms</span><span class="label-short" data-i18n="hw.fadeShort">Fade, ms</span><input type="number" id="hw-fade" min="0" max="5000" step="50" inputmode="numeric"></label>
       </div>
       <label class="check"><input type="checkbox" id="hw-invert"><span data-i18n="hw.invert">Inverted data (single-transistor level shifter)</span></label>
+      <!-- Measuring the real current per pixel: full white past the limit. -->
+      <div class="buttons"><button type="button" class="secondary" id="hw-grid-white" data-i18n="hw.whiteTest">Full white test</button></div>
+      <p class="muted small" data-i18n="hw.whiteHint"></p>
       <button id="hw-grid-save" data-i18n="settings.saveRestart">Save and restart</button>
     </details>
     <details class="card hw" id="hw-lights">
       <summary data-i18n="hw.lights">Work lights</summary>
       <label class="check"><input type="checkbox" id="hw-rgb"><span data-i18n="hw.rgbGroup">W1, W2 and W3 drive one analog RGB strip</span></label>
       <div id="hw-light-list"></div>
+      <p class="muted small" data-i18n="hw.whiteHint"></p>
       <button id="hw-lights-save" data-i18n="settings.saveRestart">Save and restart</button>
     </details>
     <details class="card hw" id="hw-pins">

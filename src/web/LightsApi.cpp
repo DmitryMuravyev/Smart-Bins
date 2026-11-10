@@ -32,6 +32,7 @@ void addLight(JsonArray arr, const led::WorkLights::Info &info) {
     o["pixels"] = info.pixels;
     o["estimateMa"] = info.estimateMa;
     o["currentLimited"] = info.currentLimited;
+    o["whiteTest"] = info.whiteTest;
   }
 }
 
@@ -95,6 +96,18 @@ void registerLightsApi(AsyncWebServer &server, led::WorkLights &lights) {
 
   server.on("/api/lights/master-on", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
     holdMotionSensor();
+    sendLights(req, lights);
+  });
+
+  // Full white on one addressable strip for measuring its current (see
+  // WorkLights::whiteTest()). `channel` 0 = W1; on=0 stops it early.
+  server.on("/api/lights/test", HTTP_GET | HTTP_POST, [&lights](AsyncWebServerRequest *req) {
+    long channel;
+    if (!intParam(req, "channel", 0, config::kLightChannels - 1, channel)) {
+      return sendError(req, 400, "channel must be 0..4 (W1..W5)");
+    }
+    const bool on = !hasParam(req, "on") || param(req, "on")->value() != "0";
+    if (const char *why = lights.whiteTest(static_cast<uint8_t>(channel), on)) return sendError(req, 409, why);
     sendLights(req, lights);
   });
 

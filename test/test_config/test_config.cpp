@@ -38,6 +38,8 @@ static void test_round_trip() {
   strcpy(a.lights[0].colorOrder, "RGB");
   a.lights[0].invertData = true;
   a.lights[0].currentLimitMa = 3000;
+  a.lights[0].pixelMa = 17;
+  a.grid.pixelMa = 40;
   a.lights[3].maxBrightness = 180;
   a.lights[3].mode = LightMode::White;
   a.locate.color = 0x123ABC;
@@ -60,6 +62,8 @@ static void test_round_trip() {
   TEST_ASSERT_EQUAL_STRING("RGB", b.lights[0].colorOrder);
   TEST_ASSERT_TRUE(b.lights[0].invertData);
   TEST_ASSERT_EQUAL(3000, b.lights[0].currentLimitMa);
+  TEST_ASSERT_EQUAL(17, b.lights[0].pixelMa);
+  TEST_ASSERT_EQUAL(40, b.grid.pixelMa);
   TEST_ASSERT_EQUAL(180, b.lights[3].maxBrightness);
   TEST_ASSERT_EQUAL_HEX32(0x123ABC, b.locate.color);
   TEST_ASSERT_EQUAL(200, b.effects[1].speed);

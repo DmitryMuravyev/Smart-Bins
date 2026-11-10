@@ -1838,6 +1838,8 @@ function renderHardware() {
   fillSelect($('#hw-order'), COLOR_ORDERS, g.colorOrder);
   $('#hw-voltage').value = String(g.voltage);
   $('#hw-current').value = g.currentLimitMa;
+  $('#hw-pixel-ma').value = g.pixelMa || '';
+  $('#hw-pixel-ma').placeholder = pixelMaDefault(g.chipset);
   $('#hw-fade').value = cfg.fadeMs;
   $('#hw-invert').checked = !!g.invertData;
   renderGridPreview();
@@ -1950,11 +1952,55 @@ async function saveGrid() {
     colorOrder: $('#hw-order').value,
     voltage: intValue($('#hw-voltage')),
     currentLimitMa: intValue($('#hw-current')),
+    pixelMa: pixelMaValue($('#hw-pixel-ma')),
     invertData: $('#hw-invert').checked,
   });
   if (g.segments !== 2) cfg.grid.splitRow = Math.min(cfg.grid.splitRow, Math.max(1, g.rows - 1));
   cfg.fadeMs = intValue($('#hw-fade'));
   await saveAndRestart(cfg);
+}
+
+// The current per pixel at full white (config pixelMa). An empty field
+// stands for the LED type's typical figure, which it shows as placeholder.
+function pixelMaDefault(chip) {
+  return String((state.pins && state.pins.pixelMa && state.pins.pixelMa[chip]) || '');
+}
+function pixelMaValue(input) {
+  return input.value === '' ? 0 : Math.min(255, Math.max(1, intValue(input)));
+}
+
+// The full-white test, for measuring the real current per pixel: every
+// pixel of the grid or of one work strip at full white for 2 minutes, past
+// the brightness and the current limit (the board stops it by itself). It
+// runs on the saved settings, so the warning counts from those.
+async function whiteTest(button, pixels, chip, pixelMa, send) {
+  if (button.dataset.running) {
+    await attempt(() => send(false));
+    return whiteTestEnded(button);
+  }
+  const ma = pixelMa || Number(pixelMaDefault(chip)) || 0;
+  if (!confirm(t('hw.whiteConfirm', { n: pixels, a: (pixels * ma / 1000).toFixed(1) }))) return;
+  if (!(await attempt(() => send(true)))) return;
+  button.dataset.running = '1';
+  button.textContent = t('hw.whiteStop');
+  button.whiteTimer = setTimeout(() => whiteTestEnded(button), 120000);
+}
+function whiteTestEnded(button) {
+  clearTimeout(button.whiteTimer);
+  delete button.dataset.running;
+  button.textContent = t('hw.whiteTest');
+}
+function gridWhiteTest() {
+  const g = state.config && state.config.grid;
+  if (!g) return;
+  whiteTest($('#hw-grid-white'), g.cols * g.rows * g.pixelsPerBin, g.chipset, g.pixelMa,
+    on => api('/api/led/test', { form: { pattern: on ? 'white' : 'off' } }));
+}
+function lightWhiteTest(channel, button) {
+  const l = state.config && state.config.lights && state.config.lights[channel];
+  if (!l) return;
+  whiteTest(button, l.pixels, l.chipset, l.pixelMa,
+    on => api('/api/lights/test', { form: { channel, on: on ? 1 : 0 } }));
 }
 
 // Writes the whole configuration back and waits for the board to restart.
@@ -1987,8 +2033,10 @@ function renderLightFields() {
         <label class="hw-addr"><span>${t('hw.chipset')}</span><select class="hw-chip"></select></label>
         <label class="hw-addr"><span>${t('hw.order')}</span><select class="hw-ord"></select></label>
         <label class="hw-addr"><span class="label-long">${t('hw.current')}</span><span class="label-short">${t('hw.currentShort')}</span><input type="number" class="hw-cur" min="100" max="30000" step="100" inputmode="numeric"></label>
+        <label class="hw-addr"><span class="label-long">${t('hw.pixelMa')}</span><span class="label-short">${t('hw.pixelMaShort')}</span><input type="number" class="hw-pma" min="1" max="255" inputmode="numeric"></label>
       </div>
-      <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>`;
+      <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>
+      <div class="buttons hw-addr"><button type="button" class="secondary hw-white">${t('hw.whiteTest')}</button></div>`;
     fillSelect($('.hw-mode', box), modes, modes.includes(l.mode) ? l.mode : (l.mode === 'rgb' ? 'white' : 'off'),
       m => t(`hw.mode.${m}`));
     $('.hw-maxb', box).value = Math.max(1, Math.round(l.maxBrightness * 100 / 255));
@@ -1996,6 +2044,10 @@ function renderLightFields() {
     fillSelect($('.hw-chip', box), CHIPSETS, l.chipset);
     fillSelect($('.hw-ord', box), COLOR_ORDERS, l.colorOrder);
     $('.hw-cur', box).value = l.currentLimitMa;
+    $('.hw-pma', box).value = l.pixelMa || '';
+    $('.hw-pma', box).placeholder = pixelMaDefault(l.chipset);
+    $('.hw-chip', box).addEventListener('change', e => { $('.hw-pma', box).placeholder = pixelMaDefault(e.target.value); });
+    $('.hw-white', box).addEventListener('click', e => lightWhiteTest(i, e.currentTarget));
     $('.hw-inv', box).checked = !!l.invertData;
     $('.hw-mode', box).addEventListener('change', updateLightFields);
     list.append(box);
@@ -2034,6 +2086,7 @@ async function saveLights() {
       chipset: $('.hw-chip', box).value,
       colorOrder: $('.hw-ord', box).value,
       currentLimitMa: intValue($('.hw-cur', box)),
+      pixelMa: pixelMaValue($('.hw-pma', box)),
       invertData: $('.hw-inv', box).checked,
     };
   });
@@ -2873,6 +2926,8 @@ function bindControls() {
     $(`#${id}`).addEventListener('input', renderGridPreview);
   }
   $('#hw-grid-save').addEventListener('click', saveGrid);
+  $('#hw-grid-white').addEventListener('click', gridWhiteTest);
+  $('#hw-chipset').addEventListener('change', e => { $('#hw-pixel-ma').placeholder = pixelMaDefault(e.target.value); });
   $('#hw-rgb').addEventListener('change', updateLightFields);
   $('#hw-lights-save').addEventListener('click', saveLights);
   $('#hw-mic').addEventListener('change', updateMicPins);
