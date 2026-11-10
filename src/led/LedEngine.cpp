@@ -9,6 +9,7 @@
 #include <cstring>
 
 #include "Chips.h"
+#include "FramePacer.h"
 #include "MemoryProfile.h"
 #include "util/MutexLock.h"
 
@@ -19,9 +20,10 @@ namespace {
 
 const char *TAG = "led";
 
-// Frame period while powered. 16 ms gives ~60 fps, smooth for fades, and a
-// 1200-pixel grid split over two data lines needs about 18 ms per line at
-// 30 us per pixel, so with two segments the RMT is still mostly idle.
+// Frame period while powered. 16 ms gives ~60 fps, smooth for fades. A data
+// line takes about 30 us per pixel to send, so up to some 530 pixels per
+// line fit in one period; a longer line sets its own, lower frame rate (see
+// waitNextFrame()).
 constexpr uint32_t kFrameMs = 16;
 // While the strips are switched off there is nothing to send; the task only
 // wakes to notice new requests, so a slower tick saves CPU time.
@@ -313,8 +315,8 @@ void LedEngine::run() {
     // grid's own switch has opened again. The switch closes only once the
     // supply's output is up.
     const bool supplyUp = !supply_ || supply_->want(PowerSupply::Grid, wantPower || powered_);
-    if (wantPower && !powered_ && supplyUp) setPower(true);
-    if (powered_ && !wantPower && !lit && now - lastLit_ > kPowerOffDelayMs) setPower(false);
+    if (wantPower && !powered_ && supplyUp) setPower(true, now);
+    if (powered_ && !wantPower && !lit && now - lastLit_ > kPowerOffDelayMs) setPower(false, now);
 
     if (powered_ && now - poweredAt_ >= kPowerSettleMs) {
       encodeAndSend(now);
@@ -325,13 +327,14 @@ void LedEngine::run() {
       frames = 0;
       fpsSince = now;
     }
-    // vTaskDelayUntil keeps a steady frame rate: the time spent rendering is
-    // subtracted from the wait instead of being added to it.
-    vTaskDelayUntil(&wake, pdMS_TO_TICKS(powered_ ? kFrameMs : kIdleFrameMs));
+    waitNextFrame(wake, pdMS_TO_TICKS(powered_ ? kFrameMs : kIdleFrameMs));
   }
 }
 
-void LedEngine::setPower(bool on) {
+// `now` is the clock reading of the pass that switches: the settle time in
+// run() is counted from it with unsigned arithmetic, so the stamp must not be
+// later than the `now` it is compared with.
+void LedEngine::setPower(bool on, uint32_t now) {
   if (!on) {
     // Send one dark frame before cutting power. Otherwise the last frame stays
     // latched in pixels that are still faintly powered through their data
@@ -346,7 +349,7 @@ void LedEngine::setPower(bool on) {
   }
   if (powerPin_ >= 0) digitalWrite(powerPin_, on ? HIGH : LOW);
   powered_ = on;
-  poweredAt_ = effectMillis();
+  poweredAt_ = now;
   ESP_LOGD(TAG, "Grid power %s", on ? "on" : "off");
 }
 

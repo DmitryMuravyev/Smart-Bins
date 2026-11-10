@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "FramePacer.h"
 #include "MemoryProfile.h"
 #include "util/MutexLock.h"
 
@@ -392,7 +393,7 @@ void WorkLights::run() {
     }
     // Outside the lock: an NVS write can take tens of milliseconds.
     if (saveNow) save();
-    vTaskDelayUntil(&wake, pdMS_TO_TICKS(anyMoving || powered_ ? kFrameMs : kIdleFrameMs));
+    waitNextFrame(wake, pdMS_TO_TICKS(anyMoving || powered_ ? kFrameMs : kIdleFrameMs));
   }
 }
 
