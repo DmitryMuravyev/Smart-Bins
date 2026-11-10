@@ -477,6 +477,17 @@ static void test_benchmark_2000() {
          (long long)r.deleteMs);
 }
 
+// While a backup holds writes the benchmark doesn't start, and says why.
+static void test_benchmark_refused_while_writes_held() {
+  db.holdWrites(true);
+  BenchResult r;
+  TEST_ASSERT_TRUE(db.benchmark(100, 4, 3, r, err) == Result::Busy);
+  TEST_ASSERT_EQUAL_STRING("cleanup: a backup is reading the database, try again in a moment", err.c_str());
+  db.holdWrites(false);
+  err.clear();
+  TEST_ASSERT_TRUE_MESSAGE(db.benchmark(100, 4, 3, r, err) == Result::Ok, err.c_str());
+}
+
 static void test_refuses_newer_schema() {
   db.close();
   // Pretend a newer firmware wrote the file: bump user_version past what this
@@ -709,6 +720,7 @@ int main() {
   RUN_TEST(test_write_hooks_wrap_writes);
   RUN_TEST(test_read_hooks_wrap_reads);
   RUN_TEST(test_benchmark_2000);
+  RUN_TEST(test_benchmark_refused_while_writes_held);
   RUN_TEST(test_refuses_newer_schema);
   RUN_TEST(test_converts_old_page_size);
   RUN_TEST(test_hold_writes);

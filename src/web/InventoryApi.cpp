@@ -562,7 +562,7 @@ void registerInventoryApi(AsyncWebServer &server, InventoryDb &db, int gridCols,
 
   // A speed check on the real board: inserts n generated parts (default
   // 2,000), times typical queries and removes the parts again. LED strips
-  // pause while the inserts are written (one long write transaction).
+  // pause while each batch of inserts is written.
   bench.db = &db;
   bench.cols = gridCols;
   bench.rows = gridRows;

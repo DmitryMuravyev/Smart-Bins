@@ -1109,43 +1109,64 @@ Result InventoryDb::stats(Stats &out, std::string &err) {
   return Result::Ok;
 }
 
+// Rows the benchmark inserts or deletes per transaction. The database is
+// locked for one batch at a time, so a request from a page waits for a batch
+// at most, not for the whole run: the web server's network task may not
+// block for long (its watchdog restarts the board after 5 s).
+constexpr int kBenchBatch = 100;
+
 // Removes the benchmark's parts, a batch at a time. One DELETE of every
 // matching row makes SQLite hold far more RAM while it runs (on a PC about
 // 60 KB above the page cache for 2,000 rows, against under 20 KB in batches),
-// which a board with little free heap can't spare. All batches share one
-// transaction, so the work on flash is the same.
+// which a board with little free heap can't spare. Each batch is its own
+// transaction and takes the lock for itself (see kBenchBatch).
 Result InventoryDb::deleteBenchParts(std::string &err) {
-  WriteTxn txn(*this);
-  if (!txn.began()) return txnFailed(err);
-  Stmt del(db_, "DELETE FROM parts WHERE id IN (SELECT id FROM parts WHERE category = ? LIMIT 100)");
-  // Each pass removes up to 100 rows; a pass that removes none means they're
-  // all gone. The category is bound on every pass because reset() also
-  // clears the bindings.
   int removed = 0;
   do {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!db_) return err = lastError(), Result::Error;
+    ReadScope reading(*this);
+    WriteTxn txn(*this);
+    if (!txn.began()) return txnFailed(err);
+    Stmt del(db_, "DELETE FROM parts WHERE id IN (SELECT id FROM parts WHERE category = ? LIMIT ?)");
     del.bind(1, std::string(kBenchCategory));
+    del.bind(2, kBenchBatch);
     if (del.step() != SQLITE_DONE) return err = lastError(), Result::Error;
+    // A pass that removes no row means they're all gone.
     removed = sqlite3_changes(db_);
-    del.reset();
+    if (!txn.commit(err)) return Result::Error;
   } while (removed > 0);
-  return txn.commit(err) ? Result::Ok : Result::Error;
+  return Result::Ok;
 }
 
+// The lock is taken step by step (per batch of inserts, per query), never
+// for the whole run, so other requests are served in between; they see the
+// generated parts until the run has removed them. The read steps run inside
+// the read hooks like every other query, so the timings include what a real
+// request pays for them.
 Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, std::string &err) {
-  std::lock_guard<std::recursive_mutex> lock(mutex_);
-  if (!db_) return err = lastError(), Result::Error;
   out = BenchResult();
   out.count = count;
   // Every failure below names the step it happened in ("insert: out of
-  // memory"), so a report from the board says where to look.
+  // memory"), so a report from the board says where to look. Parts already
+  // inserted are removed again where that is possible.
   const char *phase = "cleanup";
-  auto fail = [&]() {
+  bool inserted = false;
+  auto fail = [&](Result r = Result::Error) {
     if (err.empty()) err = lastError();
     err = std::string(phase) + ": " + err;
-    return Result::Error;
+    if (inserted) {
+      std::string ignored;
+      deleteBenchParts(ignored);
+    }
+    return r;
   };
-  // Leftovers of an interrupted run would skew the numbers.
-  if (deleteBenchParts(err) != Result::Ok) return fail();
+  // Leftovers of an interrupted run would skew the numbers. This is also
+  // where a run stops while writes are held (Result::Busy).
+  {
+    const Result r = deleteBenchParts(err);
+    if (r != Result::Ok) return fail(r);
+  }
 
   // Realistic-looking rows: a mix of manufacturers, values and packages, and
   // text in most fields, so the file grows as a real inventory would.
@@ -1154,15 +1175,19 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   static const char *const kPackages[] = {"0603", "0805", "SOT-23", "SOIC-8", "TO-220", "LQFP-48"};
   phase = "insert";
   auto start = std::chrono::steady_clock::now();
-  {
+  for (int i = 0; i < count;) {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!db_) return fail();
+    ReadScope reading(*this);
     WriteTxn txn(*this);
-    if (!txn.began()) return fail();
+    if (!txn.began()) return fail(txnFailed(err));
+    inserted = true;
     Stmt ins(db_,
              "INSERT INTO parts (part_number, manufacturer, category, description, package, value, unit, notes,"
              " quantity, bin_id) VALUES (?, ?, ?, ?, ?, ?, 'pcs', ?, ?,"
              " (SELECT id FROM bins WHERE x = ? AND y = ?))");
     char buf[96];
-    for (int i = 0; i < count; i++) {
+    for (int n = 0; n < kBenchBatch && i < count; n++, i++) {
       snprintf(buf, sizeof(buf), "BENCH-%05d", i);
       ins.bind(1, std::string(buf));
       ins.bind(2, std::string(kMakers[i % 8]));
@@ -1189,6 +1214,9 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   phase = "count";
   start = std::chrono::steady_clock::now();
   {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!db_) return fail();
+    ReadScope reading(*this);
     Stmt cnt(db_, "SELECT count(*) FROM parts");
     if (cnt.step() != SQLITE_ROW) return fail();
   }
@@ -1211,6 +1239,9 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   phase = "bin";
   start = std::chrono::steady_clock::now();
   {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!db_) return fail();
+    ReadScope reading(*this);
     std::string binSql = std::string(kPartSelect) + " WHERE p.bin_id = (SELECT id FROM bins WHERE x = 0 AND y = 0)";
     Stmt inBin(db_, binSql.c_str());
     while (inBin.step() == SQLITE_ROW) {
@@ -1221,6 +1252,9 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
   phase = "get";
   start = std::chrono::steady_clock::now();
   {
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!db_) return fail();
+    ReadScope reading(*this);
     Part p;
     int64_t id = 0;
     {
@@ -1235,7 +1269,11 @@ Result InventoryDb::benchmark(int count, int cols, int rows, BenchResult &out, s
 
   phase = "delete";
   start = std::chrono::steady_clock::now();
-  if (deleteBenchParts(err) != Result::Ok) return fail();
+  inserted = false;  // being removed here; fail() need not try again
+  {
+    const Result r = deleteBenchParts(err);
+    if (r != Result::Ok) return fail(r);
+  }
   out.deleteMs = elapsedMs(start);
   return Result::Ok;
 }

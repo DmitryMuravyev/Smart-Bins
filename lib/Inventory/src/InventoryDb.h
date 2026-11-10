@@ -282,7 +282,9 @@ class InventoryDb {
   bool replaceFile(const char *path, const char *incoming, const char *previous, std::string &err);
 
   // Inserts `count` generated parts, times a few typical queries, and removes
-  // the parts again. The parts are spread over a cols x rows grid.
+  // the parts again. The parts are spread over a cols x rows grid. Works in
+  // steps that take the lock one at a time, so other calls are served in
+  // between. Result::Busy while writes are held.
   Result benchmark(int count, int cols, int rows, BenchResult &out, std::string &err);
 
 
