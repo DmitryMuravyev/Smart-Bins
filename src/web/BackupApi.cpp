@@ -148,6 +148,26 @@ void releaseWrites(InventoryDb &db) {
   if (writeHolders > 0 && --writeHolders == 0) db.holdWrites(false);
 }
 
+// Counts the parts in a database just swapped in by a restore, for the
+// status line. A plain count(*) through listParts(), not stats(): the full
+// statistics build temporary tables for their distinct counts, and right
+// after the swap the heap is too fragmented for them. They failed with "out
+// of memory" every time on a board without PSRAM, and the page then showed
+// "Parts: undefined". `tries` attempts, `pauseMs` apart, in case even this
+// meets a busy moment; a pause blocks the calling task, so the web server's
+// network task (whose watchdog fires after 5 s) asks for one try only.
+// Returns -1 when every try failed.
+int64_t countRestoredParts(InventoryDb &db, int tries, uint32_t pauseMs) {
+  std::string err;
+  for (int i = 0; i < tries; i++) {
+    if (i > 0) vTaskDelay(pdMS_TO_TICKS(pauseMs));
+    int64_t total = 0;
+    if (db.listParts(0, 0, [](const Part &) {}, total, err) == Result::Ok) return total;
+    ESP_LOGW(TAG, "Counting the restored parts failed: %s", err.c_str());
+  }
+  return -1;
+}
+
 bool writesHeld() {
   std::lock_guard<std::mutex> lock(holdMutex);
   return writeHolders > 0;
@@ -644,8 +664,9 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
 
   JsonDocument doc;
   doc["ok"] = true;
-  inventory::Stats s;
-  if (db.stats(s, err) == Result::Ok) doc["parts"] = s.parts;
+  // Left out when it can't be counted; the page then says nothing about the parts.
+  const int64_t parts = countRestoredParts(db, 1, 0);
+  if (parts >= 0) doc["parts"] = parts;
   doc["photos"] = job->photosRestored;
   doc["photosFailed"] = job->photosFailed;
   if (!job->photoError.empty()) doc["photoError"] = job->photoError;
@@ -664,7 +685,7 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
     }
   }
   doc["restarting"] = restarting;
-  ESP_LOGI(TAG, "Restored: %lld parts, %d photo files (%d failed)%s", (long long)s.parts, job->photosRestored,
+  ESP_LOGI(TAG, "Restored: %lld parts, %d photo files (%d failed)%s", (long long)parts, job->photosRestored,
            job->photosFailed, restarting ? ", settings, restarting" : "");
   endRestore(photos, false);
   sendJson(req, 200, doc);
@@ -1251,20 +1272,8 @@ void cardRestore(PhotoJob &job) {
     return jobError(job, err);
   }
   if (job.db->syncBins(gridCols, gridRows, err) != Result::Ok) ESP_LOGW(TAG, "Bins not synced after the restore: %s", err.c_str());
-  // The part count for the status line, from a plain count(*). The full
-  // statistics (stats()) build temporary tables for their distinct counts,
-  // and right after the swap the heap is too fragmented for them: they
-  // failed with "out of memory" every time on a board without PSRAM. A few
-  // tries, a moment apart, in case even this meets a busy moment.
-  for (int i = 0; i < 4; i++) {
-    int64_t total = 0;
-    if (job.db->listParts(0, 0, [](const Part &) {}, total, err) == Result::Ok) {
-      job.parts = total;
-      break;
-    }
-    ESP_LOGW(TAG, "Counting the restored parts failed: %s", err.c_str());
-    vTaskDelay(pdMS_TO_TICKS(500));
-  }
+  // The part count for the status line (see countRestoredParts()).
+  job.parts = countRestoredParts(*job.db, 4, 500);
   ESP_LOGI(TAG, "Database restored from the card: %s, %lld parts", source.c_str(), (long long)job.parts);
   if (!job.settingsWanted || !jobConfig) return;
   // The settings saved beside the copy, as a restore from a file does with

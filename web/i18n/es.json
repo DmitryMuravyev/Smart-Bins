@@ -228,6 +228,7 @@
   "backup.restoreConfirmSettings": "¿Sustituir todas las piezas y los ajustes por los de «{file}»? Después el dispositivo se reinicia. La base de datos actual se conserva.",
   "backup.uploading": "Subiendo… {pct}%",
   "backup.restored": "Restaurado. Piezas: {parts}, archivos de fotos: {photos}.",
+  "backup.restoredPhotosOnly": "Restaurado. Archivos de fotos: {photos}.",
   "backup.photosFailed": "Archivos de fotos no añadidos: {n} ({error}).",
   "backup.settingsFailed": "Los ajustes no se restauraron: {error}",
   "backup.restoreFailed": "La restauración falló: {error}",

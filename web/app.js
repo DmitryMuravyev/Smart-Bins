@@ -2539,11 +2539,15 @@ async function restoreBackup(file) {
       f => { status.textContent = t('backup.uploading', { pct: Math.round(f * 100) }); });
     if (!res.ok) throw new Error((res.body && res.body.error) || `${res.status}`);
     const r = res.body;
-    let text = t('backup.restored', { parts: r.parts, photos: r.photos });
+    // The board leaves `parts` out when it couldn't count them (short of
+    // memory right after the swap); the line then gives the photo files only.
+    let text = r.parts === undefined
+      ? t('backup.restoredPhotosOnly', { photos: r.photos })
+      : t('backup.restored', { parts: r.parts, photos: r.photos });
     if (r.photosFailed) text += ` ${t('backup.photosFailed', { n: r.photosFailed, error: r.photoError || '' })}`;
     if (r.settingsError) text += ` ${t('backup.settingsFailed', { error: r.settingsError })}`;
-    status.textContent = text;
     if (r.settingsMissing) text += ` ${t('backup.noSettings')}`;
+    status.textContent = text;
     status.classList.toggle('err', !!(r.photosFailed || r.settingsError || r.settingsMissing));
     if (r.restarting) return waitForRestart();
     refreshAfterRestore();
