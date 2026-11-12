@@ -38,7 +38,6 @@ struct GridConfig {
   uint8_t pixelsPerBin = 2;
   Chipset chipset = Chipset::WS2815;
   char colorOrder[4] = "GRB";
-  uint8_t voltage = 12;  // strip supply: 5, 12 or 24 V (used for the power limit)
   Layout layout = Layout::Serpentine;
   StartCorner start = StartCorner::TopLeft;
   uint8_t segments = 1;  // 1 = data A only, 2 = data A + B
@@ -61,11 +60,15 @@ constexpr int kMaxLightPixels = 1000;  // per addressable work strip
 //   white        `maxBrightness` only
 //   rgb          W1, W2 and W3 together drive one analog RGB strip (R, G, B);
 //                the group uses W1's `maxBrightness`
-//   addressable  every field; the strip's data line is this channel's pin
+//   addressable  every field but `maxBrightness`; the strip's data line is
+//                this channel's pin
 struct LightConfig {
   LightMode mode = LightMode::Off;
-  // Output at 100 % in the UI, 0..255. Lets a strip that is too bright for the
-  // room be capped once instead of never using the top of the slider.
+  // Output at 100 % in the UI, 0..255, for white and RGB channels: a PWM
+  // channel has no current estimate, so this is the only way to keep a strip
+  // that is too bright for the room, or too much for its supply, below full
+  // output. Not used by addressable strips: their current limit
+  // (currentLimitMa) caps them.
   uint8_t maxBrightness = 255;
   uint16_t pixels = 60;
   Chipset chipset = Chipset::WS2812B;

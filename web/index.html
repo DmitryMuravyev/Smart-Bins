@@ -278,10 +278,19 @@
       <button id="ip-save" data-i18n="settings.saveRestart">Save and restart</button>
       <p class="muted small" data-i18n="settings.ipHint">If the board can't be reached after a change, hold its BOOT button for 5s: it forgets the Wi-Fi network and goes back to an automatic address.</p>
     </div>
-    <!-- Hardware: the grid, the work lights, the microphone and the
-         pin map. Each section is folded until opened; saving any of them
-         writes config.json (the board checks every field again) and
-         restarts, since strips and pins are set up at boot. -->
+    <!-- Hardware: settings common to all lights, the grid, the work lights,
+         the microphone and the pin map, the motion sensor. Each section is
+         folded until opened. One "Save and restart" (the bar below them, shown
+         once something has changed) saves all sections together: it writes
+         config.json (the board checks every field again) and restarts, since
+         strips and pins are set up at boot. -->
+    <details class="card hw" id="hw-common">
+      <summary data-i18n="hw.common">Common</summary>
+      <div class="hw-fields">
+        <label><span class="label-long" data-i18n="hw.fade">Fade time, ms</span><span class="label-short" data-i18n="hw.fadeShort">Fade, ms</span><input type="number" id="hw-fade" min="0" max="5000" step="50" inputmode="numeric"></label>
+      </div>
+      <p class="muted small" data-i18n="hw.fadeHint">How long every change takes to blend in, on the grid and on all work lights: switching on and off, brightness, colors and effects.</p>
+    </details>
     <details class="card hw" id="hw-grid">
       <summary data-i18n="hw.grid">LED grid</summary>
       <div class="hw-fields">
@@ -315,24 +324,18 @@
       <div class="hw-fields">
         <label><span data-i18n="hw.chipset">LED type</span><select id="hw-chipset" class="chipset"></select></label>
         <label><span data-i18n="hw.order">Color order</span><select id="hw-order" class="color-order"></select></label>
-        <label><span data-i18n="hw.voltage">Supply</span>
-          <select id="hw-voltage"><option value="5">5V</option><option value="12">12V</option><option value="24">24V</option></select></label>
         <label><span class="label-long" data-i18n="hw.current">Current limit, mA</span><span class="label-short" data-i18n="hw.currentShort">Max. current, mA</span><input type="number" id="hw-current" min="100" max="30000" step="100" inputmode="numeric"></label>
         <label><span class="label-long" data-i18n="hw.pixelMa">Current per pixel, mA</span><span class="label-short" data-i18n="hw.pixelMaShort">mA per pixel</span><input type="number" id="hw-pixel-ma" min="1" max="255" inputmode="numeric"></label>
-        <label><span class="label-long" data-i18n="hw.fade">Fade time, ms</span><span class="label-short" data-i18n="hw.fadeShort">Fade, ms</span><input type="number" id="hw-fade" min="0" max="5000" step="50" inputmode="numeric"></label>
       </div>
       <label class="check"><input type="checkbox" id="hw-invert"><span data-i18n="hw.invert">Inverted data (single-transistor level shifter)</span></label>
       <!-- Measuring the real current per pixel: full white past the limit. -->
       <div class="buttons"><button type="button" class="secondary" id="hw-grid-white" data-i18n="hw.whiteTest">Full white test</button></div>
       <p class="muted small" data-i18n="hw.whiteHint"></p>
-      <button id="hw-grid-save" data-i18n="settings.saveRestart">Save and restart</button>
     </details>
     <details class="card hw" id="hw-lights">
       <summary data-i18n="hw.lights">Work lights</summary>
       <label class="check"><input type="checkbox" id="hw-rgb"><span data-i18n="hw.rgbGroup">W1, W2 and W3 drive one analog RGB strip</span></label>
       <div id="hw-light-list"></div>
-      <p class="muted small" data-i18n="hw.whiteHint"></p>
-      <button id="hw-lights-save" data-i18n="settings.saveRestart">Save and restart</button>
     </details>
     <details class="card hw" id="hw-pins">
       <summary data-i18n="hw.pins">Microphone and pins</summary>
@@ -347,7 +350,6 @@
       <p class="muted small" data-i18n="hw.pinsHint">GPIO for each function. Pins the board can't use for it are left out of each list.</p>
       <div class="pin-list" id="hw-pin-list"></div>
       <div class="buttons">
-        <button id="hw-pins-save" data-i18n="settings.saveRestart">Save and restart</button>
         <button class="secondary" id="hw-pins-defaults" data-i18n="hw.pinsDefaults">Default pins</button>
       </div>
       <p class="notice"><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.pinsWarn">If the board stops responding after a pin change, hold its BOOT button for 10s: that restores all settings, including the default pins.</span></p>
@@ -364,10 +366,14 @@
       </div>
       <p class="muted small" data-i18n="hw.motionDelays">The sensor has to see someone for the whole on delay, so passing by doesn't switch the lights on. Lights switched by hand stay as they are until the next arrival or departure.</p>
       <p class="notice" id="hw-motion-mic" hidden><span class="ico warn" aria-hidden="true">&#9888;&#xFE0E;</span><span data-i18n="hw.motionMic">The analog microphone uses the same pin. Saving switches the microphone to none.</span></p>
-      <div class="buttons">
-        <button id="hw-motion-save" data-i18n="settings.saveRestart">Save and restart</button>
-      </div>
     </details>
+    <!-- One save for every hardware section above. Hidden until a field in
+         them changes; then it stays at the bottom of the screen while the
+         page scrolls, so the whole setup can be filled in and saved at once. -->
+    <div class="hw-savebar" id="hw-savebar" hidden>
+      <span class="small" id="hw-save-note" data-i18n="hw.unsaved">Hardware settings changed</span>
+      <button id="hw-save" data-i18n="settings.saveRestart">Save and restart</button>
+    </div>
     <details class="card">
       <summary data-i18n="settings.advanced">Advanced: configuration file</summary>
       <p class="muted small" data-i18n="settings.advancedHint">Edit config.json directly. Saving checks every field and restarts the device.</p>

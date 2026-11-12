@@ -82,7 +82,8 @@ bool WorkLights::begin(const config::AppConfig &cfg, const int8_t (&pins)[config
     Light &l = lights_[count_];
     l.type = lc.mode;
     l.channel = static_cast<uint8_t>(ch);
-    l.maxBrightness = lc.maxBrightness;
+    // Addressable strips have their current limit instead (see LightConfig).
+    l.maxBrightness = lc.mode == config::LightMode::Addressable ? 255 : lc.maxBrightness;
 
     if (lc.mode == config::LightMode::Addressable) {
       l.chip = chipInfo(lc.chipset);

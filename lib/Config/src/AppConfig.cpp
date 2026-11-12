@@ -323,8 +323,9 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.integer(grid["pixelsPerBin"], "grid.pixelsPerBin", 1, 8, g.pixelsPerBin);
   r.choice(grid["chipset"], "grid.chipset", kChipsets, g.chipset);
   r.text(grid["colorOrder"], "grid.colorOrder", g.colorOrder, sizeof(g.colorOrder));
-  r.integer(grid["voltage"], "grid.voltage", 5, 24, g.voltage);
-  if (r.ok() && g.voltage != 5 && g.voltage != 12 && g.voltage != 24) r.fail("grid.voltage", "must be 5, 12 or 24");
+  // grid.voltage (the strip supply, 0.16.0 and earlier) is no longer read:
+  // nothing used it. A file that still has it loads as before, and the next
+  // save leaves it out.
   r.choice(grid["layout"], "grid.layout", kLayouts, g.layout);
   r.choice(grid["start"], "grid.start", kCorners, g.start);
   r.integer(grid["segments"], "grid.segments", 1, 2, g.segments);
@@ -462,7 +463,6 @@ std::string serialize(const AppConfig &cfg) {
   grid["pixelsPerBin"] = g.pixelsPerBin;
   grid["chipset"] = toString(g.chipset);
   grid["colorOrder"] = g.colorOrder;
-  grid["voltage"] = g.voltage;
   grid["layout"] = toString(g.layout);
   grid["start"] = toString(g.start);
   grid["segments"] = g.segments;

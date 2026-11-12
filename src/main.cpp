@@ -160,8 +160,8 @@ void openInventory(const sb::config::AppConfig &cfg) {
 void logConfig(const sb::config::AppConfig &cfg) {
   const auto &g = cfg.grid;
   ESP_LOGI(TAG, "Device \"%s\", language %s", cfg.deviceName, cfg.language);
-  ESP_LOGI(TAG, "Grid %ux%u bins, %u px/bin = %d px, %s %s %uV, %s from %s, %u segment(s)", g.cols, g.rows,
-           g.pixelsPerBin, sb::config::gridPixels(g), sb::config::toString(g.chipset), g.colorOrder, g.voltage,
+  ESP_LOGI(TAG, "Grid %ux%u bins, %u px/bin = %d px, %s %s, %s from %s, %u segment(s)", g.cols, g.rows,
+           g.pixelsPerBin, sb::config::gridPixels(g), sb::config::toString(g.chipset), g.colorOrder,
            sb::config::toString(g.layout), sb::config::toString(g.start), g.segments);
   for (int i = 0; i < sb::config::kLightChannels; i++) {
     const auto &l = cfg.lights[i];
