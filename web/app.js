@@ -1836,7 +1836,6 @@ function renderHardware() {
   $('#hw-split').value = g.splitRow;
   fillSelect($('#hw-chipset'), CHIPSETS, g.chipset);
   fillSelect($('#hw-order'), COLOR_ORDERS, g.colorOrder);
-  $('#hw-voltage').value = String(g.voltage);
   $('#hw-current').value = g.currentLimitMa;
   $('#hw-pixel-ma').value = g.pixelMa || '';
   $('#hw-pixel-ma').placeholder = pixelMaDefault(g.chipset);
@@ -1844,8 +1843,62 @@ function renderHardware() {
   $('#hw-invert').checked = !!g.invertData;
   renderGridPreview();
   renderLightFields();
-  renderPinFields();
+  // The motion sensor first: the pin list shows the analog microphone's pin
+  // while the sensor's box is ticked (see motionOn()).
   renderMotionFields();
+  renderPinFields();
+  updateMotionFields();  // its notice follows the microphone choice, set just now
+  setHwDirty(false);
+}
+
+// ---- Saving the hardware sections ----
+//
+// One "Save and restart" for all of them: the bar below the sections shows
+// up as soon as a field in any of them changes and stays at the bottom of the
+// screen, so a first setup (grid, work lights, pins, sensor) is filled in
+// completely and saved with one restart. Each section adds its part to the
+// configuration read fresh from the board (applyCommon(), applyGrid(), ...);
+// what the page doesn't show (e.g. the grid's supply voltage) stays as it is.
+
+let hwDirty = false;
+// What blocks saving, per section ('' = nothing): the grid's size and
+// wiring, a GPIO chosen twice.
+const hwProblems = { grid: '', pins: '' };
+
+function setHwDirty(dirty) {
+  hwDirty = dirty;
+  updateSaveBar();
+}
+
+function hwProblem() {
+  return hwProblems.grid || hwProblems.pins;
+}
+
+function updateSaveBar() {
+  const problem = hwProblem();
+  $('#hw-savebar').hidden = !hwDirty;
+  $('#hw-save').disabled = !!problem;
+  const note = $('#hw-save-note');
+  note.textContent = problem || t('hw.unsaved');
+  note.classList.toggle('err', !!problem);
+}
+
+async function saveHardware() {
+  const problem = hwProblem() || motionProblem();
+  if (problem) return toast(problem, true);
+  const cfg = await attempt(() => api('/api/config'));
+  if (!cfg) return;
+  applyCommon(cfg);
+  applyGrid(cfg);
+  applyLights(cfg);
+  applyPins(cfg);
+  applyMotion(cfg);  // after the pins: the sensor may take the analog microphone's pin
+  await saveAndRestart(cfg);
+}
+
+// Common: what applies to the grid and the work lights alike.
+function applyCommon(cfg) {
+  cfg.fadeMs = intValue($('#hw-fade'));
 }
 
 // The grid as the form describes it now (not yet saved).
@@ -1899,7 +1952,8 @@ function renderGridPreview() {
   const problem = gridProblem(g);
   const summary = $('#hw-grid-summary');
   summary.classList.toggle('err', !!problem);
-  $('#hw-grid-save').disabled = !!problem;
+  hwProblems.grid = problem;
+  updateSaveBar();
   if (problem) {
     summary.textContent = problem;
     $('#hw-preview').replaceChildren();
@@ -1941,23 +1995,18 @@ function renderGridPreview() {
   $('#hw-preview').innerHTML = svg;
 }
 
-async function saveGrid() {
+// The grid's fields. The supply voltage isn't among them: nothing on the
+// board uses it, so it stays in config.json as it was.
+function applyGrid(cfg) {
   const g = gridForm();
-  const problem = gridProblem(g);
-  if (problem) return toast(problem, true);
-  const cfg = await attempt(() => api('/api/config'));
-  if (!cfg) return;
   Object.assign(cfg.grid, g, {
     chipset: $('#hw-chipset').value,
     colorOrder: $('#hw-order').value,
-    voltage: intValue($('#hw-voltage')),
     currentLimitMa: intValue($('#hw-current')),
     pixelMa: pixelMaValue($('#hw-pixel-ma')),
     invertData: $('#hw-invert').checked,
   });
   if (g.segments !== 2) cfg.grid.splitRow = Math.min(cfg.grid.splitRow, Math.max(1, g.rows - 1));
-  cfg.fadeMs = intValue($('#hw-fade'));
-  await saveAndRestart(cfg);
 }
 
 // The current per pixel at full white (config pixelMa). An empty field
@@ -2036,7 +2085,8 @@ function renderLightFields() {
         <label class="hw-addr"><span class="label-long">${t('hw.pixelMa')}</span><span class="label-short">${t('hw.pixelMaShort')}</span><input type="number" class="hw-pma" min="1" max="255" inputmode="numeric"></label>
       </div>
       <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>
-      <div class="buttons hw-addr"><button type="button" class="secondary hw-white">${t('hw.whiteTest')}</button></div>`;
+      <div class="buttons hw-addr"><button type="button" class="secondary hw-white">${t('hw.whiteTest')}</button></div>
+      <p class="muted small hw-addr">${t('hw.whiteHint')}</p>`;
     fillSelect($('.hw-mode', box), modes, modes.includes(l.mode) ? l.mode : (l.mode === 'rgb' ? 'white' : 'off'),
       m => t(`hw.mode.${m}`));
     $('.hw-maxb', box).value = Math.max(1, Math.round(l.maxBrightness * 100 / 255));
@@ -2070,9 +2120,7 @@ function updateLightFields() {
   }
 }
 
-async function saveLights() {
-  const cfg = await attempt(() => api('/api/config'));
-  if (!cfg) return;
+function applyLights(cfg) {
   const rgb = $('#hw-rgb').checked;
   cfg.lights = $$('#hw-light-list .hw-light').map(box => {
     const i = Number(box.dataset.channel);
@@ -2090,7 +2138,6 @@ async function saveLights() {
       invertData: $('.hw-inv', box).checked,
     };
   });
-  await saveAndRestart(cfg);
 }
 
 // Pin map: one choice per function, offering only the GPIOs the board
@@ -2137,10 +2184,10 @@ function renderPinFields() {
   checkPins();
 }
 
-// The motion sensor is on in the saved configuration: it reads the analog
-// microphone's pin, which then stays in the pin list.
+// The motion sensor's box is ticked: it reads the analog microphone's pin,
+// which then stays in the pin list (and is saved with the pins).
 function motionOn() {
-  return !!(state.config && state.config.motion && state.config.motion.enabled);
+  return $('#hw-motion-on').checked;
 }
 
 // Only the pins of the chosen microphone are shown (none when the board
@@ -2173,15 +2220,12 @@ function checkPins() {
       used.set(g, row);
     }
   }
-  $('#hw-pins-save').disabled = !!problem;
+  hwProblems.pins = problem;
+  updateSaveBar();
   return problem;
 }
 
-async function savePins() {
-  const problem = checkPins();
-  if (problem) return toast(problem, true);
-  const cfg = await attempt(() => api('/api/config'));
-  if (!cfg) return;
+function applyPins(cfg) {
   cfg.microphone = $('#hw-mic').value;
   cfg.pins = {};
   for (const row of $$('#hw-pin-list .pin-row')) {
@@ -2198,7 +2242,6 @@ async function savePins() {
     // A hidden microphone pin is set free, so it can't clash with anything.
     cfg.pins[row.dataset.pin] = row.hidden ? -1 : Number(sel.value);
   }
-  await saveAndRestart(cfg);
 }
 
 // Motion sensor (Settings): on/off and the two delays. Its output is read on
@@ -2215,17 +2258,26 @@ function renderMotionFields() {
 function updateMotionFields() {
   const on = $('#hw-motion-on').checked;
   for (const el of [$('#hw-motion-delay-on'), $('#hw-motion-delay-off')]) el.disabled = !on;
-  const analogMic = state.config && state.config.microphone === 'analog';
+  // The microphone as chosen in the form (Microphone and pins), saved or not.
+  const analogMic = $('#hw-mic').value === 'analog';
   $('#hw-motion-mic').hidden = !(on && analogMic);
 }
 
-async function saveMotion() {
+// The delays are checked only while the sensor is on: off, their fields
+// are greyed out and the saved values stay.
+function motionProblem() {
+  if (!$('#hw-motion-on').checked) return '';
   const onS = Number($('#hw-motion-delay-on').value), offMin = Number($('#hw-motion-delay-off').value);
-  if (!(onS >= 1 && onS <= 60) || !(offMin >= 1 && offMin <= 240)) return toast(t('hw.motionRange'), true);
-  const cfg = await attempt(() => api('/api/config'));
-  if (!cfg) return;
+  return onS >= 1 && onS <= 60 && offMin >= 1 && offMin <= 240 ? '' : t('hw.motionRange');
+}
+
+function applyMotion(cfg) {
   const on = $('#hw-motion-on').checked;
-  cfg.motion = { enabled: on, onDelayS: Math.round(onS), offDelayMin: Math.round(offMin) };
+  const old = cfg.motion || { onDelayS: 5, offDelayMin: 5 };
+  cfg.motion = on
+    ? { enabled: true, onDelayS: Math.round(Number($('#hw-motion-delay-on').value)),
+      offDelayMin: Math.round(Number($('#hw-motion-delay-off').value)) }
+    : { ...old, enabled: false };
   // The sensor takes the analog microphone's pin.
   if (on && cfg.microphone === 'analog') cfg.microphone = 'off';
   // A pin for the sensor: the default one if the microphone had freed it.
@@ -2233,12 +2285,12 @@ async function saveMotion() {
     const def = state.pins && state.pins.pins.find(p => p.name === 'mic_analog');
     if (def) cfg.pins.mic_analog = def.default;
   }
-  await saveAndRestart(cfg);
 }
 
 function defaultPins() {
   for (const sel of $$('#hw-pin-list .pin-gpio')) sel.value = sel.dataset.default;
   checkPins();
+  setHwDirty(true);  // set from the page, not by a field's own event
 }
 
 // The Photos line of the System page: how many there are and where. With a
@@ -2925,15 +2977,19 @@ function bindControls() {
   for (const id of ['hw-cols', 'hw-rows', 'hw-ppb', 'hw-layout', 'hw-start', 'hw-segments', 'hw-split']) {
     $(`#${id}`).addEventListener('input', renderGridPreview);
   }
-  $('#hw-grid-save').addEventListener('click', saveGrid);
   $('#hw-grid-white').addEventListener('click', gridWhiteTest);
   $('#hw-chipset').addEventListener('change', e => { $('#hw-pixel-ma').placeholder = pixelMaDefault(e.target.value); });
   $('#hw-rgb').addEventListener('change', updateLightFields);
-  $('#hw-lights-save').addEventListener('click', saveLights);
-  $('#hw-mic').addEventListener('change', updateMicPins);
-  $('#hw-pins-save').addEventListener('click', savePins);
-  $('#hw-motion-on').addEventListener('change', updateMotionFields);
-  $('#hw-motion-save').addEventListener('click', saveMotion);
+  $('#hw-mic').addEventListener('change', () => { updateMicPins(); updateMotionFields(); });
+  // The sensor's pin shows in the pin list while its box is ticked.
+  $('#hw-motion-on').addEventListener('change', () => { updateMotionFields(); updateMicPins(); });
+  // Any change in a hardware section brings up the save bar (fields built
+  // later, like the work lights' and the pins', are covered too: the events
+  // bubble up to their section).
+  for (const sec of $$('#page-settings details.hw')) {
+    for (const type of ['input', 'change']) sec.addEventListener(type, () => setHwDirty(true));
+  }
+  $('#hw-save').addEventListener('click', saveHardware);
   $('#hw-pins-defaults').addEventListener('click', defaultPins);
   $('#firmware-file').addEventListener('change', pickFirmware);
   $('#firmware-upload').addEventListener('click', installFirmware);

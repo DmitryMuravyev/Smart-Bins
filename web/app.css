@@ -380,6 +380,18 @@ details.hw[open] summary { margin-bottom: 8px; }
 .hw-light-head { display: flex; align-items: center; gap: 12px; }
 .hw-light-head select { flex: 1; }
 .hw-light .check[hidden] { display: none; }
+.hw-light .muted[hidden] { display: none; }
+/* The one save for all hardware sections: shown once a field changed, then
+   kept in view at the bottom of the screen (above the tab bar on a phone)
+   while the page scrolls. */
+.hw-savebar { position: sticky; bottom: calc(var(--tabbar) + env(safe-area-inset-bottom) + 8px); z-index: 4;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0;
+  padding: 10px 12px 10px 16px; background: var(--card); border: 1px solid var(--accent); border-radius: var(--radius);
+  box-shadow: 0 4px 16px rgb(0 0 0 / .15); }
+.hw-savebar[hidden] { display: none; }
+.hw-savebar span { min-width: 0; }
+.hw-savebar button { flex: none; margin: 0; }
+@media (min-width: 760px) { .hw-savebar { bottom: 16px; } }
 /* Pin map: function name and GPIO side by side, a clash shown in red. */
 .pin-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 16px; margin: 8px 0 12px; }
 .pin-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 14px; }
