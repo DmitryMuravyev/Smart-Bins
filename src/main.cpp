@@ -70,6 +70,26 @@ AsyncWebServer server(80);
 volatile uint32_t restartAt = 0;
 void scheduleRestart() { restartAt = millis() + 1000; }
 
+// Longest wait for the lights to go dark before a restart: their shutdown
+// fade (at most 1s, kShutdownFadeMs) plus a margin. Past it the restart goes
+// ahead anyway.
+constexpr uint32_t kRestartDarkMs = 3000;
+
+// Before every restart from here: fades the grid and the work lights to dark
+// and switches their strips off (see LedEngine::shutdown()), so a restart
+// doesn't leave the last picture latched in the pixels or light the end of a
+// strip with a frame cut short. Runs on the loop task, which the restart
+// ends anyway; the web server keeps answering meanwhile.
+void darkenForRestart() {
+  leds.shutdown();
+  workLights.shutdown();
+  const uint32_t start = millis();
+  while (!(leds.shutDown() && workLights.shutDown()) && millis() - start < kRestartDarkMs) {
+    sb::health::loopAlive();
+    delay(10);
+  }
+}
+
 // Set when the password changes (network task); loop() passes the new hash to
 // ArduinoOTA, so the OTA library is only ever touched from the main loop.
 volatile bool otaHashChanged = false;
@@ -176,6 +196,7 @@ void handleButton() {
       configStore.erase();
       security.erase();
       network.forgetCredentials();
+      darkenForRestart();
       delay(200);
       ESP.restart();
     } else if (held >= kWifiResetHoldMs) {
@@ -188,6 +209,7 @@ void handleButton() {
         cfg.network.staticIp = false;
         std::string err;
         configStore.save(cfg, err);
+        darkenForRestart();
         delay(200);
         ESP.restart();
       }
@@ -355,6 +377,7 @@ void loop() {
   sb::health::loopAlive();
   if (restartAt && (int32_t)(millis() - restartAt) >= 0) {
     configStore.flush();  // a change a page made just before (see ConfigStore::update())
+    darkenForRestart();
     ESP.restart();
   }
   configStore.loop();

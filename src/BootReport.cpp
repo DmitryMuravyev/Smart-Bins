@@ -66,8 +66,8 @@ static void printFlashInfo() {
     case FM_DOUT: mode = "DOUT"; break;
     default: break;
   }
-  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb), %lu MHz, %s", fmt(physical), fmt(built),
-           SB_FLASH_MB, (unsigned long)(ESP.getFlashChipSpeed() / 1000000), mode);
+  ESP_LOGI(TAG, "Flash: %s detected, firmware built for %s (env esp32-%dmb%s), %lu MHz, %s", fmt(physical),
+           fmt(built), SB_FLASH_MB, mem::kPsram ? "-psram" : "", (unsigned long)(ESP.getFlashChipSpeed() / 1000000), mode);
   if (physical == 0 || built == 0 || physical == built) {
     return;
   }

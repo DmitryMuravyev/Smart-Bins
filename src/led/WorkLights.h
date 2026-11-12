@@ -98,6 +98,16 @@ class WorkLights {
   // page keeps showing (and saving) what the user set.
   void setMaster(bool on);
   bool master();
+  // Before a restart: fades every light to dark (their saved states stay as
+  // they are), writes a state change that hasn't been saved yet, and opens
+  // the strips' power switch as soon as they are dark (dark frame first, see
+  // setStripPower()). The master switch can't light them again after it.
+  void shutdown();
+  // True once shutdown() has finished: all lights dark, strips switched off,
+  // the state saved.
+  bool shutDown();
+  // Longest fade-out shutdown() takes, whatever the fade time.
+  static constexpr uint32_t kShutdownFadeMs = 1000;
   // Increases with every state change; the WebSocket pushes the lights when it moves.
   uint32_t version() const { return version_; }
   // Increases whenever an addressable light's current estimate (or whether
@@ -169,6 +179,9 @@ class WorkLights {
   int powerPin_ = -1;
   PowerSupply *supply_ = nullptr;
   bool master_ = true;
+  bool shuttingDown_ = false;  // shutdown(): set once, never cleared
+  bool plainLit_ = false;      // a PWM light is (or is heading) on, as of the last pass
+  bool saving_ = false;        // save() is running outside the lock
   bool hasStrips_ = false;
   bool powered_ = false;
   uint32_t poweredAt_ = 0;
