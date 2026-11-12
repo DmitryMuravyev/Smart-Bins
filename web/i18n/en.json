@@ -228,6 +228,7 @@
   "backup.restoreConfirmSettings": "Replace all parts and the settings with those in \"{file}\"? The device restarts afterwards. The current database is kept.",
   "backup.uploading": "Uploading… {pct}%",
   "backup.restored": "Restored. Parts: {parts}, photo files: {photos}.",
+  "backup.restoredPhotosOnly": "Restored. Photo files: {photos}.",
   "backup.photosFailed": "Photo files not added: {n} ({error}).",
   "backup.settingsFailed": "The settings were not restored: {error}",
   "backup.restoreFailed": "Restore failed: {error}",

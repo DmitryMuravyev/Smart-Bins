@@ -228,6 +228,7 @@
   "backup.restoreConfirmSettings": "Заменить все компоненты и настройки содержимым «{file}»? После этого устройство перезагрузится. Текущая база данных сохранится.",
   "backup.uploading": "Загрузка… {pct}%",
   "backup.restored": "Восстановлено. Компонентов: {parts}, файлов фото: {photos}.",
+  "backup.restoredPhotosOnly": "Восстановлено. Файлов фото: {photos}.",
   "backup.photosFailed": "Не добавлено файлов фото: {n} ({error}).",
   "backup.settingsFailed": "Настройки не восстановлены: {error}",
   "backup.restoreFailed": "Восстановление не удалось: {error}",
