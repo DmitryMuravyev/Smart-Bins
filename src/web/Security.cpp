@@ -26,8 +26,11 @@ void Security::begin(AsyncWebServer &server) {
   Preferences prefs;
   // Read-write, so the namespace is created instead of logging an error on first boot.
   if (prefs.begin(kPrefsNamespace, false)) {
-    digestHash_ = prefs.getString("digest", "");
-    otaHash_ = prefs.getString("ota", "");
+    // isKey() first: without a password the keys don't exist, and
+    // getString() would log an error ("nvs_get_str len fail: ... NOT_FOUND")
+    // for that normal case at every boot.
+    if (prefs.isKey("digest")) digestHash_ = prefs.getString("digest", "");
+    if (prefs.isKey("ota")) otaHash_ = prefs.getString("ota", "");
     prefs.end();
   }
   newToken();
