@@ -277,6 +277,19 @@ void LedEngine::setMaster(bool on) {
   master_.set(on ? 255 : 0, effectMillis(), cfg_.fadeMs);
 }
 
+void LedEngine::shutdown() {
+  Lock lock(lock_);
+  if (shuttingDown_) return;
+  shuttingDown_ = true;
+  // At most kShutdownFadeMs: a long fade time (up to 5s) would hold up the restart.
+  shutdownLevel_.set(0, effectMillis(), std::min<uint32_t>(cfg_.fadeMs, kShutdownFadeMs));
+}
+
+bool LedEngine::shutDown() {
+  Lock lock(lock_);
+  return shuttingDown_ && !powered_;
+}
+
 LedEngine::Status LedEngine::status() {
   Lock lock(lock_);
   return {powered_,    static_cast<uint8_t>(highlights_.size()), test_, estimateMa_, limitLevel_, fps_,
@@ -301,6 +314,7 @@ void LedEngine::run() {
   for (;;) {
     uint32_t now;
     bool wantPower;
+    bool stopping;
     {
       Lock lock(lock_);
       // Read the clock under the lock: locate() and clearLocates() stamp their
@@ -311,6 +325,18 @@ void LedEngine::run() {
       // An effect needs power only while the master switch lets it show
       // (its fade-out keeps the strips lit, which `lit` covers).
       wantPower = test_ != TestPattern::None || !highlights_.empty() || (effects_.active() && master_.target() > 0);
+      // Before a restart (shutdown()): whatever the layers drew fades out,
+      // and nothing asks for power any more.
+      stopping = shuttingDown_;
+      if (stopping) {
+        const uint8_t level = shutdownLevel_.value(now);
+        if (level < 255) {
+          for (Segment &seg : segments_) {
+            for (Rgb &c : seg.pixels) c = scale(c, level);
+          }
+        }
+        wantPower = false;
+      }
     }
     const bool lit = anyLit();
     if (lit) lastLit_ = now;
@@ -320,7 +346,9 @@ void LedEngine::run() {
     // supply's output is up.
     const bool supplyUp = !supply_ || supply_->want(PowerSupply::Grid, wantPower || powered_);
     if (wantPower && !powered_ && supplyUp) setPower(true, now);
-    if (powered_ && !wantPower && !lit && now - lastLit_ > kPowerOffDelayMs) setPower(false, now);
+    // Before a restart the switch opens as soon as the fade-out is done:
+    // the restart follows, so there's nothing to wait for.
+    if (powered_ && !wantPower && !lit && (stopping || now - lastLit_ > kPowerOffDelayMs)) setPower(false, now);
 
     if (powered_ && now - poweredAt_ >= kPowerSettleMs) {
       encodeAndSend(now);

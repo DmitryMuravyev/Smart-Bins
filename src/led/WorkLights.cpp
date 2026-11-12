@@ -210,13 +210,36 @@ bool WorkLights::stripPower() {
 
 void WorkLights::setMaster(bool on) {
   Lock lock(lock_);
-  if (on == master_) return;
+  if (on == master_ || shuttingDown_) return;
   master_ = on;
   const uint32_t now = effectMillis();
   for (uint8_t i = 0; i < count_; i++) lights_[i].level.set(targetLevel(lights_[i]), now, fadeMs_);
   // Not a change of the lights' states (nothing to save), but the pages show
   // whether the master switch has them dark.
   version_ = version_ + 1;
+}
+
+void WorkLights::shutdown() {
+  Lock lock(lock_);
+  if (shuttingDown_) return;
+  shuttingDown_ = true;
+  // master_ off: targetLevel() is 0 for every light from now on, whatever a
+  // page still sends. The lights' own states are untouched (and saved).
+  master_ = false;
+  // At most kShutdownFadeMs: a long fade time (up to 5s) would hold up the restart.
+  const uint32_t now = effectMillis();
+  const uint32_t fade = std::min<uint32_t>(fadeMs_, kShutdownFadeMs);
+  for (uint8_t i = 0; i < count_; i++) {
+    Light &l = lights_[i];
+    l.level.set(0, now, fade);
+    l.whiteTest = false;
+    l.white.set(0, now, fade);
+  }
+}
+
+bool WorkLights::shutDown() {
+  Lock lock(lock_);
+  return shuttingDown_ && !powered_ && !plainLit_ && !dirtySince_ && !saving_;
 }
 
 bool WorkLights::master() {
@@ -425,13 +448,25 @@ void WorkLights::run() {
       const bool supplyUp = !supply_ || supply_->want(PowerSupply::Strips, hasStrips_ && (wantStrips || stripsLit || powered_));
       if (hasStrips_) {
         if ((wantStrips || stripsLit) && !powered_ && supplyUp) setStripPower(true);
-        if (powered_ && !wantStrips && !stripsLit && now - lastLit_ > kPowerOffDelayMs) setStripPower(false);
+        // Before a restart (shutdown()) without the usual pause: the restart follows.
+        if (powered_ && !wantStrips && !stripsLit && (shuttingDown_ || now - lastLit_ > kPowerOffDelayMs)) {
+          setStripPower(false);
+        }
       }
-      saveNow = dirtySince_ && now - dirtySince_ >= kSaveDelayMs;
-      if (saveNow) dirtySince_ = 0;
+      plainLit_ = plainLit;
+      // Before a restart a change is saved at once, so the restart doesn't lose it.
+      saveNow = dirtySince_ && (shuttingDown_ || now - dirtySince_ >= kSaveDelayMs);
+      if (saveNow) {
+        dirtySince_ = 0;
+        saving_ = true;  // shutDown() waits for it
+      }
     }
     // Outside the lock: an NVS write can take tens of milliseconds.
-    if (saveNow) save();
+    if (saveNow) {
+      save();
+      Lock lock(lock_);
+      saving_ = false;
+    }
     waitNextFrame(wake, pdMS_TO_TICKS(anyMoving || powered_ ? kFrameMs : kIdleFrameMs));
   }
 }

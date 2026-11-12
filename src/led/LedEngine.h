@@ -128,6 +128,19 @@ class LedEngine {
   // for by someone at a page, who is there.
   void setMaster(bool on);
 
+  // Before a restart: fades everything the grid shows (effect, located bins,
+  // a test pattern) to dark over the fade time, sends a dark frame and opens
+  // the grid's power switch at once, without the usual pause after the last
+  // fade (see setPower()). Without this the restart cut the strips off
+  // mid-picture: the pixels kept their last colors, and a frame cut short as
+  // the data pin let go lit the end of the strip again. Nothing lights the
+  // grid after it; the restart brings it back.
+  void shutdown();
+  // True once shutdown() has finished: the grid is dark and switched off.
+  bool shutDown();
+  // Longest fade-out shutdown() takes, whatever the fade time.
+  static constexpr uint32_t kShutdownFadeMs = 1000;
+
   Status status();
   const GridMapper &mapper() const { return mapper_; }
 
@@ -178,6 +191,9 @@ class LedEngine {
   Gamma gamma_;
   Fader brightness_;
   Fader master_{255};  // the effect layer's level under the master switch
+  // shutdown(): set once, never cleared; the level all pixels fade out with.
+  bool shuttingDown_ = false;
+  Fader shutdownLevel_{255};
   PowerSupply *supply_ = nullptr;
   int powerPin_ = -1;
 
