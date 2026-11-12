@@ -2076,11 +2076,13 @@ function renderLightFields() {
         <span class="muted small hw-rgb-note" hidden>${t('hw.mode.rgb')}</span></div>
       <div class="hw-fields hw-light-fields">
         <label class="hw-max"><span class="label-long">${t('hw.maxBrightness')}</span><span class="label-short">${t('hw.maxBrightnessShort')}</span><input type="number" class="hw-maxb" min="1" max="100" inputmode="numeric"></label>
+        <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="1000" inputmode="numeric"></label>
+      </div>
+      <div class="hw-fields hw-light-fields hw-addr">
         <label class="hw-addr"><span>${t('hw.chipset')}</span><select class="hw-chip"></select></label>
         <label class="hw-addr"><span>${t('hw.order')}</span><select class="hw-ord"></select></label>
         <label class="hw-addr"><span class="label-long">${t('hw.current')}</span><span class="label-short">${t('hw.currentShort')}</span><input type="number" class="hw-cur" min="100" max="30000" step="100" inputmode="numeric"></label>
         <label class="hw-addr"><span class="label-long">${t('hw.pixelMa')}</span><span class="label-short">${t('hw.pixelMaShort')}</span><input type="number" class="hw-pma" min="1" max="255" inputmode="numeric"></label>
-        <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="1000" inputmode="numeric"></label>
       </div>
       <label class="check hw-addr"><input type="checkbox" class="hw-inv"><span>${t('hw.invert')}</span></label>
       <div class="buttons hw-addr"><button type="button" class="secondary hw-white">${t('hw.whiteTest')}</button></div>

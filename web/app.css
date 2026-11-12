@@ -355,6 +355,10 @@ details.hw[open] summary { margin-bottom: 8px; }
 .hw-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; margin-top: 8px; }
 .hw-fields label { font-size: 14px; color: var(--muted); min-width: 0; }
 .hw-fields [hidden] { display: none; }
+.hw-fields[hidden] { display: none; }
+/* A work strip's LED fields, a step apart from its pixel count above them
+   (as the grid's sit apart from its size). */
+.hw-light-fields + .hw-light-fields { margin-top: 14px; }
 /* A label with a long and a short form (Maximum / Max. brightness): each
    field measures its own width, and below about 190 px (half a phone held
    upright) the short form is shown, so the label stays on one line. */
