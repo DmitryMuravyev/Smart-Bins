@@ -58,8 +58,11 @@ Built with [PlatformIO](https://platformio.org/) in VS Code, using the Arduino f
 
 1. Install VS Code and the **PlatformIO IDE** extension (VS Code suggests it when you open the folder).
 2. Clone or download this repository and open its folder in VS Code. PlatformIO downloads the toolchain on the first build.
-3. In the PlatformIO status bar, choose the environment for your board: `esp32-4mb`, `esp32-8mb` (default), `esp32-16mb` or `esp32-16mb-psram`.
-4. Connect the board and run **Upload and Monitor**.
+3. In the PlatformIO status bar, choose the environment for your board: `esp32-4mb`, `esp32-8mb` (default), `esp32-16mb` or `esp32-16mb-psram`. The Build and Upload buttons next to it then use that environment. Or open the PlatformIO sidebar (the ant icon) → Project Tasks → your environment → General.
+4. Connect the board and run **Upload and Monitor**. Use USB, not an `-ota` environment, for the first install: only a USB upload writes the bootloader, which sets the flash to 80 MHz QIO.
+5. Check the first lines of the boot log: `Smart Bins firmware` with the version you built, and `firmware built for … (env esp32-…)` with your environment. A PSRAM board also shows a `PSRAM: 2.00 MB` line; `PSRAM: none` means a build without PSRAM support was flashed.
+
+If PlatformIO shows "Cannot read properties of undefined (reading 'id')" on Build, it doesn't know which project or environment to use: open the folder that holds `platformio.ini` (not a folder above it), wait until the status bar stops showing "Loading" or "Configuring", pick the environment, and build from the sidebar. **Developer: Reload Window** (Ctrl+Shift+P) clears it if it stays.
 
 From the command line:
 
