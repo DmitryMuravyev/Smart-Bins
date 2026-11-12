@@ -50,7 +50,7 @@ Every work light: on/off, brightness, and for color lights a color slider, a whi
 - **Device name**: also the network address, `http://NAME.local/`.
 - **Password** (off by default). Once set, the browser asks for it (user name `admin`), and over-the-air updates need it too. The Wi-Fi setup page on the board's own setup network stays open, so a board that lost its Wi-Fi can always be brought back. Forgot it? A 10s BOOT factory reset removes it.
 - **Wi-Fi**: the network, and an automatic (DHCP) or fixed IP address.
-- **LED grid**, **Work lights**, **Microphone and pins**: the hardware settings, see below. Saving restarts the board.
+- **Common**, **LED grid**, **Work lights**, **Microphone and pins**, **Motion sensor**: the hardware settings, see below. They are saved together, and saving restarts the board.
 - **Advanced: configuration file**: `config.json` itself. Saving checks every field and restarts the board.
 
 ### System
@@ -76,7 +76,9 @@ Every work light: on/off, brightness, and for color lights a color slider, a whi
 
 ### Setting up the grid
 
-Under Settings → **LED grid**: columns and rows, pixels per bin (1–8), the wiring (**zigzag** or **every row from the same side**), where the first pixel is, one or two data lines (with two, the first rows go on line A and the rest on line B), the LED type, color order, supply voltage, current limit, current per pixel and fade time. The drawing below the fields shows the wiring order you have chosen; check it against your strip before saving.
+Under Settings → **LED grid**: columns and rows, pixels per bin (1–8), the wiring (**zigzag** or **every row from the same side**), where the first pixel is, one or two data lines (with two, the first rows go on line A and the rest on line B), the LED type, color order, current limit and current per pixel. The drawing below the fields shows the wiring order you have chosen; check it against your strip before saving.
+
+The **fade time** (how long every change blends in, on the grid and on all work lights) is under Settings → **Common**. All hardware sections (Common, LED grid, Work lights, Microphone and pins, Motion sensor) are saved together: once you change a field in any of them, a **Save and restart** bar appears at the bottom of the screen and saves them all with one restart.
 
 **Current per pixel** is what one pixel draws at full white. The firmware uses it to estimate the strip's current and to keep it under the current limit. Left empty, it is the LED type's typical figure from the datasheet, which a real strip often stays well under, so the estimate reads high and the limit dims earlier than it needs to. To measure the real figure, press **Full white test**: every pixel lights at full white for 2 minutes, past the brightness and the current limit. Read the current at the power supply, divide it by the number of pixels, and enter the result.
 
@@ -102,7 +104,7 @@ Under Settings → **Work lights**, each of the five channels is one of:
 | Part of the RGB strip | W1+W2+W3 together | an analog RGB strip: W1 red, W2 green, W3 blue |
 | Addressable strip | W1–W3 | an addressable strip on that channel's data line, powered through the work-strip switch |
 
-**Maximum brightness** caps a channel that is too bright for the room. Addressable channels also take the number of pixels, LED type, color order, current limit and current per pixel, and have their own **Full white test** for measuring it (see [Setting up the grid](#setting-up-the-grid)).
+**Maximum brightness** caps a white or RGB channel that is too bright for the room or too much for its supply. Addressable channels have no maximum brightness, since their current limit caps them; they take the number of pixels, LED type, color order, current limit and current per pixel, and have their own **Full white test** for measuring it (see [Setting up the grid](#setting-up-the-grid)).
 
 ### LED supply on/off (PS-ON)
 

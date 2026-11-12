@@ -29,7 +29,6 @@ static void test_round_trip() {
   strcpy(a.language, "ru");
   a.grid.cols = 8;
   a.grid.chipset = Chipset::WS2812B;
-  a.grid.voltage = 5;
   a.grid.segments = 2;
   a.grid.splitRow = 2;
   a.lights[0].mode = LightMode::Addressable;
@@ -101,7 +100,6 @@ static void test_rejects_bad_values() {
   expectError("{\"grid\":{\"cols\":0}}", "grid.cols");
   expectError("{\"grid\":{\"pixelsPerBin\":9}}", "grid.pixelsPerBin");
   expectError("{\"grid\":{\"chipset\":\"APA102\"}}", "grid.chipset must be one of");
-  expectError("{\"grid\":{\"voltage\":9}}", "grid.voltage");
   expectError("{\"grid\":{\"colorOrder\":\"RRB\"}}", "grid.colorOrder");
   expectError("{\"grid\":{\"segments\":2,\"splitRow\":6}}", "grid.splitRow");
   expectError("{\"device\":{\"name\":\"Smart Bins\"}}", "device.name");

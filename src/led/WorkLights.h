@@ -82,7 +82,7 @@ class WorkLights {
   const char *set(uint8_t id, const Change &change);
   void allOff();
   // Full white on the addressable strip of `channel` (0 = W1), past the
-  // light's level, the maximum brightness and the current limit, to measure
+  // light's level and the current limit, to measure
   // what the strip really draws (config pixelMa). Stops by itself after
   // kWhiteTestMs, or with on = false. The light's own state is untouched and
   // shows again afterwards. Returns nullptr on success, otherwise a message.

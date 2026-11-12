@@ -1858,7 +1858,7 @@ function renderHardware() {
 // screen, so a first setup (grid, work lights, pins, sensor) is filled in
 // completely and saved with one restart. Each section adds its part to the
 // configuration read fresh from the board (applyCommon(), applyGrid(), ...);
-// what the page doesn't show (e.g. the grid's supply voltage) stays as it is.
+// what the page doesn't show stays as it is.
 
 let hwDirty = false;
 // What blocks saving, per section ('' = nothing): the grid's size and
@@ -1995,8 +1995,6 @@ function renderGridPreview() {
   $('#hw-preview').innerHTML = svg;
 }
 
-// The grid's fields. The supply voltage isn't among them: nothing on the
-// board uses it, so it stays in config.json as it was.
 function applyGrid(cfg) {
   const g = gridForm();
   Object.assign(cfg.grid, g, {
@@ -2115,7 +2113,9 @@ function updateLightFields() {
     const mode = grouped ? 'rgb' : $('.hw-mode', box).value;
     $('.hw-mode', box).hidden = grouped;
     $('.hw-rgb-note', box).hidden = !grouped;
-    $('.hw-max', box).hidden = mode === 'off' || (grouped && i > 0);
+    // Max brightness only for plain channels: an addressable strip is capped
+    // by its current limit (see LightConfig in AppConfig.h).
+    $('.hw-max', box).hidden = mode === 'off' || mode === 'addressable' || (grouped && i > 0);
     for (const el of $$('.hw-addr', box)) el.hidden = mode !== 'addressable';
   }
 }
