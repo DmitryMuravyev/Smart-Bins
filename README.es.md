@@ -33,6 +33,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 - Tiras LED direccionables: WS2812 / WS2812B / SK6812 (5 V) o WS2811 / WS2815 (12/24 V)
 - Un adaptador de nivel 74HCT245, interruptores MOSFET, una fuente para los LED (5, 12 o 24 V)
 - Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD, sensor de movimiento LD2410C o PIR
+- Cuántas piezas caben: la base de datos ocupa unos 200 bytes por pieza (301 piezas reales: 56 KB) y puede llenar más o menos la mitad del almacenamiento flash, para que una restauración tenga sitio para la copia nueva. Eso son aproximadamente **3.000 piezas con 4 MB de flash, 8.000 con 8 MB y 25.000 con 16 MB**. Las fotos van en la tarjeta microSD; sin ella comparten el mismo espacio, unos 100 KB cada una.
 
 Esquemas, cableado, lista de componentes y consumo: [docs/hardware/README.md](docs/hardware/README.md) (en inglés).
 

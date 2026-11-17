@@ -138,7 +138,7 @@ void LedEngine::setLocateDefaults(const config::LocateConfig &locate) {
   for (Highlight &h : highlights_) {
     if (h.released) continue;
     if (h.followColor) recolor(h, color, now);
-    if (h.followMode) h.mode = mode;
+    if (h.followMode) repattern(h, mode, now);
   }
 }
 
@@ -153,6 +153,29 @@ void LedEngine::recolor(Highlight &h, Rgb color, uint32_t now) {
   h.colorFrom = highlightColor(h, now);
   h.color = color;
   h.colorAt = now;
+}
+
+uint8_t LedEngine::highlightPulse(const Highlight &h, uint32_t now) const {
+  const uint32_t age = now - h.start;
+  const uint8_t to = pulseLevel(h.mode, age);
+  const uint8_t t = rampUp(now - h.modeAt, cfg_.fadeMs);
+  if (t == 255) return to;
+  // Both patterns keep running on the highlight's own clock (its start), and
+  // the level slides from the old one's to the new one's over the fade time:
+  // steady to a pulse eases into the pulse instead of dropping to its
+  // current point at once, and a pulse to steady rises smoothly to full.
+  const uint8_t from = pulseLevel(h.modeFrom, age);
+  return static_cast<uint8_t>(from + (static_cast<int>(to) - from) * t / 255);
+}
+
+void LedEngine::repattern(Highlight &h, PulseMode mode, uint32_t now) {
+  if (mode == h.mode) return;
+  // A change during a cross-fade starts from the pattern that was more on
+  // show (the old one in its first half, the new one after): the level can
+  // step a little then, but only for a change within the fade time.
+  if (rampUp(now - h.modeAt, cfg_.fadeMs) >= 128) h.modeFrom = h.mode;
+  h.mode = mode;
+  h.modeAt = now;
 }
 
 bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t durationMs, bool followColor,
@@ -171,6 +194,9 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   // A bin that stays lit and changes color cross-fades to the new one.
   Rgb colorFrom = color;
   uint32_t colorAt = now;
+  // ... and to a new pattern.
+  PulseMode modeFrom = mode;
+  uint32_t modeAt = now;
   for (auto it = highlights_.begin(); it != highlights_.end();) {
     if (it->x == x && it->y == y) {
       if (!it->released) {
@@ -179,6 +205,9 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
         recolor(h, color, now);
         colorFrom = h.colorFrom;
         colorAt = h.colorAt;
+        repattern(h, mode, now);
+        modeFrom = h.modeFrom;
+        modeAt = h.modeAt;
       }
       it = highlights_.erase(it);
     } else {
@@ -188,7 +217,8 @@ bool LedEngine::locate(uint8_t x, uint8_t y, Rgb color, PulseMode mode, uint32_t
   if (durationMs) durationMs += now - start;
   // The list is in start order, so when full the oldest highlight makes room.
   if (highlights_.size() >= kMaxHighlights) highlights_.erase(highlights_.begin());
-  highlights_.push_back({x, y, color, mode, start, durationMs, false, 0, followColor, followMode, colorFrom, colorAt});
+  highlights_.push_back(
+      {x, y, color, mode, start, durationMs, false, 0, followColor, followMode, colorFrom, colorAt, modeFrom, modeAt});
   version_ = version_ + 1;
   return true;
 }
@@ -481,7 +511,7 @@ void LedEngine::renderLayers(uint32_t now) {
     }
     // Level = fade-in x pulse x fade-out, each 0..255, renormalised after every product.
     uint32_t level = rampUp(age, fade);
-    level = level * pulseLevel(h.mode, age) / 255;
+    level = level * highlightPulse(h, now) / 255;
     if (h.released) {
       const uint32_t since = now - h.releasedAt;
       if (since >= fade) {  // fully faded out: drop it (erase returns the next element)
