@@ -2715,7 +2715,7 @@ function formatBytes(n) {
 
 function formatUptime(s) {
   const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60;
-  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min ${s % 60} s`;
+  return d ? `${d} d ${h} h ${m} min` : h ? `${h} h ${m} min` : `${m} min ${s % 60} s`;
 }
 
 function renderSystem() {

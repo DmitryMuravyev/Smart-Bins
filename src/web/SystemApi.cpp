@@ -5,6 +5,7 @@
 #include <Update.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
+#include <esp_timer.h>
 
 #include "ApiUtil.h"
 #include "BootReport.h"
@@ -58,7 +59,9 @@ PowerSupply *ledSupply = nullptr;
 void setPowerSupply(PowerSupply *supply) { ledSupply = supply; }
 
 void writeSystemStatus(JsonObject out, WifiLink &network) {
-  out["uptimeS"] = millis() / 1000;
+  // From the 64-bit microsecond timer: millis() is 32-bit and starts over
+  // after 49.7 days.
+  out["uptimeS"] = esp_timer_get_time() / 1000000;
   // The LED supply's main output, when PS-ON is wired: on (switched on) and
   // ready (its output is up, by PG or by time).
   if (ledSupply) {

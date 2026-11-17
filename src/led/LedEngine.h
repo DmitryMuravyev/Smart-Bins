@@ -159,11 +159,19 @@ class LedEngine {
     // the bin shows colorFrom blended into color, starting at colorAt.
     Rgb colorFrom;
     uint32_t colorAt;
+    // A pattern change (steady, slow or fast pulse) cross-fades the same way:
+    // the pulse level blends from modeFrom's into mode's, starting at modeAt.
+    PulseMode modeFrom;
+    uint32_t modeAt;
   };
   // The color a highlight shows at `now` (mid cross-fade, or `color`).
   Rgb highlightColor(const Highlight &h, uint32_t now) const;
   // Gives a lit highlight a new color, cross-fading from what it shows now.
   void recolor(Highlight &h, Rgb color, uint32_t now);
+  // The pulse level (0..255) a highlight shows at `now`, mid cross-fade or not.
+  uint8_t highlightPulse(const Highlight &h, uint32_t now) const;
+  // Gives a lit highlight a new pattern, cross-fading from the old one.
+  void repattern(Highlight &h, PulseMode mode, uint32_t now);
 
   struct Segment {
     RmtStrip strip;
