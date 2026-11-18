@@ -259,15 +259,20 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 
 /* Bin grid: name and part count; empty bins fade back. */
 /* Square cells leave room for two lines: the bin's name and its part count. */
-.grid-view.bins button { position: relative; aspect-ratio: 1; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text); }
+.grid-view.bins { font-size: clamp(9px, 2.6vw, 12px); --bin-min: max(25px, 2.7em); }
+/* Square cells at least 2.7 lines high (--bin-min above, in the grid's font
+   size): the bin's name and its part count always fit on two lines, on a
+   phone and on a desktop, where the text is larger. */
+.grid-view.bins button { font-size: inherit; aspect-ratio: 1; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text); }
 .grid-view.bins button.empty { color: var(--muted); background: var(--bg); }
 /* While searching: the bins that hold results. */
 .grid-view.bins button.hit { background: color-mix(in srgb, var(--accent) 16%, var(--card)); border-color: var(--accent); }
 .bin-name { font-size: 0.85em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
 .bin-count { font-weight: 600; color: var(--accent); }
-/* A lit bin: a dot in the corner, so the counts and search hits stay readable. */
-.grid-view.bins button.lit::after { content: ''; position: absolute; top: 3px; right: 3px; width: 7px; height: 7px;
-  border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px var(--accent); }
+/* A lit bin: filled like on the Grid page, with its count in the same light
+   color as its name (the accent count would vanish on the accent fill). */
+.grid-view.bins button.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.grid-view.bins button.lit .bin-count { color: var(--accent-text); }
 /* A part's bin button while the bin is lit: like the bin on the Grid page. */
 .bin-btn.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 #inv-bins-outside-note { margin: 4px 0 6px; }

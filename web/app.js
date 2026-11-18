@@ -1050,7 +1050,7 @@ function renderBinGrid() {
     count.textContent = n ? String(n) : '';
     cell.append(name, count);
     cell.title = t(inv.binHits ? 'inv.binHitTitle' : 'inv.binTitle', { bin: binLabel(b.x, b.y), n });
-    // A lit bin gets a dot in its corner (see showLitBins()).
+    // A lit bin is filled like on the Grid page (see showLitBins()).
     cell.dataset.bin = `${b.x},${b.y}`;
     cell.classList.toggle('lit', isLit(b.x, b.y));
     cell.addEventListener('click', () => {
