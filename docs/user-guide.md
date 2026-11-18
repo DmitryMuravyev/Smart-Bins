@@ -21,10 +21,10 @@ The **BOOT** button on the board:
 The page works on phones and computers, in English, Spanish and Russian, with a light or dark theme (Settings). Changes made on one phone show up on every other open page at once; the dot in the top bar is green while that live connection is up.
 
 <p>
-<img src="images/settings-dark.png" width="220" alt="Settings, LED grid section, dark theme">
 <img src="images/inventory.png" width="220" alt="Inventory with part cards">
 <img src="images/lights.png" width="220" alt="Work lights">
 <img src="images/grid.png" width="220" alt="Grid page with two lit bins">
+<img src="images/settings-dark.png" width="220" alt="Settings, LED grid section, dark theme">
 </p>
 
 ### Inventory
