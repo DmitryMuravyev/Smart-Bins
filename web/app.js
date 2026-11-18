@@ -2997,6 +2997,9 @@ async function connectLive() {
 // Start-up
 
 function bindControls() {
+  // iPhone browsers apply :active (the pressed look of the part cards and
+  // rows, see app.css) only on pages that listen for touches.
+  document.addEventListener('touchstart', () => {}, { passive: true });
   bindInventory();
   $('#language').addEventListener('change', e => setLanguage(e.target.value));
   $('#theme').value = storedTheme();
