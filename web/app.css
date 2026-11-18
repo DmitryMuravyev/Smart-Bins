@@ -149,10 +149,12 @@ input[type=range] { width: 100%; margin: 6px 0; accent-color: var(--accent); }
 .presets button { width: 34px; height: 34px; padding: 0; border-radius: 50%; border: 1px solid var(--border); }
 
 /* Bin grid: one button per bin, columns set from the configuration. */
-/* Columns are minmax(0, 1fr) (set in app.js), so ten or more bins always fit
-   the width of a phone; overflow only kicks in for very wide grids, where the
-   buttons would otherwise get too small to tap. */
-.grid-view { display: grid; gap: 4px; margin-bottom: 12px; overflow-x: auto; }
+/* Columns are minmax(var(--bin-min), 1fr) (set in app.js): they share the
+   width, so ten bins fit even a 320 px wide phone, but don't get smaller than --bin-min. A
+   wider grid (64 bins across) scrolls sideways, and a very tall one scrolls
+   inside its box, so the controls below stay in reach. */
+.grid-view { --bin-min: 25px; display: grid; gap: 4px; margin-bottom: 12px; overflow: auto; max-height: 70vh;
+  overscroll-behavior: contain; }
 .grid-view button { aspect-ratio: 1.4; min-width: 0; padding: 0; font-size: clamp(10px, 3vw, 13px); background: var(--card);
   color: var(--muted); border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
 .grid-view button.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
@@ -218,6 +220,18 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
    the text keeps the card's full width. */
 .parts { display: grid; gap: 8px; container-type: inline-size; }
 .card.part { display: flex; gap: 12px; margin: 0; padding: 12px; cursor: pointer; }
+/* The card and the table row open the part, so mobile browsers flash the
+   whole of them on any tap inside, also on their quantity and bin buttons
+   and the photo. Their flash is off, and the page draws its own: the card or
+   row tints while pressed, except when the press is on one of its buttons or
+   the photo (they do something else); a pressed button dims instead, so a
+   tap always shows on what it acts on. (:active needs the touchstart
+   listener in app.js on iPhones.) */
+.card.part, .parts-table tbody tr { -webkit-tap-highlight-color: transparent; }
+.card.part:active:not(:has(button:active, .part-thumb:active, a:active)),
+.parts-table tbody tr:active:not(:has(button:active, .part-thumb:active, a:active)) {
+  background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.card.part button:active:not(:disabled), .parts-table tbody tr button:active:not(:disabled) { filter: brightness(0.85); }
 /* flow-root: the card grows to fit the thumbnail when the text is shorter. */
 .part-main { flex: 1; min-width: 0; display: flow-root; }
 .part-title { overflow-wrap: anywhere; }
@@ -257,12 +271,23 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
 
 /* Bin grid: name and part count; empty bins fade back. */
 /* Square cells leave room for two lines: the bin's name and its part count. */
-.grid-view.bins button { aspect-ratio: 1; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text); }
+.grid-view.bins { font-size: clamp(9px, 2.6vw, 12px); --bin-min: max(25px, 2.7em); }
+/* Square cells at least 2.7 lines high (--bin-min above, in the grid's font
+   size): the bin's name and its part count always fit on two lines, on a
+   phone and on a desktop, where the text is larger. */
+.grid-view.bins button { font-size: inherit; aspect-ratio: 1; line-height: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--text); }
 .grid-view.bins button.empty { color: var(--muted); background: var(--bg); }
 /* While searching: the bins that hold results. */
 .grid-view.bins button.hit { background: color-mix(in srgb, var(--accent) 16%, var(--card)); border-color: var(--accent); }
 .bin-name { font-size: 0.85em; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; }
 .bin-count { font-weight: 600; color: var(--accent); }
+/* A lit bin: filled like on the Grid page, with its count in the same light
+   color as its name (the accent count would vanish on the accent fill). */
+.grid-view.bins button.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.grid-view.bins button.lit .bin-count { color: var(--accent-text); }
+/* A part's bin button while the bin is lit: like the bin on the Grid page. */
+.bin-btn.lit { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+#inv-bins-outside-note { margin: 4px 0 6px; }
 #inv-bins-outside button { padding: 6px 10px; background: var(--bg); color: var(--text); border: 1px dashed var(--border); flex-direction: row; }
 
 /* Part form in a modal dialog. */
@@ -370,8 +395,10 @@ details.hw[open] summary { margin-bottom: 8px; }
 }
 .err { color: var(--err); }
 /* The grid preview: bins as seen from the front, the strip's path on top. */
-.hw-preview { margin: 12px 0 4px; overflow-x: auto; }
-.hw-preview svg { display: block; width: 100%; max-height: 360px; }
+/* The drawing keeps a readable size (min/max width set in app.js) and
+   scrolls inside this box when it is wider or taller. */
+.hw-preview { margin: 12px 0 4px; overflow: auto; max-height: 60vh; overscroll-behavior: contain; }
+.hw-preview svg { display: block; width: 100%; height: auto; margin: 0 auto; }
 .hw-bin { fill: var(--bg); stroke: var(--border); }
 .hw-path { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linejoin: round; opacity: .75; }
 .hw-path.b { stroke: var(--warn); stroke-dasharray: 5 3; }

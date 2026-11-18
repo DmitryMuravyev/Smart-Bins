@@ -18,11 +18,11 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 
 ## Funciones
 
-- Cuadrícula de cajones de cualquier tamaño, 1–8 píxeles por cajón, cableada en zigzag o fila a fila, en una o dos líneas de datos; se configura desde el navegador, con patrones de prueba para comprobar el cableado
+- Cuadrícula de hasta 64 × 64 cajones, 1–8 píxeles por cajón y hasta 1.500 píxeles en total (por ejemplo, 64 × 23 cajones con 1 píxel o 187 cajones con 8), cableada en zigzag o fila a fila, en una o dos líneas de datos; se configura desde el navegador, con patrones de prueba para comprobar el cableado
 - Inventario en SQLite en la placa: búsqueda mientras escribe en todos los campos, filtros, orden, botones **+ / −** para la cantidad y una vista de cajones con los resultados
 - Una foto por pieza, hecha con la cámara del móvil, guardada en la flash o en una tarjeta microSD
 - Copia de seguridad y restauración de todo (piezas, fotos, ajustes) en un solo archivo; exportación e importación CSV
-- Luces de trabajo: una tira RGB analógica, o hasta 3 tiras direccionables o blancas regulables, más 2 tiras blancas; cada cambio es gradual; con un sensor de movimiento opcional, se encienden solas
+- Luces de trabajo: una tira RGB analógica, o hasta 3 tiras direccionables (de hasta 1.000 píxeles cada una) o blancas regulables, más 2 tiras blancas; cada cambio es gradual; con un sensor de movimiento opcional, se encienden solas
 - Efectos de luz en la cuadrícula (fuego, chispas, relax, demo) y efectos musicales con un micrófono I2S o analógico (placas con PSRAM)
 - Página de configuración Wi-Fi, dirección `smartbins.local`, actualización del firmware desde el navegador, contraseña opcional
 - Inglés, español y ruso; tema claro y oscuro
@@ -33,7 +33,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 - Tiras LED direccionables: WS2812 / WS2812B / SK6812 (5 V) o WS2811 / WS2815 (12/24 V)
 - Un adaptador de nivel 74HCT245, interruptores MOSFET, una fuente para los LED (5, 12 o 24 V)
 - Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD, sensor de movimiento LD2410C o PIR
-- Cuántas piezas caben: la base de datos ocupa unos 200 bytes por pieza (301 piezas reales: 56 KB) y puede llenar más o menos la mitad del almacenamiento flash, para que una restauración tenga sitio para la copia nueva. Eso son aproximadamente **3.000 piezas con 4 MB de flash, 8.000 con 8 MB y 25.000 con 16 MB**. Las fotos van en la tarjeta microSD; sin ella comparten el mismo espacio, unos 100 KB cada una.
+- Cuántas piezas caben: la base de datos ocupa unos 200 bytes por pieza (300 piezas reales: 56 KB) y puede llenar más o menos la mitad del almacenamiento flash, para que una restauración tenga sitio para la copia nueva. Eso son aproximadamente **3.000 piezas con 4 MB de flash, 8.000 con 8 MB y 25.000 con 16 MB**. Las fotos van en la tarjeta microSD; sin ella comparten el mismo espacio, unos 100 KB cada una.
 
 Esquemas, cableado, lista de componentes y consumo: [docs/hardware/README.md](docs/hardware/README.md) (en inglés).
 

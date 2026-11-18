@@ -43,6 +43,8 @@
   "inv.inBin": "In bin {bin}",
   "inv.locate": "Locate",
   "inv.located": "Bin {bin} is lit",
+  "inv.unlocate": "Turn off",
+  "inv.binsOutside": "Outside the grid: bins that still hold parts after the grid was made smaller.",
   "inv.looseHits": "{n} not in a bin",
   "inv.more": "Show more",
   "inv.needName": "Enter a part number or a description.",

@@ -562,6 +562,11 @@ const inv = {
   searching: false,   // a search is on its way to the board (see search())
   searchAgain: false, // and another was asked for meanwhile
   lastKey: '',        // searchKey() of the last search sent (see searchKey())
+  // What the two kinds of view have loaded, as listKey() and binsKey() of the
+  // search they answer ('' for nothing). Switching between the views shows
+  // what is already here instead of asking the board again (see showView()).
+  listKey: '',
+  binsKey: '',
   bins: [],           // /api/bins: {x, y, label, parts, outside}
   binHits: null,      // bin grid while searching: "x,y" -> matching parts (see searchBins)
   located: '',        // the result set auto-locate last lit, so it lights once
@@ -579,6 +584,7 @@ function setPref(key, value) {
 
 async function enterInventory() {
   if (!state.config) state.config = await attempt(() => api('/api/config'));
+  forgetResults();  // the parts may have changed while the page was away
   await Promise.all([loadBins(), loadFilterLists()]);
   search();
 }
@@ -636,6 +642,40 @@ function searchKey() {
   return JSON.stringify([inv.view, inv.q.trim(), inv.category, inv.manufacturer, inv.sort, inv.order, inv.bin]);
 }
 
+// What a list view (cards or table) shows, without the view itself: cards
+// and table show the same page of parts, only drawn differently.
+function listKey() {
+  return JSON.stringify([inv.q.trim(), inv.category, inv.manufacturer, inv.sort, inv.order, inv.bin]);
+}
+
+// What the bin grid shows: the search words and the two filters (it shows
+// every bin, so the bin filter and the sort don't matter).
+function binsKey() {
+  return JSON.stringify([inv.q.trim(), inv.category, inv.manufacturer]);
+}
+
+// Forgets what the views have loaded, after the parts changed (saved,
+// deleted, a failed quantity change): the next view switch asks the board.
+function forgetResults() {
+  inv.listKey = '';
+  inv.binsKey = '';
+}
+
+// Switches the view. Every search reads the whole parts table on the board,
+// which takes a moment with a few hundred parts, so a view that already
+// holds the answer to the same search is shown from it: cards and table
+// share the list, and the bin grid keeps its counts. Otherwise it asks.
+function showView(view) {
+  inv.view = view;
+  const cached = view === 'bins' ? inv.binsKey === binsKey() : inv.listKey === listKey();
+  if (!cached) return search();
+  // A search still on its way was for something else: its answer is
+  // dropped (see stale()), and this view stays as shown.
+  inv.seq++;
+  inv.lastKey = searchKey();
+  renderInventory();
+}
+
 // Fetches the first page (or, with `more`, the next one) for the current
 // search, filters and sort.
 //
@@ -690,6 +730,7 @@ async function runSearch(more) {
   searchWorked();
   inv.parts = more ? inv.parts.concat(res.parts) : res.parts;
   inv.total = res.total;
+  inv.listKey = listKey();
   renderInventory();
   if (!more) autoLocate();
 }
@@ -737,6 +778,7 @@ async function searchBins(seq) {
   if (stale(seq)) return;  // a newer search is on its way
   searchWorked();
   inv.binHits = hits ? new Map(hits.bins.map(b => [`${b.x},${b.y}`, b.parts])) : null;
+  inv.binsKey = binsKey();
   renderInventory();
 }
 
@@ -881,7 +923,12 @@ function fillPart(el, p) {
   const bin = el.querySelector('.bin-btn');
   bin.textContent = p.bin ? binName(p.bin.x, p.bin.y) : t('inv.noBin');
   bin.disabled = !p.bin;
-  bin.title = p.bin ? t('inv.locate') : '';
+  // Lit like the bin's button on the Grid page while its LEDs are on (see
+  // showLitBins(), which keeps it up to date).
+  if (p.bin) bin.dataset.bin = `${p.bin.x},${p.bin.y}`;
+  else delete bin.dataset.bin;
+  bin.classList.toggle('lit', !!p.bin && isLit(p.bin.x, p.bin.y));
+  bin.title = !p.bin ? '' : t(bin.classList.contains('lit') ? 'inv.unlocate' : 'inv.locate');
 }
 
 function wirePartButtons(el, id) {
@@ -894,9 +941,12 @@ function wirePartButtons(el, id) {
     });
   }
   for (const b of $$('.qty-btn', el)) b.addEventListener('click', () => adjustQuantity(id, Number(b.dataset.delta)));
+  // Like a bin on the Grid page: a dark bin lights up, a lit one goes out.
   el.querySelector('.bin-btn').addEventListener('click', () => {
     const p = inv.parts.find(x => x.id === id);
-    if (p && p.bin) locateBin(p.bin.x, p.bin.y);
+    if (!p || !p.bin) return;
+    if (isLit(p.bin.x, p.bin.y)) unlocateBin(p.bin.x, p.bin.y);
+    else locateBin(p.bin.x, p.bin.y);
   });
 }
 
@@ -932,7 +982,11 @@ async function flushAdjust(id) {
   q.busy = false;
   if (q.pending) return flushAdjust(id);
   if (res) refreshPart(res);
-  else search();  // the change failed: show what the board has
+  else {
+    // The change failed: show what the board has.
+    forgetResults();
+    search();
+  }
 }
 
 async function locateBin(x, y, quiet = false) {
@@ -940,6 +994,17 @@ async function locateBin(x, y, quiet = false) {
   if (!res) return;
   updateLitBins(res);
   if (!quiet) toast(t('inv.located', { bin: binName(x, y) }));
+}
+
+// Turns a located bin off (it fades out), from a part's bin button.
+async function unlocateBin(x, y) {
+  const res = await attempt(() => api('/api/locate/clear', { form: { x, y } }));
+  if (res) updateLitBins(res);
+}
+
+// Whether the board reports the bin as lit (state.litBins).
+function isLit(x, y) {
+  return state.litBins.some(([lx, ly]) => lx === x && ly === y);
 }
 
 // Optional: when a search narrows the parts down to one bin, light it. Only
@@ -965,7 +1030,9 @@ function renderBinGrid() {
   const g = state.config && state.config.grid;
   const view = $('#inv-bins');
   if (!g) return view.replaceChildren();
-  view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(0, 1fr))`;
+  // Bins share the width down to a size that can still be read and tapped
+  // (--bin-min in app.css); a wider grid scrolls sideways instead.
+  view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(var(--bin-min), 1fr))`;
   const cells = [];
   const extra = [];
   for (const b of inv.bins) {
@@ -983,6 +1050,9 @@ function renderBinGrid() {
     count.textContent = n ? String(n) : '';
     cell.append(name, count);
     cell.title = t(inv.binHits ? 'inv.binHitTitle' : 'inv.binTitle', { bin: binLabel(b.x, b.y), n });
+    // A lit bin is filled like on the Grid page (see showLitBins()).
+    cell.dataset.bin = `${b.x},${b.y}`;
+    cell.classList.toggle('lit', isLit(b.x, b.y));
     cell.addEventListener('click', () => {
       inv.bin = { x: b.x, y: b.y };
       inv.view = pref('listView', 'cards');
@@ -997,14 +1067,21 @@ function renderBinGrid() {
   }
   view.replaceChildren(...cells);
   // Outside bins go in their own row of plain buttons after the grid.
+  // They come with a line saying why they're there: after a grid change they
+  // can look like part of the grid, in an odd order.
   let outside = $('#inv-bins-outside');
   if (!outside) {
     outside = document.createElement('div');
     outside.id = 'inv-bins-outside';
     outside.className = 'chips';
-    view.after(outside);
+    const note = document.createElement('p');
+    note.id = 'inv-bins-outside-note';
+    note.className = 'muted small';
+    view.after(note, outside);
   }
-  outside.hidden = !extra.length;
+  const note = $('#inv-bins-outside-note');
+  note.textContent = t('inv.binsOutside');
+  note.hidden = outside.hidden = !extra.length;
   outside.replaceChildren(...extra);
 }
 
@@ -1205,6 +1282,7 @@ async function savePart() {
   $('#part-dialog').close();
   toast(t('inv.saved'));
   inv.valuesAt = 0;  // new values may have appeared for the autocomplete
+  forgetResults();
   await Promise.all([loadBins(), loadFilterLists()]);
   search();
 }
@@ -1401,6 +1479,7 @@ async function deletePart() {
   if (!await attempt(() => api('/api/part/delete', { form: { id: editing.id } }))) return;
   $('#part-dialog').close();
   toast(t('inv.deleted', { name }));
+  forgetResults();
   await Promise.all([loadBins(), loadFilterLists()]);
   search();
 }
@@ -1453,12 +1532,11 @@ function bindInventory() {
   }
   for (const b of $$('#inv-view button')) {
     b.addEventListener('click', () => {
-      inv.view = b.dataset.view;
-      setPref('view', inv.view);
-      if (inv.view !== 'bins') setPref('listView', inv.view);
-      // Each view asks the board for what it shows: a page of parts for the
-      // lists, per-bin counts for the grid.
-      search();
+      setPref('view', b.dataset.view);
+      if (b.dataset.view !== 'bins') setPref('listView', b.dataset.view);
+      // Each view needs its own answer from the board (a page of parts for
+      // the lists, per-bin counts for the grid), unless it has it already.
+      showView(b.dataset.view);
     });
   }
   $('#inv-autolocate').addEventListener('change', e => {
@@ -1505,9 +1583,10 @@ async function enterGrid() {
   const view = $('#grid-view');
   if (view.dataset.size !== `${g.cols}x${g.rows}`) {
     view.dataset.size = `${g.cols}x${g.rows}`;
-    // minmax(0, 1fr): columns share the width exactly and may shrink below
-    // their text width, so the grid never overflows a phone screen.
-    view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(0, 1fr))`;
+    // Columns share the width down to --bin-min (app.css), so ten bins still
+    // fit a phone; a wider grid scrolls sideways instead of shrinking its
+    // buttons until they can't be read or tapped.
+    view.style.gridTemplateColumns = `repeat(${g.cols}, minmax(var(--bin-min), 1fr))`;
     const buttons = [];
     for (let y = 0; y < g.rows; y++) {
       for (let x = 0; x < g.cols; x++) {
@@ -1541,6 +1620,10 @@ async function enterGrid() {
 // `e`: an answer from /api/effects ({effect, remainingS, speed, ...}; the
 // settings are missing while no effect runs).
 function showEffects(e) {
+  // The answer carries the grid status number of its moment (see isStale()):
+  // a push from before it, still on its way, is then dropped and can't put
+  // the previous effect back on the chips.
+  if (e.version !== undefined && !(e.version < state.versions.leds)) state.versions.leds = e.version;
   // The music effects need the microphone; without one they stay hidden.
   for (const el of $$('#effects-card .music')) el.hidden = !e.microphone;
   state.effect = e.effect;
@@ -1694,10 +1777,16 @@ function updateLitBins(status) {
   showLitBins();
 }
 
-// Marks the buttons of the bins the board reports as lit ([[x, y], ...]).
+// Marks the bins the board reports as lit ([[x, y], ...]): the buttons on
+// the Grid page, the bin buttons of the parts in the cards and the table,
+// and the bins of the inventory's bin grid.
 function showLitBins() {
   const lit = new Set(state.litBins.map(([x, y]) => `${x},${y}`));
   for (const b of $$('#grid-view button')) b.classList.toggle('lit', lit.has(b.dataset.bin));
+  for (const b of $$('#inv-cards .bin-btn[data-bin], #inv-table .bin-btn[data-bin], #inv-bins button[data-bin]')) {
+    b.classList.toggle('lit', lit.has(b.dataset.bin));
+    if (b.classList.contains('bin-btn')) b.title = t(b.classList.contains('lit') ? 'inv.unlocate' : 'inv.locate');
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1992,7 +2081,14 @@ function renderGridPreview() {
     svg += `<text class="hw-start-label" x="${cx(s.x)}" y="${cy(s.y) + 3}">${i ? 'B' : 'A'}</text>`;
   });
   svg += '</svg>';
-  $('#hw-preview').innerHTML = svg;
+  const preview = $('#hw-preview');
+  preview.innerHTML = svg;
+  // Drawn at the box's width, but never smaller than 16 px a bin (a 64 x 2
+  // grid would be a thin line) nor larger than 1.5 times its drawn size; a
+  // drawing wider or taller than its box scrolls inside it (app.css).
+  const drawing = preview.firstElementChild;
+  drawing.style.minWidth = `${Math.round(w * 16 / cell)}px`;
+  drawing.style.maxWidth = `${Math.round(w * 1.5)}px`;
 }
 
 function applyGrid(cfg) {
@@ -2864,6 +2960,9 @@ async function connectLive() {
       Object.assign(state.system, msg.system);
       renderSystem();
     } else if (msg.type === 'leds') {
+      // Older than a status the page has shown (see isStale()): built before
+      // a change of ours, which its answer showed already.
+      const old = msg.version !== undefined && msg.version < state.versions.leds;
       updateLitBins(msg);
       // The first status after connecting only sets the mark: the page
       // loaded the settings itself (enterGrid()).
@@ -2872,7 +2971,10 @@ async function connectLive() {
         state.ledSettings = msg.settingsVersion;
         if (changed && state.config) refreshGridSettings();
       }
-      if (msg.effect !== undefined) {
+      // Not while an effect change of ours is on its way, nor from an old
+      // status: either would show the previous effect for a moment (the
+      // chip jumps back, then forward again when the answer arrives).
+      if (msg.effect !== undefined && !old && effectSavesOpen === 0) {
         showEffectRunning(msg.effect, msg.effectRemainingS);
         // Another effect now (its timer ran out, another page or the API
         // started one): fetch its settings.
@@ -2895,6 +2997,9 @@ async function connectLive() {
 // Start-up
 
 function bindControls() {
+  // iPhone browsers apply :active (the pressed look of the part cards and
+  // rows, see app.css) only on pages that listen for touches.
+  document.addEventListener('touchstart', () => {}, { passive: true });
   bindInventory();
   $('#language').addEventListener('change', e => setLanguage(e.target.value));
   $('#theme').value = storedTheme();
