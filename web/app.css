@@ -220,6 +220,12 @@ button.wide { display: block; width: 100%; margin: 8px 0; }
    the text keeps the card's full width. */
 .parts { display: grid; gap: 8px; container-type: inline-size; }
 .card.part { display: flex; gap: 12px; margin: 0; padding: 12px; cursor: pointer; }
+/* The card and the table row open the part, so mobile browsers flash the
+   whole of them on any tap inside, also on their quantity and bin buttons.
+   No flash on them; their buttons dim while pressed instead, so a tap shows
+   on what was tapped. */
+.card.part, .parts-table tbody tr { -webkit-tap-highlight-color: transparent; }
+.card.part button:active:not(:disabled), .parts-table tbody tr button:active:not(:disabled) { filter: brightness(0.85); }
 /* flow-root: the card grows to fit the thumbnail when the text is shorter. */
 .part-main { flex: 1; min-width: 0; display: flow-root; }
 .part-title { overflow-wrap: anywhere; }
