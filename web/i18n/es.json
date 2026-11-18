@@ -43,6 +43,8 @@
   "inv.inBin": "En el cajón {bin}",
   "inv.locate": "Localizar",
   "inv.located": "El cajón {bin} está iluminado",
+  "inv.unlocate": "Apagar",
+  "inv.binsOutside": "Fuera de la cuadrícula: cajones que aún tienen piezas después de reducir la cuadrícula.",
   "inv.looseHits": "{n} sin cajón",
   "inv.more": "Mostrar más",
   "inv.needName": "Introduce un número de pieza o una descripción.",

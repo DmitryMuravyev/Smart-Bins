@@ -93,6 +93,11 @@ static_assert(led::kGridEffectCount - 1 == config::kGridEffects, "every effect b
 int settingsIndex(led::GridEffect e) { return static_cast<int>(e) - 1; }
 
 void writeEffects(JsonDocument &doc, led::LedEngine &engine, const config::AppConfig &cfg) {
+  // The grid status number (LedEngine::version(), which an effect change
+  // moves too), read before the effect: the page then drops a status push
+  // older than this answer, which would show the previous effect again for
+  // a moment. Read first, so the effect below is at least that new.
+  doc["version"] = engine.version();
   const led::LedEngine::Status s = engine.status();
   doc["effect"] = led::toString(s.effect);
   doc["remainingS"] = s.remainingS;

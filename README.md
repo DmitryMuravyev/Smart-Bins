@@ -18,11 +18,11 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable 
 
 ## Features
 
-- A bin grid of any size, 1–8 pixels per bin, wired in a zigzag or row by row, on one or two data lines; set up from the browser, with test patterns to check the wiring
+- A bin grid of up to 64 × 64 bins with 1–8 pixels per bin and up to 1,500 pixels in all (for example 64 × 23 bins with 1 pixel each, or 187 bins with 8), wired in a zigzag or row by row, on one or two data lines; set up from the browser, with test patterns to check the wiring
 - Inventory in SQLite on the board: search as you type across every field, filters, sorting, **+ / −** quantity buttons, a bin view of the search results
 - A photo per part, taken with the phone's camera, stored in flash or on a microSD card
 - Backup and restore of everything (parts, photos, settings) as one file, CSV export and import
-- Workspace lights: an analog RGB strip, or up to 3 addressable or dimmable white strips, plus 2 white strips; every change fades; an optional motion sensor switches them
+- Workspace lights: an analog RGB strip, or up to 3 addressable (up to 1,000 pixels each) or dimmable white strips, plus 2 white strips; every change fades; an optional motion sensor switches them
 - Lighting effects on the grid (fire, sparks, relax, demo) and music effects with an I2S or analog microphone (boards with PSRAM)
 - Wi-Fi setup page, `smartbins.local` address, firmware updates from the browser, optional password
 - English, Spanish and Russian; light and dark theme
@@ -33,7 +33,7 @@ Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable 
 - Addressable LED strips: WS2812 / WS2812B / SK6812 (5 V) or WS2811 / WS2815 (12/24 V)
 - A 74HCT245 level shifter, MOSFET power switches, an LED power supply (5, 12 or 24 V)
 - Optional: INMP441 (I2S) or MAX9814 (analog) microphone, microSD card, LD2410C or PIR motion sensor
-- Room for parts: the database takes about 200 bytes per part (301 real parts: 56 KB), and it may fill about half of the flash storage, so that a restore has room for the new copy. That is roughly **3,000 parts with 4 MB flash, 8,000 with 8 MB and 25,000 with 16 MB**. Photos go on the microSD card; without one they share the same space, at about 100 KB each.
+- Room for parts: the database takes about 200 bytes per part (300 real parts: 56 KB), and it may fill about half of the flash storage, so that a restore has room for the new copy. That is roughly **3,000 parts with 4 MB flash, 8,000 with 8 MB and 25,000 with 16 MB**. Photos go on the microSD card; without one they share the same space, at about 100 KB each.
 
 Schematics, wiring, parts list and power budget: [docs/hardware/README.md](docs/hardware/README.md).
 
