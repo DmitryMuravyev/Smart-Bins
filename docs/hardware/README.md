@@ -152,7 +152,7 @@ A high-side P-MOSFET disconnects the strip's V_LED. That removes the idle curren
                      (see table)             |
                             |                +----> V_LED switched, to grid strips
                             C                       (1000 uF capacitor at each strip input)
-   GPIO32 --[1k]--+-----B   Q3  BC547 / 2N3904 (NPN)
+   GPIO32 --[1k]--+-----B   Q3  NPN: BC547 / 2N3904, or BC847B / MMBT3904 (SOT-23)
                   |         E
                 [10k]       |
                   |         |
@@ -169,6 +169,7 @@ A high-side P-MOSFET disconnects the strip's V_LED. That removes the idle curren
 - GPIO32 low, floating or ESP32 in reset → Q3 off → R1 holds the gate at the source → grid off. That's the safe default.
 - R2 keeps V_GS inside the MOSFET's ±20 V limit at 12/24 V. ZD1 (15 V zener between gate and source, cathode to source) clamps voltage spikes on the gate. It does not replace R2: always fit the R2 from the table.
 - **AO4407A** (SO-8, −30 V, 12 A, about 20 mΩ at −4.5 V gate drive) handles up to about 6 A comfortably. Mount it on an SO-8 adapter with generous copper. At 12/24 V the currents are small (the reference grid draws at most about 3 A), so it runs cool. Avoid IRF9540 and IRF4905-class parts at 5 V: they need −10 V gate drive.
+- **Q3** only switches the 0.5–2.5 mA through R1/R2, and the 1 kΩ from a 3.3 V pin gives it about 2.6 mA of base current, so any small NPN rated for V_LED works: BC547 or 2N3904 (TO-92), or **BC847B** or **MMBT3904** (SOT-23, rated 45 V and 40 V). The letter after BC847 is only the gain group (A, B, C); any of them works and B is the common one. Mind the package: a W suffix (BC847BW) is the smaller SOT-323. In SOT-23 both have pin 1 = base, 2 = emitter, 3 = collector.
 - Q2 (addressable work strips, GPIO33) is the same circuit. Leave it out if no work strip is addressable.
 - **Phantom power:** while a strip is switched off, its data line must stay low, or the pixel's data input will power the strip through its protection diode. The firmware holds every data line low while its power switch is off.
 - **Smooth transitions:** the firmware switches the power on before a fade-in starts and off only after a fade-out has finished, so normal on/off is always smooth. Only a fault or power loss cuts it instantly.
@@ -343,7 +344,7 @@ Quantities are for the full design; skip the optional blocks you don't need.
 | U1 | 74HCT245 (DIP-20 or SOIC-20) | 1 | must be HCT |
 | – | Buck converter, V_LED → 5 V, ≥ 1 A | 0–1 | only for 12/24 V strips without a 5 V standby output (section 7, option B) |
 | Q1, Q2 | AO4407A P-MOSFET (SO-8); AOD4185 for 24 V | 0–2 | Q2 only for addressable work strips; both optional with PS-ON (section 7) |
-| Q3, Q3' | BC547 / 2N3904 NPN | 1–2 | gate drivers for Q1, Q2 |
+| Q3, Q3' | NPN: BC547 / 2N3904 (TO-92) or BC847B / MMBT3904 (SOT-23) | 1–2 | gate drivers for Q1, Q2 |
 | ZD1, ZD1' | 15 V zener, 0.5 W (BZX55C15) | 1–2 | gate protection for Q1, Q2 |
 | Q4–Q8 | AO3400A (or IRLB8721) N-MOSFET | up to 5 | one per plain work channel |
 | D1 | SS34 Schottky | 1 | ESP32 supply |
