@@ -378,3 +378,70 @@ Quantities are for the full design; skip the optional blocks you don't need.
 3. Flash the firmware. With nothing connected, the switched outputs of Q1 and Q2 must read 0 V.
 4. Connect one short strip (8–10 pixels) to segment A. Do the LED tests from Task 4 at low brightness before connecting the full grid.
 5. Check that no MOSFET or wire gets warm at the firmware's current limit.
+
+---
+
+## 14. Universal board
+
+A PCB that covers every option in this guide, even when it is fully populated: any mix of addressable, white and analog RGB work strips, with or without PS-ON, one supply or two. Which strip a channel drives is only a setting in the firmware, so changing strip types later means plugging the strip into another connector, not changing parts. The net names below are the ones used in the schematic.
+
+### Power input and switches
+
+One screw terminal (KF301, 5 positions) brings in all the power. Grid and work power can come from the same supply output (link GRID_PWR and WORK_PWR at the supply) or from two supplies of different voltages.
+
+```
+   KF301 input                 on the board
+   1 GND -----+-------------------------------------------------------- GND
+   2 GND -----+    (two screws: one carries the return of the grid and all work lights)
+   3 5VSB ------|>|------------------------------------------------------ DevKitC "5V" pin, U1 VCC
+                D1 SS34   (EPP-300 5VSB, or a 5 V buck module's output: section 7)
+
+   4 GRID_PWR --[F1]-- GRID_FUSED --+-- 470 uF + 100 nF to GND
+                                    |
+                                    +--- Q1 S-D (section 5) ---+-- GRID_VLED --+-- 1000 uF + 100 nF to GND
+                                    +--- JP1 (Q1 bypass) ------+               +--> grid connectors A, B
+
+   5 WORK_PWR --[F2]-- WORK_FUSED --+-- 470 uF + 100 nF to GND
+                                    |
+                                    +--- Q2 S-D (section 5) ---+-- WORK_VLED --+-- 1000 uF + 100 nF to GND
+                                    +--- JP2 (Q2 bypass) ------+               +--> W1-W3 addressable connectors
+                                    |
+                                    +-- 1000 uF + 100 nF to GND, next to Q4-Q8
+                                    +--> "+" of the W1-W5 plain connectors
+```
+
+- **JP1 / JP2** (solder jumpers) replace Q1 / Q2 on a board without them (and without Q3 / Q3'). Leave them open when the MOSFETs are fitted: closed, they bypass the switch, and the strips then stay powered (about 1 mA idle per pixel) unless PS-ON turns the whole supply off.
+- **Q1, Q2 and PS-ON together** are fine: PS-ON switches the whole supply off when every light is dark, and Q1 / Q2 let the grid go dark while a work strip stays on (and the other way round). The firmware drives all of them.
+- **Fuses on the + side only.** F1 covers the grid, F2 every work strip, addressable and plain. Never fuse a minus line: if it blows, the strip's return current looks for another way back, which is the data line into U1 and the ESP32. Size F1 and F2 from the power budget (section 11), and keep them within the terminal's rating (about 10 A per KF301 position); above that, use larger terminals.
+- With the EPP-300-12, PS-ON and PG go to their own connector (section 7); they are signals, not power.
+
+### Output connectors
+
+W1–W3 each get **two** connectors, one for each kind of strip. The firmware's mode setting decides what the channel's GPIO does; the strip uses whichever connector it's plugged into:
+
+| Connector | Pins | Strips |
+|---|---|---|
+| Grid A, Grid B | GRID_VLED, GND, DATA A / B (U1, 330 Ω) | addressable grid segments |
+| W1–W3 addressable | WORK_VLED, GND, DATA W1–W3 (U1, 330 Ω) | addressable work strips |
+| W1–W5 plain | WORK_FUSED (+), drain of Q4–Q8 (−) | white strips; analog RGB: common anode to "+", R / G / B to the "−" of W1 / W2 / W3 |
+
+- **Why two connectors:** an addressable strip takes its GND straight from the ground plane, never through an N-MOSFET. In addressable mode the channel's N-MOSFET still switches along with the data signal, but its drain only goes to the empty plain connector, so nothing happens. In white mode the data line carries the PWM signal to an empty addressable connector, which does no harm either. A fully populated board therefore needs no switches or jumpers on the logic side.
+- Use **different connector types** for the two (for example 3-pin and 2-pin JST-SM, or 3- and 2-position terminals) and mark them on the silkscreen, so a strip can't go into the wrong one. An addressable strip on a plain connector would get its ground switched by PWM; a plain strip on an addressable connector would only see the on/off of Q2, with no dimming.
+- W4 and W5 have only the plain connector.
+- Plain strips always get their "+" from WORK_FUSED, not from WORK_VLED: Q2 only switches on and off, and the dimming happens in the N-MOSFET on the minus side.
+
+### Capacitors
+
+One bulk capacitor per rail, on the board, instead of one per strip:
+
+| Where | Value | Why |
+|---|---|---|
+| GRID_VLED, after Q1 / JP1 | 1000 µF + 100 nF | the "1000 µF at the strip input" of section 5, shared by both grid segments |
+| WORK_VLED, after Q2 / JP2 | 1000 µF + 100 nF | the same for the addressable work strips |
+| WORK_FUSED, next to Q4–Q8 | 1000 µF + 100 nF | supplies the PWM current pulses of the plain strips |
+| GRID_FUSED, WORK_FUSED at the input | 470 µF + 100 nF | steadies the input when PS-ON switches the supply on |
+| at the far end of a strip cable longer than about 1 m | 470–1000 µF | the cable's resistance and inductance separate the strip from the board's capacitor |
+
+- **Never put a capacitor across a plain connector** (between its "+" and the MOSFET drain): every PWM cycle would charge it and then dump it through the MOSFET, at 19.5 kHz.
+- **Voltage rating:** at least 16 V for 5 V rails, 25 V for 12 V, 35 V (better 50 V) for 24 V. Use low-ESR types, mounted close to where their current goes.
+- When Q1 or Q2 switches on, it charges its 1000 µF in a short current pulse. The AO4407A (60 A pulse rating) and AOD4185 take that easily.
