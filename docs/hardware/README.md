@@ -170,7 +170,7 @@ A high-side P-MOSFET disconnects the strip's V_LED. That removes the idle curren
 - R2 keeps V_GS inside the MOSFET's ±20 V limit at 12/24 V. ZD1 (15 V zener between gate and source, cathode to source) clamps voltage spikes on the gate. It does not replace R2: always fit the R2 from the table.
 - **AO4407A** (SO-8, −30 V, 12 A, about 20 mΩ at −4.5 V gate drive) handles up to about 6 A comfortably. Mount it on an SO-8 adapter with generous copper. At 12/24 V the currents are small (the reference grid draws at most about 3 A), so it runs cool. Avoid IRF9540 and IRF4905-class parts at 5 V: they need −10 V gate drive.
 - **Q3** only switches the 0.5–2.5 mA through R1/R2, and the 1 kΩ from a 3.3 V pin gives it about 2.6 mA of base current, so any small NPN rated for V_LED works: BC547 or 2N3904 (TO-92), or **BC847B** or **MMBT3904** (SOT-23, rated 45 V and 40 V). The letter after BC847 is only the gain group (A, B, C); any of them works and B is the common one. Mind the package: a W suffix (BC847BW) is the smaller SOT-323. In SOT-23 both have pin 1 = base, 2 = emitter, 3 = collector.
-- Q2 (addressable work strips, GPIO33) is the same circuit. Leave it out if no work strip is addressable.
+- Q2 (addressable work strips, GPIO33) is the same circuit, with **Q4** as its driver. Leave it out if no work strip is addressable.
 - **Phantom power:** while a strip is switched off, its data line must stay low, or the pixel's data input will power the strip through its protection diode. The firmware holds every data line low while its power switch is off.
 - **Smooth transitions:** the firmware switches the power on before a fade-in starts and off only after a fade-out has finished, so normal on/off is always smooth. Only a fault or power loss cuts it instantly.
 
@@ -185,7 +185,7 @@ Plain white and analog RGB strips (5, 12 or 24 V) are dimmed by switching their 
                                              strip - (or R / G / B)
                                                  |
                                                  D
-   GPIO27 (W1) --[100R]--+------------------ G  Q4  N-MOSFET
+   GPIO27 (W1) --[100R]--+------------------ G  Q5  N-MOSFET
                          |                       S
                        [10k]                     |
                          |                       |
@@ -344,9 +344,9 @@ Quantities are for the full design; skip the optional blocks you don't need.
 | U1 | 74HCT245 (DIP-20 or SOIC-20) | 1 | must be HCT |
 | – | Buck converter, V_LED → 5 V, ≥ 1 A | 0–1 | only for 12/24 V strips without a 5 V standby output (section 7, option B) |
 | Q1, Q2 | AO4407A P-MOSFET (SO-8); AOD4185 for 24 V | 0–2 | Q2 only for addressable work strips; both optional with PS-ON (section 7) |
-| Q3, Q3' | NPN: BC547 / 2N3904 (TO-92) or BC847B / MMBT3904 (SOT-23) | 1–2 | gate drivers for Q1, Q2 |
+| Q3, Q4 | NPN: BC547 / 2N3904 (TO-92) or BC847B / MMBT3904 (SOT-23) | 1–2 | gate drivers for Q1, Q2 |
 | ZD1, ZD1' | 15 V zener, 0.5 W (BZX55C15) | 1–2 | gate protection for Q1, Q2 |
-| Q4–Q8 | AO3400A (or IRLB8721) N-MOSFET | up to 5 | one per plain work channel |
+| Q5–Q9 | AO3400A (or IRLB8721) N-MOSFET | up to 5 | one per plain work channel |
 | D1 | SS34 Schottky | 1 | ESP32 supply |
 | R | 330 Ω | 5 | data line series |
 | R | 1 kΩ | 2 | NPN base |
@@ -406,11 +406,11 @@ One screw terminal (KF301, 5 positions) brings in all the power. Grid and work p
                                     +--- Q2 S-D (section 5) ---+-- WORK_VLED --+-- 1000 uF + 100 nF to GND
                                     +--- JP2 (Q2 bypass) ------+               +--> W1-W3 addressable connectors
                                     |
-                                    +-- 1000 uF + 100 nF to GND, next to Q4-Q8
+                                    +-- 1000 uF + 100 nF to GND, next to Q5-Q9
                                     +--> "+" of the W1-W5 plain connectors
 ```
 
-- **JP1 / JP2** (solder jumpers) replace Q1 / Q2 on a board without them (and without Q3 / Q3'). Leave them open when the MOSFETs are fitted: closed, they bypass the switch, and the strips then stay powered (about 1 mA idle per pixel) unless PS-ON turns the whole supply off.
+- **JP1 / JP2** (solder jumpers) replace Q1 / Q2 on a board without them (and without their drivers Q3 / Q4). Leave them open when the MOSFETs are fitted: closed, they bypass the switch, and the strips then stay powered (about 1 mA idle per pixel) unless PS-ON turns the whole supply off.
 - **Q1, Q2 and PS-ON together** are fine: PS-ON switches the whole supply off when every light is dark, and Q1 / Q2 let the grid go dark while a work strip stays on (and the other way round). The firmware drives all of them.
 - **Fuses on the + side only.** F1 covers the grid, F2 every work strip, addressable and plain. Never fuse a minus line: if it blows, the strip's return current looks for another way back, which is the data line into U1 and the ESP32. Size F1 and F2 from the power budget (section 11), and keep them within the terminal's rating (about 10 A per KF301 position); above that, use larger terminals.
 - With the EPP-300-12, PS-ON and PG go to their own connector (section 7); they are signals, not power.
@@ -423,7 +423,7 @@ W1–W3 each get **two** connectors, one for each kind of strip. The firmware's 
 |---|---|---|
 | Grid A, Grid B | GRID_VLED, GND, DATA A / B (U1, 330 Ω) | addressable grid segments |
 | W1–W3 addressable | WORK_VLED, GND, DATA W1–W3 (U1, 330 Ω) | addressable work strips |
-| W1–W5 plain | WORK_FUSED (+), drain of Q4–Q8 (−) | white strips; analog RGB: common anode to "+", R / G / B to the "−" of W1 / W2 / W3 |
+| W1–W5 plain | WORK_FUSED (+), drain of Q5–Q9 (−) | white strips; analog RGB: common anode to "+", R / G / B to the "−" of W1 / W2 / W3 |
 
 - **Why two connectors:** an addressable strip takes its GND straight from the ground plane, never through an N-MOSFET. In addressable mode the channel's N-MOSFET still switches along with the data signal, but its drain only goes to the empty plain connector, so nothing happens. In white mode the data line carries the PWM signal to an empty addressable connector, which does no harm either. A fully populated board therefore needs no switches or jumpers on the logic side.
 - Use **different connector types** for the two (for example 3-pin and 2-pin JST-SM, or 3- and 2-position terminals) and mark them on the silkscreen, so a strip can't go into the wrong one. An addressable strip on a plain connector would get its ground switched by PWM; a plain strip on an addressable connector would only see the on/off of Q2, with no dimming.
@@ -438,7 +438,7 @@ One bulk capacitor per rail, on the board, instead of one per strip:
 |---|---|---|
 | GRID_VLED, after Q1 / JP1 | 1000 µF + 100 nF | the "1000 µF at the strip input" of section 5, shared by both grid segments |
 | WORK_VLED, after Q2 / JP2 | 1000 µF + 100 nF | the same for the addressable work strips |
-| WORK_FUSED, next to Q4–Q8 | 1000 µF + 100 nF | supplies the PWM current pulses of the plain strips |
+| WORK_FUSED, next to Q5–Q9 | 1000 µF + 100 nF | supplies the PWM current pulses of the plain strips |
 | GRID_FUSED, WORK_FUSED at the input | 470 µF + 100 nF | steadies the input when PS-ON switches the supply on |
 | at the far end of a strip cable longer than about 1 m | 470–1000 µF | the cable's resistance and inductance separate the strip from the board's capacitor |
 
