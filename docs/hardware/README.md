@@ -387,16 +387,19 @@ A PCB that covers every option in this guide, even when it is fully populated: a
 
 ### Power input and switches
 
-One screw terminal (KF301, 5 positions) brings in all the power. Grid and work power can come from the same supply output (link GRID_PWR and WORK_PWR at the supply) or from two supplies of different voltages.
+One 5-position screw terminal brings in all the power, in the order **5VSB, GND, GRID_PWR, GND, WORK_PWR**. Grid and work power can come from the same supply output (link GRID_PWR and WORK_PWR at the supply) or from two supplies of different voltages.
+
+- **Why this order:** every supply pin has a GND next to it. A stray strand of wire between two screws then shorts a supply to ground and blows its fuse. With GRID_PWR or WORK_PWR next to 5VSB, the same strand would put 12 or 24 V on the ESP32's 5 V and destroy it. It also keeps GRID_PWR and WORK_PWR apart when they come from supplies of different voltages, and each supply's return current has a GND right beside it.
+- **Terminal type:** a KF301 (5.0 mm) works; count on about 10 A per position, since the clones' ratings vary, and use ferrules on stranded wire, because its screw presses straight on the wire. Rising-clamp terminals (KF128 / DG128, Phoenix MKDS 1,5; 5.0 or 5.08 mm) clamp the wire under a plate, grip stranded wire better and take about 13–17 A. Pluggable ones (2EDGK / KF2EDGK, 5.08 mm) let the whole input be unplugged at once and only fit one way round, at about 8–10 A.
 
 ```
-   KF301 input                 on the board
-   1 GND -----+-------------------------------------------------------- GND
-   2 GND -----+    (two screws: one carries the return of the grid and all work lights)
-   3 5VSB ------|>|------------------------------------------------------ DevKitC "5V" pin, U1 VCC
+   power input                 on the board
+   1 5VSB ------|>|------------------------------------------------------ DevKitC "5V" pin, U1 VCC
                 D1 SS34   (EPP-300 5VSB, or a 5 V buck module's output: section 7)
+   2 GND -------+------------------------------------------------------- GND
+   4 GND -------+    (two screws share the return of the grid and all work lights)
 
-   4 GRID_PWR --[F1]-- GRID_FUSED --+-- 470 uF + 100 nF to GND
+   3 GRID_PWR --[F1]-- GRID_FUSED --+-- 470 uF + 100 nF to GND
                                     |
                                     +--- Q1 S-D (section 5) ---+-- GRID_VLED --+-- 1000 uF + 100 nF to GND
                                     +--- JP1 (Q1 bypass) ------+               +--> grid connectors A, B
@@ -412,7 +415,7 @@ One screw terminal (KF301, 5 positions) brings in all the power. Grid and work p
 
 - **JP1 / JP2** (solder jumpers) replace Q1 / Q2 on a board without them (and without their drivers Q3 / Q4). Leave them open when the MOSFETs are fitted: closed, they bypass the switch, and the strips then stay powered (about 1 mA idle per pixel) unless PS-ON turns the whole supply off.
 - **Q1, Q2 and PS-ON together** are fine: PS-ON switches the whole supply off when every light is dark, and Q1 / Q2 let the grid go dark while a work strip stays on (and the other way round). The firmware drives all of them.
-- **Fuses on the + side only.** F1 covers the grid, F2 every work strip, addressable and plain. Never fuse a minus line: if it blows, the strip's return current looks for another way back, which is the data line into U1 and the ESP32. Size F1 and F2 from the power budget (section 11), and keep them within the terminal's rating (about 10 A per KF301 position); above that, use larger terminals.
+- **Fuses on the + side only.** F1 covers the grid, F2 every work strip, addressable and plain. Never fuse a minus line: if it blows, the strip's return current looks for another way back, which is the data line into U1 and the ESP32. Size F1 and F2 from the power budget (section 11), and keep them within the terminal's rating (see the terminal types above); above that, use larger terminals.
 - With the EPP-300-12, PS-ON and PG go to their own connector (section 7); they are signals, not power.
 
 ### Output connectors
