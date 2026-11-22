@@ -124,7 +124,7 @@ static void test_addressable_light_rules() {
 }
 
 static void test_light_channel_rules() {
-  expectError("{\"lights\":[{},{},{},{\"mode\":\"addressable\"}]}", "W4");
+  expectError("{\"lights\":[{},{},{},{\"mode\":\"rgb\"}]}", "W4");
   expectError("{\"lights\":[{\"mode\":\"rgb\"},{\"mode\":\"rgb\"}]}", "rgb mode needs W1, W2 and W3");
   AppConfig cfg;
   std::string err;
@@ -133,6 +133,25 @@ static void test_light_channel_rules() {
       err.c_str());
   TEST_ASSERT_TRUE_MESSAGE(parse("{\"lights\":[{\"mode\":\"addressable\"},{\"mode\":\"white\"}]}", cfg, err),
                            err.c_str());
+  // W4 and W5 can be addressable too, and so can all five channels at once.
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"lights\":[{},{},{},{\"mode\":\"addressable\"},{\"mode\":\"addressable\"}]}", cfg, err),
+                           err.c_str());
+  TEST_ASSERT_TRUE(cfg.lights[4].mode == LightMode::Addressable);
+  TEST_ASSERT_TRUE_MESSAGE(
+      parse("{\"lights\":[{\"mode\":\"addressable\"},{\"mode\":\"addressable\"},{\"mode\":\"addressable\"},"
+            "{\"mode\":\"addressable\"},{\"mode\":\"addressable\"}]}",
+            cfg, err),
+      err.c_str());
+  // The pixels of all addressable work strips together are capped
+  // (kMaxWorkPixels: 3000 without PSRAM, which the host tests build as).
+  TEST_ASSERT_TRUE_MESSAGE(
+      parse("{\"lights\":[{\"mode\":\"addressable\",\"pixels\":1000},{\"mode\":\"addressable\",\"pixels\":1000},"
+            "{},{\"mode\":\"addressable\",\"pixels\":1000}]}",
+            cfg, err),
+      err.c_str());
+  expectError("{\"lights\":[{\"mode\":\"addressable\",\"pixels\":1000},{\"mode\":\"addressable\",\"pixels\":1000},"
+              "{},{\"mode\":\"addressable\",\"pixels\":1000},{\"mode\":\"addressable\",\"pixels\":1}]}",
+              "maximum is 3000");
 }
 
 static void test_static_ip() {

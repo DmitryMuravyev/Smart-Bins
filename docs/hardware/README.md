@@ -19,7 +19,7 @@ The firmware reads the module's flash at **80 MHz in QIO mode** (`board_build.f_
 ```mermaid
 flowchart LR
     PSU["LED supply V_LED<br/>5, 12 or 24 V"] --> F1["Fuse F1"] --> Q1["P-MOSFET Q1<br/>grid power"] --> GRID["Addressable bin grid<br/>segments A and B"]
-    PSU --> F2["Fuse F2"] --> Q2["P-MOSFET Q2<br/>work strip power"] --> WA["Addressable work strips<br/>(W1-W3 in addressable mode)"]
+    PSU --> F2["Fuse F2"] --> Q2["P-MOSFET Q2<br/>work strip power"] --> WA["Addressable work strips<br/>(any of W1-W5 in addressable mode)"]
     PSU -->|"5VSB (EPP-300-12)<br/>or buck converter"| D1["Schottky D1"] --> ESP["ESP32-DevKitC<br/>5V pin"]
     D1 --> U1
     ESP -->|"GPIO2: PS-ON"| PSU
@@ -27,10 +27,10 @@ flowchart LR
     PSUL["Supply for plain strips<br/>5, 12 or 24 V"] --> F3["Fuse F3"] --> STRIPS["White / analog RGB strips<br/>(+ side)"]
     STRIPS -->|"- side"| QN["N-MOSFETs<br/>W1-W5"] --> GND((GND))
     ESP -->|"GPIO14, 15"| U1["74HCT245<br/>3.3 V to 5 V"]
-    ESP -->|"W1-W3: GPIO27, 13, 4"| U1
+    ESP -->|"W1-W5: GPIO27, 13, 4, 21, 22"| U1
     ESP -->|"W1-W5: GPIO27, 13, 4, 21, 22"| QN
     U1 -->|"data A, B"| GRID
-    U1 -->|"W1-W3 data"| WA
+    U1 -->|"W1-W5 data"| WA
     ESP -->|"GPIO32"| Q1
     ESP -->|"GPIO33"| Q2
     MIC["INMP441 mic"] -->|"I2S: 26, 25, 34"| ESP
@@ -48,14 +48,14 @@ All grounds (LED supply, plain-strip supply, ESP32) are joined at one point near
 | 1 | Grid data A | 14 | out | 74HCT245 → 330 Ω → grid segment A |
 | 1 | Grid data B | 15 | out | 74HCT245 → 330 Ω → grid segment B |
 | 1 | Grid power enable | 32 | out | Q1 high-side switch (section 5) |
-| 2 | Work channel W1 | 27 | out | universal: N-MOSFET **and** 74HCT245 |
-| 2 | Work channel W2 | 13 | out | universal |
-| 2 | Work channel W3 | 4 | out | universal |
+| 2 | Work channel W1 | 27 | out | N-MOSFET **and** 74HCT245 |
+| 2 | Work channel W2 | 13 | out | N-MOSFET and 74HCT245 |
+| 2 | Work channel W3 | 4 | out | N-MOSFET and 74HCT245 |
 | 2 | Work strip power enable | 33 | out | Q2 high-side switch, for addressable work strips |
 | 2 | Supply on/off (PS-ON) | 2 | out | EPP-300-12 and similar; optional (section 7) |
 | 2 | Supply power good (PG) | 39 | in | via divider; optional (section 7) |
-| 3 | White channel W4 | 21 | out | N-MOSFET only |
-| 3 | White channel W5 | 22 | out | N-MOSFET only |
+| 3 | Work channel W4 | 21 | out | N-MOSFET and 74HCT245 |
+| 3 | Work channel W5 | 22 | out | N-MOSFET and 74HCT245 |
 | 3 | Microphone I2S SCK / WS / SD | 26 / 25 / 34 | out / out / in | INMP441 |
 | 3 | Analog microphone (instead of I2S), or motion sensor | 35 | in (ADC1) | MAX9814; LD2410C, HC-SR501, AM312 (section 8) |
 | – | microSD SCK / MISO / MOSI / CS | 18 / 19 / 23 / 5 | SPI | optional |
@@ -70,12 +70,17 @@ GPIO14 and GPIO15 put out a short burst of signals while the ESP32 boots. The gr
 
 ### Work-light options
 
-W1–W3 are wired to both an N-MOSFET (plain strips) and a 74HCT245 input (addressable strips). W4–W5 have only the N-MOSFET. Each channel's mode is a setting, so the same board covers both options:
+Every work channel W1–W5 is wired to both an N-MOSFET (plain strips) and a 74HCT245 input (addressable strips). Each channel's mode is a setting, so the same board covers both options:
 
 | Option | W1 | W2 | W3 | W4, W5 |
 |---|---|---|---|---|
-| 1. Analog RGB strip + white strips | R | G | B | white |
-| 2. Universal channels + white strips | addressable **or** white | addressable **or** white | addressable **or** white | white |
+| 1. Analog RGB strip + other strips | R | G | B | addressable **or** white |
+| 2. Universal channels | addressable **or** white | addressable **or** white | addressable **or** white | addressable **or** white |
+
+**How many addressable strips at once.** The two grid lines and all five work channels can be addressable together: seven strips, each on its own RMT channel (the ESP32 has eight). The firmware divides the RMT's transmit memory among the strips actually in use, so fewer strips get more of it. Two things to know with many strips:
+
+- With six or seven strips, most of them get the minimum of transmit memory, and each one then needs a refill interrupt every 40 µs while its frame goes out. A refill delayed by Wi-Fi or a flash write shows as a brief flicker or a cut-short frame. Fewer strips, or a single grid segment, leave more slack.
+- Without PSRAM, the addressable work strips together are limited to 3,000 pixels (three full strips), so the board keeps the free memory it needs for the web server. With PSRAM (the recommended N16R2 module) each of the five can have the full 1,000.
 
 ---
 
@@ -114,8 +119,8 @@ The ESP32 outputs 3.3 V; the strips need at least about 3.5 V on data. A 74**HCT
  GPIO27 (W1) --|  4 A3  B3 16|---[330R]---> W1 addressable connector
  GPIO13 (W2) --|  5 A4  B4 15|---[330R]---> W2 addressable connector
  GPIO4  (W3) --|  6 A5  B5 14|---[330R]---> W3 addressable connector
-   GND --------|  7 A6  B6 13|--- n.c.
-   GND --------|  8 A7  B7 12|--- n.c.
+ GPIO21 (W4) --|  7 A6  B6 13|---[330R]---> W4 addressable connector
+ GPIO22 (W5) --|  8 A7  B7 12|---[330R]---> W5 addressable connector
    GND --------|  9 A8  B8 11|--- n.c.
                +-------------+
    100 nF ceramic from pin 20 to pin 10, as close to the chip as possible
@@ -124,7 +129,7 @@ The ESP32 outputs 3.3 V; the strips need at least about 3.5 V on data. A 74**HCT
 - U1 runs from 5 V: the DevKitC's 5V pin (USB or buck converter), never from 12/24 V.
 - Put the 330 Ω resistors at the shifter end of the data wire. They damp ringing on long cables and protect the first pixel.
 - Keep data wires short (under ~1 m) and run a ground wire alongside each one. For longer runs, place the shifter near the strip or use a twisted pair (data + GND).
-- Unused inputs (A6–A8) are tied to GND so they don't float.
+- The unused input (A8) is tied to GND so it doesn't float.
 
 ### Breadboard prototype
 
@@ -196,7 +201,7 @@ Plain white and analog RGB strips (5, 12 or 24 V) are dimmed by switching their 
 - 100 Ω limits gate current spikes; 10 kΩ keeps the MOSFET off while the ESP32 boots or is unplugged.
 - No flyback diode is needed for LED strips (resistive load). Add a 1000 µF capacitor across V_STRIP at the board.
 - For an analog RGB strip (option 1), wire its common anode to V_STRIP and R, G and B to W1, W2 and W3.
-- On W1–W3 the same GPIO also drives the 74HCT245. In PWM mode the addressable connector just sees a PWM signal; nothing is connected there, so it does no harm.
+- The same GPIO also drives the 74HCT245. In PWM mode the addressable connector just sees a PWM signal; nothing is connected there, so it does no harm.
 
 ---
 
@@ -341,7 +346,7 @@ Quantities are for the full design; skip the optional blocks you don't need.
 | Ref | Part | Qty | Notes |
 |---|---|---|---|
 | – | ESP32-DevKitC with ESP32-WROOM-32E-N16R2 or -32UE-N16R2 (16 MB flash, 2 MB PSRAM) | 1 | a plain WROOM-32 (4/8/16 MB, no PSRAM) also works, with tighter memory limits |
-| U1 | 74HCT245 (DIP-20 or SOIC-20) | 1 | must be HCT |
+| U1 | 74HCT245 (DIP-20 or SOIC-20) | 1 | must be HCT; 7 of its 8 channels used |
 | – | Buck converter, V_LED → 5 V, ≥ 1 A | 0–1 | only for 12/24 V strips without a 5 V standby output (section 7, option B) |
 | Q1, Q2 | AO4407A P-MOSFET (SO-8); AOD4185 for 24 V | 0–2 | Q2 only for addressable work strips; both optional with PS-ON (section 7) |
 | Q3, Q4 | NPN: BC547 / 2N3904 (TO-92) or BC847B / MMBT3904 (SOT-23) | 1–2 | gate drivers for Q1, Q2 |
@@ -407,7 +412,7 @@ One 5-position screw terminal brings in all the power, in the order **5VSB, GND,
    5 WORK_PWR --[F2]-- WORK_FUSED --+-- 470 uF + 100 nF to GND
                                     |
                                     +--- Q2 S-D (section 5) ---+-- WORK_VLED --+-- 1000 uF + 100 nF to GND
-                                    +--- JP2 (Q2 bypass) ------+               +--> W1-W3 addressable connectors
+                                    +--- JP2 (Q2 bypass) ------+               +--> W1-W5 addressable connectors
                                     |
                                     +-- 1000 uF + 100 nF to GND, next to Q5-Q9
                                     +--> "+" of the W1-W5 plain connectors
@@ -420,17 +425,16 @@ One 5-position screw terminal brings in all the power, in the order **5VSB, GND,
 
 ### Output connectors
 
-W1–W3 each get **two** connectors, one for each kind of strip. The firmware's mode setting decides what the channel's GPIO does; the strip uses whichever connector it's plugged into:
+W1–W5 each get **two** connectors, one for each kind of strip. The firmware's mode setting decides what the channel's GPIO does; the strip uses whichever connector it's plugged into:
 
 | Connector | Pins | Strips |
 |---|---|---|
 | Grid A, Grid B | GRID_VLED, GND, DATA A / B (U1, 330 Ω) | addressable grid segments |
-| W1–W3 addressable | WORK_VLED, GND, DATA W1–W3 (U1, 330 Ω) | addressable work strips |
+| W1–W5 addressable | WORK_VLED, GND, DATA W1–W5 (U1, 330 Ω) | addressable work strips |
 | W1–W5 plain | WORK_FUSED (+), drain of Q5–Q9 (−) | white strips; analog RGB: common anode to "+", R / G / B to the "−" of W1 / W2 / W3 |
 
 - **Why two connectors:** an addressable strip takes its GND straight from the ground plane, never through an N-MOSFET. In addressable mode the channel's N-MOSFET still switches along with the data signal, but its drain only goes to the empty plain connector, so nothing happens. In white mode the data line carries the PWM signal to an empty addressable connector, which does no harm either. A fully populated board therefore needs no switches or jumpers on the logic side.
 - Use **different connector types** for the two (for example 3-pin and 2-pin JST-SM, or 3- and 2-position terminals) and mark them on the silkscreen, so a strip can't go into the wrong one. An addressable strip on a plain connector would get its ground switched by PWM; a plain strip on an addressable connector would only see the on/off of Q2, with no dimming.
-- W4 and W5 have only the plain connector.
 - Plain strips always get their "+" from WORK_FUSED, not from WORK_VLED: Q2 only switches on and off, and the dimming happens in the N-MOSFET on the minus side.
 
 ### Capacitors

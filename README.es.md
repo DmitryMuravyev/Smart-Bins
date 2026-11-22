@@ -22,7 +22,7 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 - Inventario en SQLite en la placa: búsqueda mientras escribe en todos los campos, filtros, orden, botones **+ / −** para la cantidad y una vista de cajones con los resultados
 - Una foto por pieza, hecha con la cámara del móvil, guardada en la flash o en una tarjeta microSD
 - Copia de seguridad y restauración de todo (piezas, fotos, ajustes) en un solo archivo; exportación e importación CSV
-- Luces de trabajo: una tira RGB analógica, o hasta 3 tiras direccionables (de hasta 1.000 píxeles cada una) o blancas regulables, más 2 tiras blancas; cada cambio es gradual; con un sensor de movimiento opcional, se encienden solas
+- Luces de trabajo: hasta 5 tiras, cada una direccionable (de hasta 1.000 píxeles) o blanca regulable, o una tira RGB analógica en tres de los canales; cada cambio es gradual; con un sensor de movimiento opcional, se encienden solas
 - Efectos de luz en la cuadrícula (fuego, chispas, relax, demo) y efectos musicales con un micrófono I2S o analógico (placas con PSRAM)
 - Página de configuración Wi-Fi, dirección `smartbins.local`, actualización del firmware desde el navegador, contraseña opcional
 - Inglés, español y ruso; tema claro y oscuro

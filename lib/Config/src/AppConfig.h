@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <string>
 
+#include "MemoryProfile.h"
 #include "PinMap.h"
 
 namespace sb {
@@ -21,7 +22,10 @@ namespace config {
 
 constexpr int kSchemaVersion = 1;
 constexpr int kLightChannels = 5;      // W1-W5
-constexpr int kUniversalChannels = 3;  // W1-W3 can be addressable or analog RGB
+constexpr int kRgbChannels = 3;       // W1-W3 together can drive one analog RGB strip
+// Every channel (W1-W5) can be white or addressable. Addressable strips share
+// the ESP32's 8 RMT channels with the grid's one or two data lines, so all
+// seven fit (see RmtStrip.cpp for how the transmit memory is divided).
 
 enum class Chipset : uint8_t { WS2812, WS2812B, SK6812, SK6812_RGBW, WS2811, WS2815 };
 enum class Layout : uint8_t { Serpentine, Progressive };
@@ -54,6 +58,13 @@ struct GridConfig {
 constexpr int kMaxGridPixels = 1500;
 
 constexpr int kMaxLightPixels = 1000;  // per addressable work strip
+// Pixels of all addressable work strips together. Each strip keeps its encoded
+// frame (3 or 4 bytes per pixel) in RAM for the whole time it runs. Without
+// PSRAM the total stays at three full strips (up to 12 KB), what W1-W3 could
+// use before W4 and W5 could be addressable too, so a board without PSRAM
+// keeps the free heap it had; a frame that size goes to PSRAM on a board with
+// it (see MemoryProfile.h), so there all five can be full.
+constexpr int kMaxWorkPixels = mem::kPsram ? kLightChannels * kMaxLightPixels : 3 * kMaxLightPixels;
 
 // One work-light channel. Which fields matter depends on `mode`:
 //   off          the pin is held low

@@ -1898,7 +1898,7 @@ async function waitForRestart() {
 const CHIPSETS = ['WS2812', 'WS2812B', 'SK6812', 'SK6812_RGBW', 'WS2811', 'WS2815'];
 const COLOR_ORDERS = ['GRB', 'RGB', 'BRG', 'BGR', 'RBG', 'GBR'];
 const MAX_GRID_PIXELS = 1500;  // config::kMaxGridPixels
-const LIGHT_CHANNELS = 5;      // W1-W5; W1-W3 are universal, W4-W5 white only
+const LIGHT_CHANNELS = 5;      // W1-W5: white or addressable; W1-W3 together also analog RGB
 
 function fillSelect(sel, values, current, label = v => v) {
   sel.replaceChildren(...values.map(v => {
@@ -2152,8 +2152,8 @@ async function saveAndRestart(cfg) {
   if (await attempt(() => api('/api/config', { json: JSON.stringify(cfg) }))) waitForRestart();
 }
 
-// Work lights: one block per channel. W1-W3 can be white, addressable or,
-// all three together, one analog RGB strip; W4-W5 white only.
+// Work lights: one block per channel. Every channel can be white or
+// addressable; W1-W3 together can also be one analog RGB strip.
 function renderLightFields() {
   const lights = (state.config && state.config.lights) || [];
   const rgb = lights.length >= 3 && lights.slice(0, 3).every(l => l.mode === 'rgb');
@@ -2165,7 +2165,7 @@ function renderLightFields() {
     const box = document.createElement('div');
     box.className = 'hw-light';
     box.dataset.channel = i;
-    const modes = i < 3 ? ['off', 'white', 'addressable'] : ['off', 'white'];
+    const modes = ['off', 'white', 'addressable'];
     box.innerHTML = `
       <div class="hw-light-head"><b>W${i + 1}</b>
         <select class="hw-mode" aria-label="W${i + 1}"></select>
