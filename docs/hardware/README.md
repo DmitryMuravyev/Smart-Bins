@@ -141,18 +141,19 @@ For a breadboard test any of these works:
 A high-side P-MOSFET disconnects the strip's V_LED. That removes the idle current of every pixel (about 1 mA each, even when dark), lets the firmware cut power on a fault, and keeps strips dark while the ESP32 boots.
 
 ```
-   V_LED (after fuse F1) ---+----------------+
-                            |                |
-                         R1 10k   ZD1 15V    S
-                            |   (cathode     |
-                            |    to S)       |
-                            +--------------G Q1  AO4407A (P-MOSFET)
+   V_LED (after fuse F1) ---+-------+--------+
+                            |       |        |
+                            |     ZD1 15V    |
+                         R1 10k  (cathode    |
+                            |      to S)     S
+                            |       |        |
+                            +-------+------G Q1  AO4407A (P-MOSFET)
                             |                |
                             R2               D
                      (see table)             |
                             |                +----> V_LED switched, to grid strips
                             C                       (1000 uF capacitor at each strip input)
-   GPIO32 --[1k]--+-----B   Q3  NPN: BC547 / 2N3904, or BC847B / MMBT3904 (SOT-23)
+   GPIO32 --[1k]--+------B  Q3  NPN: BC547 / 2N3904, or BC847B / MMBT3904 (SOT-23)
                   |         E
                 [10k]       |
                   |         |
@@ -167,7 +168,7 @@ A high-side P-MOSFET disconnects the strip's V_LED. That removes the idle curren
 
 - GPIO32 high → Q3 on → R1/R2 divide V_LED and pull the gate below the source → grid powered.
 - GPIO32 low, floating or ESP32 in reset → Q3 off → R1 holds the gate at the source → grid off. That's the safe default.
-- R2 keeps V_GS inside the MOSFET's ±20 V limit at 12/24 V. ZD1 (15 V zener between gate and source, cathode to source) clamps voltage spikes on the gate. It does not replace R2: always fit the R2 from the table.
+- R2 keeps V_GS inside the MOSFET's ±20 V limit at 12/24 V. ZD1 (15 V zener between gate and source, in parallel with R1, cathode to source) clamps voltage spikes on the gate; it never conducts in normal operation. It does not replace R2: always fit the R2 from the table.
 - **AO4407A** (SO-8, −30 V, 12 A, about 20 mΩ at −4.5 V gate drive) handles up to about 6 A comfortably. Mount it on an SO-8 adapter with generous copper. At 12/24 V the currents are small (the reference grid draws at most about 3 A), so it runs cool. Avoid IRF9540 and IRF4905-class parts at 5 V: they need −10 V gate drive.
 - **Q3** only switches the 0.5–2.5 mA through R1/R2, and the 1 kΩ from a 3.3 V pin gives it about 2.6 mA of base current, so any small NPN rated for V_LED works: BC547 or 2N3904 (TO-92), or **BC847B** or **MMBT3904** (SOT-23, rated 45 V and 40 V). The letter after BC847 is only the gain group (A, B, C); any of them works and B is the common one. Mind the package: a W suffix (BC847BW) is the smaller SOT-323. In SOT-23 both have pin 1 = base, 2 = emitter, 3 = collector.
 - Q2 (addressable work strips, GPIO33) is the same circuit, with **Q4** as its driver. Leave it out if no work strip is addressable.
