@@ -13,7 +13,7 @@
 #include <cstring>
 
 #include "BootReport.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 namespace sb {
 

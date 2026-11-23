@@ -1897,8 +1897,21 @@ async function waitForRestart() {
 
 const CHIPSETS = ['WS2812', 'WS2812B', 'SK6812', 'SK6812_RGBW', 'WS2811', 'WS2815'];
 const COLOR_ORDERS = ['GRB', 'RGB', 'BRG', 'BGR', 'RBG', 'GBR'];
-const MAX_GRID_PIXELS = 1500;  // config::kMaxGridPixels
-const LIGHT_CHANNELS = 5;      // W1-W5: white or addressable; W1-W3 together also analog RGB
+// The board's limits come with /api/pins ("limits"), so one page serves every
+// board. These are the classic ESP32's, used only until that answer is in.
+const DEFAULT_LIMITS = {
+  gridSize: 64,        // columns and rows, each (config::kMaxGridSize)
+  pixelsPerBin: 8,     // config::kMaxPixelsPerBin
+  gridPixels: 1500,    // config::kMaxGridPixels
+  lightChannels: 5,    // W1-W5: white or addressable; W1-W3 together also analog RGB
+  lightPixels: 1000,   // per addressable work strip (config::kMaxLightPixels)
+  workPixels: 3000,    // all addressable work strips together (config::kMaxWorkPixels)
+  strips: 7,           // addressable data lines, grid included (board::kMaxStripOutputs)
+};
+function limit(key) {
+  const l = state.pins && state.pins.limits;
+  return (l && l[key]) || DEFAULT_LIMITS[key];
+}
 
 function fillSelect(sel, values, current, label = v => v) {
   sel.replaceChildren(...values.map(v => {
@@ -1916,9 +1929,12 @@ function renderHardware() {
   const cfg = state.config;
   if (!cfg || !cfg.grid) return;
   const g = cfg.grid;
+  // The board's size limits on the fields (the HTML has the classic ESP32's).
+  $('#hw-cols').max = $('#hw-rows').max = limit('gridSize');
+  const ppb = Array.from({ length: limit('pixelsPerBin') }, (_, i) => String(i + 1));
+  fillSelect($('#hw-ppb'), ppb, String(g.pixelsPerBin));
   $('#hw-cols').value = g.cols;
   $('#hw-rows').value = g.rows;
-  $('#hw-ppb').value = String(g.pixelsPerBin);
   $('#hw-layout').value = g.layout;
   $('#hw-start').value = g.start;
   $('#hw-segments').value = String(g.segments);
@@ -2005,10 +2021,11 @@ function gridForm() {
 
 // What's wrong with the grid fields, or '' (the board checks again).
 function gridProblem(g) {
-  if (!(g.cols >= 1 && g.cols <= 64 && g.rows >= 1 && g.rows <= 64)) return t('hw.errSize');
+  const size = limit('gridSize');
+  if (!(g.cols >= 1 && g.cols <= size && g.rows >= 1 && g.rows <= size)) return t('hw.errSize', { max: size });
   if (g.segments === 2 && !(g.splitRow >= 1 && g.splitRow < g.rows)) return t('hw.errSplit', { max: g.rows - 1 });
   const pixels = g.cols * g.rows * g.pixelsPerBin;
-  if (pixels > MAX_GRID_PIXELS) return t('hw.errPixels', { n: pixels, max: MAX_GRID_PIXELS });
+  if (pixels > limit('gridPixels')) return t('hw.errPixels', { n: pixels, max: limit('gridPixels') });
   return '';
 }
 
@@ -2160,7 +2177,7 @@ function renderLightFields() {
   $('#hw-rgb').checked = rgb;
   const list = $('#hw-light-list');
   list.replaceChildren();
-  for (let i = 0; i < LIGHT_CHANNELS; i++) {
+  for (let i = 0; i < limit('lightChannels'); i++) {
     const l = lights[i] || { mode: 'off', maxBrightness: 255, pixels: 60, chipset: 'WS2812B', colorOrder: 'GRB', currentLimitMa: 2000 };
     const box = document.createElement('div');
     box.className = 'hw-light';
@@ -2172,7 +2189,7 @@ function renderLightFields() {
         <span class="muted small hw-rgb-note" hidden>${t('hw.mode.rgb')}</span></div>
       <div class="hw-fields hw-light-fields">
         <label class="hw-max"><span class="label-long">${t('hw.maxBrightness')}</span><span class="label-short">${t('hw.maxBrightnessShort')}</span><input type="number" class="hw-maxb" min="1" max="100" inputmode="numeric"></label>
-        <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="1000" inputmode="numeric"></label>
+        <label class="hw-addr"><span>${t('hw.pixels')}</span><input type="number" class="hw-pixels" min="1" max="${limit('lightPixels')}" inputmode="numeric"></label>
       </div>
       <div class="hw-fields hw-light-fields hw-addr">
         <label class="hw-addr"><span>${t('hw.chipset')}</span><select class="hw-chip"></select></label>
@@ -2697,6 +2714,7 @@ async function restoreBackup(file) {
     if (r.photosFailed) text += ` ${t('backup.photosFailed', { n: r.photosFailed, error: r.photoError || '' })}`;
     if (r.settingsError) text += ` ${t('backup.settingsFailed', { error: r.settingsError })}`;
     if (r.settingsMissing) text += ` ${t('backup.noSettings')}`;
+    if (r.pinsReset) text += ` ${t('backup.pinsReset')}`;
     status.textContent = text;
     status.classList.toggle('err', !!(r.photosFailed || r.settingsError || r.settingsMissing));
     if (r.restarting) return waitForRestart();

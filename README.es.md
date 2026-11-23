@@ -29,17 +29,17 @@ Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1�
 
 ## Hardware
 
-- Una ESP32-DevKitC con un módulo **ESP32-WROOM-32E/UE-N16R2** (16 MB de flash, 2 MB de PSRAM), o un ESP32-WROOM-32 normal con 4, 8 o 16 MB de flash. El firmware lee la flash a 80 MHz en modo QIO, que admiten todos los módulos WROOM-32 / WROOM-32E de Espressif; en una placa con un chip ESP32 suelto y otra flash, o que usa GPIO9/10 para otra cosa, pon `board_build.flash_mode = dio` (y si hace falta `board_build.f_flash = 40000000L`) en `platformio.ini` ([guía de hardware](docs/hardware/README.md#flash-mode))
+- Una ESP32-DevKitC con un módulo **ESP32-WROOM-32E/UE-N16R2** (16 MB de flash, 2 MB de PSRAM), o un ESP32-WROOM-32 normal con 4, 8 o 16 MB de flash. El firmware lee la flash a 80 MHz en modo QIO, que admiten todos los módulos WROOM-32 / WROOM-32E de Espressif; en una placa con un chip ESP32 suelto y otra flash, o que usa GPIO9/10 para otra cosa, pon `board_build.flash_mode = dio` (y si hace falta `board_build.f_flash = 40000000L`) en `platformio.ini` ([guía de hardware](docs/hardware/esp32-wroom/README.md#flash-mode))
 - Tiras LED direccionables: WS2812 / WS2812B / SK6812 (5 V) o WS2811 / WS2815 (12/24 V)
 - Un adaptador de nivel 74HCT245, interruptores MOSFET, una fuente para los LED (5, 12 o 24 V)
 - Opcional: micrófono INMP441 (I2S) o MAX9814 (analógico), tarjeta microSD, sensor de movimiento LD2410C o PIR
 - Cuántas piezas caben: la base de datos ocupa unos 200 bytes por pieza (300 piezas reales: 56 KB) y puede llenar más o menos la mitad del almacenamiento flash, para que una restauración tenga sitio para la copia nueva. Eso son aproximadamente **3.000 piezas con 4 MB de flash, 8.000 con 8 MB y 25.000 con 16 MB**. Las fotos van en la tarjeta microSD; sin ella comparten el mismo espacio, unos 100 KB cada una.
 
-Esquemas, cableado, lista de componentes y consumo: [docs/hardware/README.md](docs/hardware/README.md) (en inglés).
+Esquemas, cableado, lista de componentes y consumo: [docs/hardware/esp32-wroom/README.md](docs/hardware/esp32-wroom/README.md) (en inglés).
 
 ## Primeros pasos
 
-1. **Monte el circuito:** [referencia de hardware](docs/hardware/README.md).
+1. **Monte el circuito:** [referencia de hardware](docs/hardware/esp32-wroom/README.md).
 2. **Instale el firmware:** descargue el archivo para su placa de las [versiones publicadas](https://github.com/DmitryMuravyev/Smart-Bins/releases) y grábelo desde el navegador, sin instalar nada: [Installing the firmware](docs/flashing.md).
 3. **Conéctela a la Wi-Fi** y abra **http://smartbins.local/**: [User guide](docs/user-guide.md).
 
@@ -51,7 +51,7 @@ La interfaz web está en español; la documentación detallada, por ahora, en in
 |---|---|
 | [User guide](docs/user-guide.md) | Primer arranque, las páginas, configuración de la cuadrícula y las luces, copias de seguridad, solución de problemas |
 | [Installing the firmware](docs/flashing.md) | Qué archivo para qué placa, grabación desde el navegador o la línea de comandos, actualizaciones, compilación |
-| [Hardware reference](docs/hardware/README.md) | Circuito, asignación de pines, alimentación, lista de componentes |
+| [Hardware reference](docs/hardware/esp32-wroom/README.md) | Circuito, asignación de pines, alimentación, lista de componentes |
 | [HTTP API](docs/api.md) | La API JSON que usa la página, para scripts y domótica |
 | [Development notes](docs/development.md) | Estructura del proyecto |
 | [Plan](docs/PLAN.md) | Decisiones y lista de tareas |

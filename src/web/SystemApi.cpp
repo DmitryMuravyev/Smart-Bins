@@ -19,7 +19,7 @@
 #include "PowerSupply.h"
 #include "WifiLink.h"
 #include "led/Chips.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -164,6 +164,17 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
     // False on boards without PSRAM: the microphone is off there whatever the
     // setting says (kMicrophone in MemoryProfile.h), so the page greys it out.
     doc["micAvailable"] = mem::kMicrophone;
+    // The board and its limits, so the page checks the fields against this
+    // firmware's numbers rather than copies of its own (see app.js limit()).
+    doc["board"] = board::kBoardId;
+    JsonObject limits = doc["limits"].to<JsonObject>();
+    limits["gridSize"] = config::kMaxGridSize;
+    limits["pixelsPerBin"] = config::kMaxPixelsPerBin;
+    limits["gridPixels"] = config::kMaxGridPixels;
+    limits["lightChannels"] = config::kLightChannels;
+    limits["lightPixels"] = config::kMaxLightPixels;
+    limits["workPixels"] = config::kMaxWorkPixels;
+    limits["strips"] = board::kMaxStripOutputs;
     // Each LED type's typical current per pixel at full white, in mA: what
     // pixelMa = 0 stands for, shown in the empty field.
     JsonObject ma = doc["pixelMa"].to<JsonObject>();
@@ -228,7 +239,7 @@ void registerSystemApi(AsyncWebServer &server, ConfigStore &config, WifiLink &ne
         if (!updateRunning) return;      // failed earlier: ignore the rest
         if (len) {
           // Writing flash switches the cache off; the guard keeps the LED
-          // strips from flashing random colors meanwhile (see RmtStrip.h).
+          // strips from flashing random colors meanwhile (see FlashGuard in led/OutputCommon.h).
           led::FlashGuard guard;
           if (Update.write(data, len) != len) {
             updateError = Update.errorString();

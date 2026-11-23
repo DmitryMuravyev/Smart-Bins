@@ -200,6 +200,7 @@ bool validate(const AppConfig &cfg, std::string &error) {
   // Option 1 (analog RGB strip) uses W1-W3 together; partial RGB makes no sense.
   int rgb = 0;
   int workPixels = 0;  // all addressable work strips together (kMaxWorkPixels)
+  int strips = g.segments;  // addressable data lines, grid included (board::kMaxStripOutputs)
   for (int i = 0; i < kLightChannels; i++) {
     const LightMode m = cfg.lights[i].mode;
     // Only W1-W3 form the RGB group; every channel can be white or addressable.
@@ -219,7 +220,15 @@ bool validate(const AppConfig &cfg, std::string &error) {
         return false;
       }
       workPixels += cfg.lights[i].pixels;
+      strips++;
     }
+  }
+  // Every board runs both grid lines and five work strips today, so this
+  // only bites on a board whose LED output has fewer channels.
+  if (strips > board::kMaxStripOutputs) {
+    error = "the grid and the addressable work strips need " + std::to_string(strips) + " data lines; " +
+            board::kBoardName + " drives at most " + std::to_string(board::kMaxStripOutputs);
+    return false;
   }
   if (workPixels > kMaxWorkPixels) {
     error = "addressable work strips have " + std::to_string(workPixels) + " pixels in all; the maximum is " +
@@ -316,6 +325,19 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   int version = kSchemaVersion;
   r.integer(doc["version"], "version", 1, kSchemaVersion, version);
 
+  // The board the config was written on (BoardProfile.h). A config without
+  // one predates the field and is from the classic ESP32, the only board
+  // there was. From another board, everything but the pin map is taken: its
+  // GPIO numbers mean different things here, so the pins stay at this
+  // board's defaults (pinsReset tells the caller).
+  JsonVariantConst boardId = doc["board"];
+  if (!boardId.isNull() && !boardId.is<const char *>()) {
+    error = "board must be a text such as \"" + std::string(board::kBoardId) + "\"";
+    return false;
+  }
+  const bool sameBoard = boardId.isNull() || std::strcmp(boardId.as<const char *>(), board::kBoardId) == 0;
+  cfg.pinsReset = !sameBoard && !doc["pins"].isNull();
+
   JsonVariantConst device = doc["device"];
   r.text(device["name"], "device.name", cfg.deviceName, sizeof(cfg.deviceName));
   uint8_t language = 0;
@@ -326,9 +348,9 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
 
   JsonVariantConst grid = doc["grid"];
   GridConfig &g = cfg.grid;
-  r.integer(grid["cols"], "grid.cols", 1, 64, g.cols);
-  r.integer(grid["rows"], "grid.rows", 1, 64, g.rows);
-  r.integer(grid["pixelsPerBin"], "grid.pixelsPerBin", 1, 8, g.pixelsPerBin);
+  r.integer(grid["cols"], "grid.cols", 1, kMaxGridSize, g.cols);
+  r.integer(grid["rows"], "grid.rows", 1, kMaxGridSize, g.rows);
+  r.integer(grid["pixelsPerBin"], "grid.pixelsPerBin", 1, kMaxPixelsPerBin, g.pixelsPerBin);
   r.choice(grid["chipset"], "grid.chipset", kChipsets, g.chipset);
   r.text(grid["colorOrder"], "grid.colorOrder", g.colorOrder, sizeof(g.colorOrder));
   // grid.voltage (the strip supply, 0.16.0 and earlier) is no longer read:
@@ -337,7 +359,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   r.choice(grid["layout"], "grid.layout", kLayouts, g.layout);
   r.choice(grid["start"], "grid.start", kCorners, g.start);
   r.integer(grid["segments"], "grid.segments", 1, 2, g.segments);
-  r.integer(grid["splitRow"], "grid.splitRow", 0, 64, g.splitRow);
+  r.integer(grid["splitRow"], "grid.splitRow", 0, kMaxGridSize, g.splitRow);
   r.integer(grid["brightness"], "grid.brightness", 0, 255, g.brightness);
   r.integer(grid["currentLimitMa"], "grid.currentLimitMa", 100, 30000, g.currentLimitMa);
   r.integer(grid["pixelMa"], "grid.pixelMa", 0, 255, g.pixelMa);
@@ -406,7 +428,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
   // firmware doesn't know are an error rather than ignored: a typo would
   // otherwise silently leave the old pin in place.
   JsonVariantConst pins = doc["pins"];
-  if (r.ok() && !pins.isNull()) {
+  if (r.ok() && !pins.isNull() && sameBoard) {
     if (!pins.is<JsonObjectConst>()) {
       error = "pins must be an object of function name: GPIO";
       return false;
@@ -425,7 +447,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
         }
         continue;
       }
-      r.integer(kv.value(), field.c_str(), -1, 39, cfg.pins.gpio[i]);
+      r.integer(kv.value(), field.c_str(), -1, board::kMaxGpio, cfg.pins.gpio[i]);
     }
   }
 
@@ -444,6 +466,7 @@ bool parse(const char *json, AppConfig &out, std::string &error) {
 std::string serialize(const AppConfig &cfg) {
   JsonDocument doc;
   doc["version"] = kSchemaVersion;
+  doc["board"] = board::kBoardId;
 
   JsonObject device = doc["device"].to<JsonObject>();
   device["name"] = cfg.deviceName;

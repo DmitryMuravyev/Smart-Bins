@@ -8,7 +8,7 @@
 #include <esp_random.h>
 
 #include "ApiUtil.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 namespace sb {
 

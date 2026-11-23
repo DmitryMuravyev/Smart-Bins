@@ -270,6 +270,34 @@ static void test_motion() {
   TEST_ASSERT_TRUE_MESSAGE(parse("{\"motion\":{\"enabled\":true},\"microphone\":\"off\"}", cfg, err), err.c_str());
 }
 
+// The board a config was written on ("board"): this board's id is written
+// out, a config from the same board (or one too old to say) keeps its pins,
+// and one from another board keeps everything but its pin map.
+static void test_board() {
+  AppConfig cfg;
+  std::string err;
+  TEST_ASSERT_TRUE(serialize(cfg).find("\"board\": \"esp32\"") != std::string::npos);
+
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"board\":\"esp32\",\"pins\":{\"light_w4\":2,\"status_led\":-1}}", cfg, err),
+                           err.c_str());
+  TEST_ASSERT_FALSE(cfg.pinsReset);
+  TEST_ASSERT_EQUAL(2, cfg.pins["light_w4"]);
+
+  // Another board: its pin numbers mean nothing here, even one this board
+  // would refuse (GPIO45), so the whole map goes back to the defaults.
+  TEST_ASSERT_TRUE_MESSAGE(
+      parse("{\"board\":\"esp32s3\",\"device\":{\"name\":\"lab-bins\"},\"pins\":{\"light_w4\":45}}", cfg, err),
+      err.c_str());
+  TEST_ASSERT_TRUE(cfg.pinsReset);
+  TEST_ASSERT_EQUAL_STRING("lab-bins", cfg.deviceName);
+  TEST_ASSERT_EQUAL(sb::board::defaultPin("light_w4"), cfg.pins["light_w4"]);
+  // Another board without a pin map has nothing to reset.
+  TEST_ASSERT_TRUE_MESSAGE(parse("{\"board\":\"esp32s3\"}", cfg, err), err.c_str());
+  TEST_ASSERT_FALSE(cfg.pinsReset);
+
+  TEST_ASSERT_FALSE(parse("{\"board\":3}", cfg, err));
+}
+
 int main(int, char **) {
   UNITY_BEGIN();
   RUN_TEST(test_empty_object_gives_defaults);
@@ -282,5 +310,6 @@ int main(int, char **) {
   RUN_TEST(test_static_ip);
   RUN_TEST(test_pins);
   RUN_TEST(test_motion);
+  RUN_TEST(test_board);
   return UNITY_END();
 }

@@ -19,7 +19,7 @@
 #include "WifiLink.h"
 #include "audio/Microphone.h"
 #include "led/LedEngine.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 #include "led/WorkLights.h"
 #include "web/InventoryApi.h"
 #include "web/BackupApi.h"
@@ -286,7 +286,7 @@ void setup() {
     for (int i = 0; i < sb::config::kLightChannels; i++) {
       if (cfg.lights[i].mode == sb::config::LightMode::Addressable && lightPins[i] >= 0) strips++;
     }
-    sb::led::RmtStrip::planStrips(strips);
+    sb::led::StripOutput::planStrips(strips);
   }
 
   // The LED supply's PS-ON first: the grid and the work lights ask it for
