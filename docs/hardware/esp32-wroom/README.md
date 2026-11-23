@@ -345,7 +345,7 @@ Rules of thumb:
 
 ## 12. Bill of materials
 
-Quantities are for the full design; skip the optional blocks you don't need. For the PCB, [bom.csv](universal-board/bom.csv) lists the exact parts with their LCSC numbers.
+Quantities are for the full design; skip the optional blocks you don't need. For the PCB, [esp32-wroom-5-12v-v1.0-bom.csv](board-5-12v/esp32-wroom-5-12v-v1.0-bom.csv) lists the exact parts with their LCSC numbers.
 
 | Ref | Part | Qty | Notes |
 |---|---|---|---|
@@ -396,24 +396,24 @@ Quantities are for the full design; skip the optional blocks you don't need. For
 
 ---
 
-## 14. Universal board
+## 14. Universal board, 5/12 V
 
-A PCB that covers every option in this guide, even when it is fully populated: any mix of addressable, white and analog RGB work strips at 5, 12 or 24 V, with or without PS-ON, one supply or two. Which strip a channel drives is only a setting in the firmware, so changing strip types later means plugging the strip into another connector, not changing parts. The part and net names below are the schematic's.
+A PCB that covers every option in this guide, even when it is fully populated: any mix of addressable, white and analog RGB work strips at 5 or 12 V, with or without PS-ON, one supply or two. It is not rated for 24 V strips: those need other parts (section 5) and would get a board of their own. Which strip a channel drives is only a setting in the firmware, so changing strip types later means plugging the strip into another connector, not changing parts. The part and net names below are the schematic's.
 
 ### Schematic
 
-The schematic is published as a preview; the PCB layout is still in progress. The files are in [`universal-board/`](universal-board/):
+The schematic is published as a preview; the PCB layout is still in progress. The files are in [`board-5-12v/`](board-5-12v/); their names carry the board, its voltage range and the schematic revision (v1.0), so a later revision gets new files next to these:
 
 | File | Contents |
 |---|---|
-| [schematic.pdf](universal-board/schematic.pdf) | both pages: 1 Power, 2 Digital |
-| [schematic-1-power.png](universal-board/schematic-1-power.png), [schematic-2-digital.png](universal-board/schematic-2-digital.png) | the same pages as images |
-| [bom.csv](universal-board/bom.csv) | bill of materials with LCSC part numbers |
-| [smart-bins-universal-board.epro2](universal-board/smart-bins-universal-board.epro2) | the EasyEDA Pro project (opens in EasyEDA Pro, free) |
+| [esp32-wroom-5-12v-v1.0-schematic.pdf](board-5-12v/esp32-wroom-5-12v-v1.0-schematic.pdf) | both pages: 1 Power, 2 Digital |
+| [esp32-wroom-5-12v-v1.0-schematic-1-power.png](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-1-power.png), [esp32-wroom-5-12v-v1.0-schematic-2-digital.png](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-2-digital.png) | the same pages as images |
+| [esp32-wroom-5-12v-v1.0-bom.csv](board-5-12v/esp32-wroom-5-12v-v1.0-bom.csv) | bill of materials with LCSC part numbers |
+| [esp32-wroom-5-12v-v1.0-easyeda-pro.epro2](board-5-12v/esp32-wroom-5-12v-v1.0-easyeda-pro.epro2) | the EasyEDA Pro project (opens in EasyEDA Pro, free) |
 
-[![Schematic, page 1: power](universal-board/schematic-1-power.png)](universal-board/schematic-1-power.png)
+[![Schematic, page 1: power](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-1-power.png)](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-1-power.png)
 
-[![Schematic, page 2: digital](universal-board/schematic-2-digital.png)](universal-board/schematic-2-digital.png)
+[![Schematic, page 2: digital](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-2-digital.png)](board-5-12v/esp32-wroom-5-12v-v1.0-schematic-2-digital.png)
 
 ### Power input and switches
 
@@ -422,8 +422,8 @@ Three 2-position screw terminals bring in the power, each with its own GND. Grid
 | Terminal | Pins | From |
 |---|---|---|
 | J1 | 5VSB, GND | the EPP-300-12's 5VSB, or a 5 V buck module (section 7); **5 V only** |
-| J2 | GRID_PWR, GND | grid supply, 5, 12 or 24 V |
-| J3 | WORK_PWR, GND | work-light supply, 5, 12 or 24 V |
+| J2 | GRID_PWR, GND | grid supply, 5 or 12 V |
+| J3 | WORK_PWR, GND | work-light supply, 5 or 12 V |
 
 ```
    J1 5VSB -----[F1]---|>|------------------------------------- +5V: DevKitC "5V" pin (U1), U2 VCC, H2, H5
@@ -444,8 +444,8 @@ Three 2-position screw terminals bring in the power, each with its own GND. Grid
    GND of J1, J2, J3 ---------------- GND
 ```
 
-- **J1 takes 5 V only.** It feeds the DevKitC and U2 directly, so 12 or 24 V there destroys them. Mark it clearly on the silkscreen, apart from J2 and J3.
-- **JP1 / JP3 (5V option):** close them when the grid (JP1) or the work strips (JP3) run on 5 V. They short R2 / R6, so Q1 / Q2 get the full −5 V of gate drive (section 5). Leave them open at 12 and 24 V.
+- **J1 takes 5 V only.** It feeds the DevKitC and U2 directly, so 12 V there destroys them. Mark it clearly on the silkscreen, apart from J2 and J3.
+- **JP1 / JP3 (5V option):** close them when the grid (JP1) or the work strips (JP3) run on 5 V. They short R2 / R6, so Q1 / Q2 get the full −5 V of gate drive (section 5). Leave them open at 12 V.
 - **JP2 / JP4** replace Q1 / Q2 on a board without them (and without Q3 / Q4). Leave them open when the MOSFETs are fitted: closed, they bypass the switch, and the strips then stay powered (about 1 mA idle per pixel) unless PS-ON turns the whole supply off. A jumper cap is fine for a few amps; for more, solder a wire link across them.
 - **Q1, Q2 and PS-ON together** are fine: PS-ON switches the whole supply off when every light is dark, and Q1 / Q2 let the grid go dark while a work strip stays on (and the other way round). The firmware drives all of them.
 - **Fuses on the + side only.** F1 protects the 5 V input, F2 the grid, F3 every work strip, addressable and plain. Never fuse a minus line: if it blows, the strip's return current looks for another way back, which is the data line into U2 and the ESP32. Size F2 and F3 from the power budget (section 11), and keep them within the terminals' rating.
