@@ -134,8 +134,10 @@ bool RmtStrip::begin(int gpio, const BitTiming &timing, bool invert) {
   ch.resolution_hz = kResolutionHz;
   // This strip's share of the transmit memory: the free blocks divided among
   // the strips still to come, rounded up. The grid lines are started first, so
-  // they get any spare block: with 5 strips that is 2+2+2+1+1, with 3 it is
-  // 3+3+2, a single strip gets all 8.
+  // they get any spare block: with 7 strips (both grid lines and all five work
+  // channels addressable) that is 2+1+1+1+1+1+1, with 5 it is 2+2+2+1+1, with
+  // 3 it is 3+3+2, a single strip gets all 8. Seven is the most the ESP32's 8
+  // RMT channels allow, since the 2-block strip also takes its neighbor's.
   // A channel with N blocks also uses the blocks of the next N-1 channels,
   // which then can't be used; the driver handles that as long as the blocks
   // are free, which they are when strips are started in turn like this.

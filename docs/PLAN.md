@@ -30,7 +30,7 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 
 - **Separate data outputs, one shared driver.** Bin grid on 1–2 data pins (the grid can be split into two segments, e.g. top half / bottom half, so a long run keeps a high frame rate and one damaged strip doesn't kill the whole grid). Work lights use the universal channels described below. The firmware's own RMT driver runs each addressable output on its own RMT channel, in parallel.
 - **Within the grid, rows are chained serpentine** (row 1 left→right, row 2 right→left...) so each segment needs just one data wire. The mapper supports progressive wiring and any start corner too, so physical layout stays flexible.
-- **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 3 universal work-light lines (W1–W3) from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
+- **Level shifting:** one 74HCT245 (8 channels) converts the 2 grid lines and the 5 work-light lines (W1–W5) from 3.3 V to 5 V, with a 330 Ω series resistor on each output.
 - **Power switching with MOSFETs:** each addressable power domain (bin grid, addressable work strips) gets a high-side P-channel MOSFET (AO4407A, driven by a small NPN, with a gate divider chosen for 5, 12 or 24 V) controlled by a GPIO. This cuts the idle current of every LED (~1 mA each when "off"), lets firmware fully de-power strips on fault/overcurrent, and keeps strips off during ESP32 boot so they never flash random colors. High-side rather than low-side switching, so data lines never back-power the LEDs through a floating ground.
 - **Supply control (optional):** with a supply that has a 5 V standby output and remote on/off (Dmitry's build: Mean Well EPP-300-12), the ESP32 runs from standby 5 V, turns the main output on through PS-ON before any light needs it and off after the last fade-out, and watches PG to hold LED data until the output is up and to detect power failure. The P-MOSFET switches then become optional.
 - **Protection:** LED supply (5, 12 or 24 V) sized from the power budget, 5 V for the ESP32 from the supply's standby output or a buck converter when the strips run at 12/24 V, a fuse per domain, 1000 µF bulk capacitor at each strip input, power injection every ~1 m or per row, common ground between ESP32 and LED supply, firmware current limit (estimated from the pixel data, per grid and per addressable work strip).
@@ -38,12 +38,12 @@ Status: **proposal**. Every stack choice below is a default that can be changed 
 
 ### Work-light channels
 
-W1–W3 are **universal**: each GPIO is wired to both a low-side N-MOSFET (white or analog RGB strips) and a 74HCT245 input (addressable strips). W4–W5 are **white-only** PWM channels. Each channel's mode is a setting in `config.json` (editable from the web UI in Task 14, no reflashing).
+All five work channels are **universal**: each GPIO is wired to both a low-side N-MOSFET (white or analog RGB strips) and a 74HCT245 input (addressable strips). An analog RGB strip uses W1–W3 together. Each channel's mode is a setting in `config.json` (editable from the web UI in Task 14, no reflashing).
 
 | Option | W1 | W2 | W3 | W4, W5 |
 |---|---|---|---|---|
-| 1. Analog RGB strip + white strips | R | G | B | white PWM |
-| 2. Universal channels + white strips | addressable **or** white PWM | addressable **or** white PWM | addressable **or** white PWM | white PWM |
+| 1. Analog RGB strip + other strips | R | G | B | addressable **or** white PWM |
+| 2. Universal channels | addressable **or** white PWM | addressable **or** white PWM | addressable **or** white PWM | addressable **or** white PWM |
 
 - **White / analog RGB:** LEDC hardware PWM, 12-bit at ~19.5 kHz (no visible flicker on cameras, no audible whine), gamma-corrected fades. Logic-level N-MOSFET per channel (AO3400A up to ~3 A, IRLB8721 for more), 100 Ω gate resistor and 10 kΩ pull-down so strips stay dark while the ESP32 boots. Works with 5, 12 or 24 V strips.
 - **Addressable:** the same GPIO through the 74HCT245, powered via the work-light P-MOSFET switch. Any mix is allowed in option 2, e.g. W1 addressable + W2, W3 white.
@@ -160,7 +160,7 @@ Each task lists its scope and how you'll verify it. Tasks are ordered so somethi
 - **Verify:** on your strip, the test walk lights bins in the correct physical order.
 
 ### Task 5: Workspace lights
-- Channels per section 0: W1–W3 universal (off / white PWM / RGB group / addressable), W4–W5 white PWM. LEDC PWM (12-bit, 19.5 kHz) with gamma correction, the same RMT driver as the grid for addressable work strips, smooth fades on every change.
+- Channels per section 0: W1–W5 universal (off / white PWM / addressable), W1–W3 also the RGB group. LEDC PWM (12-bit, 19.5 kHz) with gamma correction, the same RMT driver as the grid for addressable work strips, smooth fades on every change.
 - On/off, brightness, color and white tone, simple per-strip effects; state persisted across reboots.
 - **Verify:** each light controllable independently via a temporary REST call.
 

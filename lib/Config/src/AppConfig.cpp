@@ -103,7 +103,7 @@ class Reader {
   std::string &error_;
 };
 
-bool isUniversal(int channel) { return channel < kUniversalChannels; }
+bool isRgbChannel(int channel) { return channel < kRgbChannels; }
 
 uint32_t toU32(const Ipv4 &ip) {
   return (uint32_t(ip[0]) << 24) | (uint32_t(ip[1]) << 16) | (uint32_t(ip[2]) << 8) | ip[3];
@@ -199,10 +199,12 @@ bool validate(const AppConfig &cfg, std::string &error) {
   }
   // Option 1 (analog RGB strip) uses W1-W3 together; partial RGB makes no sense.
   int rgb = 0;
+  int workPixels = 0;  // all addressable work strips together (kMaxWorkPixels)
   for (int i = 0; i < kLightChannels; i++) {
     const LightMode m = cfg.lights[i].mode;
-    if (!isUniversal(i) && (m == LightMode::Rgb || m == LightMode::Addressable)) {
-      error = "lights[" + std::to_string(i) + "] (W" + std::to_string(i + 1) + ") supports only off or white";
+    // Only W1-W3 form the RGB group; every channel can be white or addressable.
+    if (!isRgbChannel(i) && m == LightMode::Rgb) {
+      error = "lights[" + std::to_string(i) + "] (W" + std::to_string(i + 1) + ") can't be rgb: only W1-W3 form the RGB group";
       return false;
     }
     if (m == LightMode::Rgb) rgb++;
@@ -216,9 +218,15 @@ bool validate(const AppConfig &cfg, std::string &error) {
         error = name + ".colorOrder must be a permutation of RGB, e.g. GRB";
         return false;
       }
+      workPixels += cfg.lights[i].pixels;
     }
   }
-  if (rgb != 0 && rgb != kUniversalChannels) {
+  if (workPixels > kMaxWorkPixels) {
+    error = "addressable work strips have " + std::to_string(workPixels) + " pixels in all; the maximum is " +
+            std::to_string(kMaxWorkPixels);
+    return false;
+  }
+  if (rgb != 0 && rgb != kRgbChannels) {
     error = "rgb mode needs W1, W2 and W3 all set to rgb";
     return false;
   }

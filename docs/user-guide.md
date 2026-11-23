@@ -103,7 +103,7 @@ Under Settings → **Work lights**, each of the five channels is one of:
 | Off | any | nothing; the pin stays low |
 | White (PWM) | W1–W5 | a plain single-color strip through its N-MOSFET |
 | Part of the RGB strip | W1+W2+W3 together | an analog RGB strip: W1 red, W2 green, W3 blue |
-| Addressable strip | W1–W3 | an addressable strip on that channel's data line, powered through the work-strip switch |
+| Addressable strip | W1–W5 | an addressable strip on that channel's data line, powered through the work-strip switch |
 
 **Maximum brightness** caps a white or RGB channel that is too bright for the room or too much for its supply. Addressable channels have no maximum brightness, since their current limit caps them; they take the number of pixels, LED type, color order, current limit and current per pixel, and have their own **Full white test** for measuring it (see [Setting up the grid](#setting-up-the-grid)).
 

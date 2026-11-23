@@ -32,11 +32,11 @@ constexpr PinAssignment kDefaultPins[] = {
     {"grid_data_a", 14, PinUse::Output, true},
     {"grid_data_b", 15, PinUse::Output, true},
     {"grid_power", 32, PinUse::Output, true},
-    {"light_w1", 27, PinUse::Output, true},  // W1-W3: universal (white PWM, analog RGB or addressable)
+    {"light_w1", 27, PinUse::Output, true},  // W1-W5: white PWM or addressable; W1-W3 also analog RGB
     {"light_w2", 13, PinUse::Output, true},
     {"light_w3", 4, PinUse::Output, true},
     {"light_power", 33, PinUse::Output, true},  // power switch for addressable work strips
-    {"light_w4", 21, PinUse::Output, true},  // W4-W5: white PWM only
+    {"light_w4", 21, PinUse::Output, true},
     {"light_w5", 22, PinUse::Output, true},
     {"mic_i2s_sck", 26, PinUse::Output, false},
     {"mic_i2s_ws", 25, PinUse::Output, false},
