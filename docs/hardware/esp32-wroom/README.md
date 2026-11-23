@@ -391,6 +391,23 @@ Quantities are for the full design; skip the optional blocks you don't need.
 
 A PCB that covers every option in this guide, even when it is fully populated: any mix of addressable, white and analog RGB work strips, with or without PS-ON, one supply or two. Which strip a channel drives is only a setting in the firmware, so changing strip types later means plugging the strip into another connector, not changing parts. The net names below are the ones used in the schematic.
 
+### Schematic
+
+The schematic is published as a preview; the PCB layout is still in progress. The files are in [`universal-board/`](universal-board/):
+
+| File | Contents |
+|---|---|
+| [schematic.pdf](universal-board/schematic.pdf) | both pages: 1 Power, 2 Digital |
+| [schematic-1-power.png](universal-board/schematic-1-power.png), [schematic-2-digital.png](universal-board/schematic-2-digital.png) | the same pages as images |
+| [bom.csv](universal-board/bom.csv) | bill of materials with LCSC part numbers |
+| [smart-bins-universal-board.epro2](universal-board/smart-bins-universal-board.epro2) | the EasyEDA Pro project (opens in EasyEDA Pro, free) |
+
+The part numbers in this guide (U1, F1, JP1 and so on) are its own and don't match the schematic's: on the board, for example, the 74HCT245 is U2 and U1 is the DevKitC. The net names match.
+
+[![Schematic, page 1: power](universal-board/schematic-1-power.png)](universal-board/schematic-1-power.png)
+
+[![Schematic, page 2: digital](universal-board/schematic-2-digital.png)](universal-board/schematic-2-digital.png)
+
 ### Power input and switches
 
 One 5-position screw terminal brings in all the power, in the order **5VSB, GND, GRID_PWR, GND, WORK_PWR**. Grid and work power can come from the same supply output (link GRID_PWR and WORK_PWR at the supply) or from two supplies of different voltages.
