@@ -22,7 +22,7 @@
 #include "GridEffects.h"
 #include "GridMapper.h"
 #include "PowerLimit.h"
-#include "RmtStrip.h"
+#include "StripOutput.h"
 
 namespace sb {
 class PowerSupply;
@@ -174,7 +174,7 @@ class LedEngine {
   void repattern(Highlight &h, PulseMode mode, uint32_t now);
 
   struct Segment {
-    RmtStrip strip;
+    StripOutput strip;
     std::vector<Rgb> pixels;
     std::vector<uint8_t> out;
   };

@@ -3,7 +3,7 @@
 #include <Arduino.h>
 #include <FFat.h>
 
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 namespace sb {
 
@@ -66,6 +66,7 @@ void ConfigStore::begin() {
   if (config::parse(json.c_str(), loaded, err)) {
     cfg_ = loaded;
     ESP_LOGI(TAG, "Loaded %s", kPath);
+    if (loaded.pinsReset) ESP_LOGW(TAG, "%s is from another board: pin map reset to this board's defaults", kPath);
     return;
   }
   // Keep the broken file for inspection (download it over the web UI later)

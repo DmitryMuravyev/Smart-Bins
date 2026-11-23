@@ -12,7 +12,7 @@
 #include "PhotoStore.h"
 #include "Security.h"
 #include "SendGate.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 namespace sb {
 

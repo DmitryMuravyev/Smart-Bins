@@ -1,7 +1,7 @@
 {
   "name": "Board",
   "version": "0.1.0",
-  "description": "Default ESP32-DevKitC pin map and pin validation rules",
+  "description": "Board profile (SB_BOARD): default pin map, pin validation rules and memory profile",
   "license": "MIT",
   "frameworks": "*",
   "platforms": "*"

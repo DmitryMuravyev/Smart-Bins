@@ -19,7 +19,7 @@
 // one, never a broken file. Only one upload runs at a time.
 //
 // On flash, every write is wrapped in a FlashGuard (it pauses the LED strips,
-// see led/RmtStrip.h), and a reserve is kept free for the database to grow.
+// see FlashGuard in led/OutputCommon.h), and a reserve is kept free for the database to grow.
 
 #include <Arduino.h>
 #include <FS.h>

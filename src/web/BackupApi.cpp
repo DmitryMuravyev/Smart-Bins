@@ -23,7 +23,7 @@
 #include "PhotoStore.h"
 #include "Security.h"
 #include "Tar.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 
 #ifndef SB_FW_VERSION
 #define SB_FW_VERSION "dev"
@@ -678,6 +678,9 @@ void onRestoreDone(AsyncWebServerRequest *req, InventoryDb &db, PhotoStore &phot
     config::AppConfig cfg;
     if (config::parse(job->config.c_str(), cfg, err) && config.save(cfg, err)) {
       doc["settings"] = true;
+      // Settings from another board: everything but the pin map, which is
+      // reset to this board's defaults (see config::parse).
+      if (cfg.pinsReset) doc["pinsReset"] = true;
       restarting = true;
     } else {
       doc["settings"] = false;
@@ -1447,6 +1450,7 @@ void registerBackupApi(AsyncWebServer &server, InventoryDb &db, PhotoStore &phot
     m["format"] = kBackupFormat;
     m["app"] = "smart-bins";
     m["firmware"] = SB_FW_VERSION;
+    m["board"] = board::kBoardId;  // informational; config.json carries its own
     m["schema"] = inventory::kSchemaVersion;
     m["created"] = nowOrZero();
     m["device"] = String(config.get().deviceName);

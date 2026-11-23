@@ -7,8 +7,8 @@
 
 #include "AppConfig.h"
 #include "Color.h"
+#include "OutputCommon.h"
 #include "PowerLimit.h"
-#include "RmtStrip.h"
 
 namespace sb {
 namespace led {

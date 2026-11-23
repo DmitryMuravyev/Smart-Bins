@@ -10,7 +10,7 @@
 #include <esp_ota_ops.h>
 
 #include "Health.h"
-#include "led/RmtStrip.h"
+#include "led/StripOutput.h"
 #include "web/SetupPage.h"
 
 namespace sb {

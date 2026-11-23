@@ -26,7 +26,7 @@
 #include "Chips.h"
 #include "Color.h"
 #include "Envelope.h"
-#include "RmtStrip.h"
+#include "StripOutput.h"
 #include "WorkEffects.h"
 
 namespace sb {
@@ -143,7 +143,7 @@ class WorkLights {
     uint16_t lastDuty[3] = {0xFFFF, 0xFFFF, 0xFFFF};
 
     // Addressable strip.
-    RmtStrip strip;
+    StripOutput strip;
     std::vector<uint8_t> out;  // encoded bytes; read by the RMT in the background
     ChipInfo chip{};
     uint8_t order[3] = {1, 0, 2};

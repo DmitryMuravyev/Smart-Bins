@@ -236,5 +236,5 @@ Barcode/QR scanning in the UI to find parts, low-stock alerts, MQTT / Home Assis
 ## 5. Clarifying questions
 
 All answered (see section 0). Still open:
-- **Parts list:** Dmitry is assembling the shopping list; the BOM in `docs/hardware/README.md` can change with it.
+- **Parts list:** Dmitry is assembling the shopping list; the BOM in `docs/hardware/esp32-wroom/README.md` can change with it.
 - **Microphone:** no module yet (default INMP441 I2S).

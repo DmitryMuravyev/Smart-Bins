@@ -55,6 +55,10 @@ struct GridConfig {
   bool invertData = false;  // for single-transistor (inverting) level shifters
 };
 
+// Grid size limits. The web page reads all of these from /api/pins
+// ("limits"), so it never has a copy that could disagree with the board.
+constexpr int kMaxGridSize = 64;      // columns and rows, each
+constexpr int kMaxPixelsPerBin = 8;
 constexpr int kMaxGridPixels = 1500;
 
 constexpr int kMaxLightPixels = 1000;  // per addressable work strip
@@ -172,10 +176,15 @@ struct AppConfig {
   PinsConfig pins;
   MicType microphone = MicType::I2s;
   MotionConfig motion;
+  // Set by parse() when the JSON came from another board ("board" differs,
+  // see BoardProfile.h) and its pin map was left out for this board's
+  // defaults. Not saved: serialize() writes this board's id.
+  bool pinsReset = false;
 };
 
 // Parses JSON into `out`, starting from defaults. On failure returns false,
-// leaves `out` at defaults and writes a short reason into `error`.
+// leaves `out` at defaults and writes a short reason into `error`. A config
+// from another board ("board") keeps everything but its pins (pinsReset).
 bool parse(const char *json, AppConfig &out, std::string &error);
 
 // Checks cross-field rules (also run by parse). Returns false with a reason.

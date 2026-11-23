@@ -1,6 +1,6 @@
 # Smart Bins user guide
 
-This guide starts after the firmware is on the board ([Installing the firmware](flashing.md)) and the circuit is wired ([Hardware reference](hardware/README.md)).
+This guide starts after the firmware is on the board ([Installing the firmware](flashing.md)) and the circuit is wired ([Hardware reference](hardware/esp32-wroom/README.md)).
 
 ## First start and Wi-Fi
 
@@ -109,11 +109,11 @@ Under Settings → **Work lights**, each of the five channels is one of:
 
 ### LED supply on/off (PS-ON)
 
-With a supply that has remote on/off and a standby output, such as the Mean Well EPP-300-12 ([hardware guide, section 7](hardware/README.md)), set the **LED supply on/off (PS-ON)** pin in Settings, Pins (GPIO2 in the guide, with the status LED set to –), and **LED supply power good (PG)** if it is wired (GPIO39). There is no switch for it: the supply's main output goes on as soon as any light needs it (a located bin, an effect, a test pattern or a work light) and off once every light has been dark for about 2.5 seconds. The LEDs get data only once the output is up: when PG goes high, or 500 ms after switching on without PG. The System page shows whether the supply is on.
+With a supply that has remote on/off and a standby output, such as the Mean Well EPP-300-12 ([hardware guide, section 7](hardware/esp32-wroom/README.md)), set the **LED supply on/off (PS-ON)** pin in Settings, Pins (GPIO2 in the guide, with the status LED set to –), and **LED supply power good (PG)** if it is wired (GPIO39). There is no switch for it: the supply's main output goes on as soon as any light needs it (a located bin, an effect, a test pattern or a work light) and off once every light has been dark for about 2.5 seconds. The LEDs get data only once the output is up: when PG goes high, or 500 ms after switching on without PG. The System page shows whether the supply is on.
 
 ### Motion sensor
 
-A motion sensor on the analog microphone's pin (GPIO35 by default) works as a master switch: when nobody has been at the bench for a while, every work light and the grid's effect fade to dark, and when someone stays, they come back as they were. Wiring and suitable modules: [hardware guide, section 8](hardware/README.md#8-microphone-and-motion-sensor-optional).
+A motion sensor on the analog microphone's pin (GPIO35 by default) works as a master switch: when nobody has been at the bench for a while, every work light and the grid's effect fade to dark, and when someone stays, they come back as they were. Wiring and suitable modules: [hardware guide, section 8](hardware/esp32-wroom/README.md#8-microphone-and-motion-sensor-optional).
 
 - **Lights on after** (1–60s, 5 by default): the sensor has to see someone for this whole time. A person walking past or stopping for a moment doesn't keep it up, so the lights stay dark.
 - **Lights off after** (1–240 min, 5 by default): the lights go dark once the sensor has seen nobody for this long. With a PIR sensor, which only notices movement, make it longer.
