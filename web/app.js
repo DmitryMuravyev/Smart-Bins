@@ -1247,22 +1247,18 @@ async function openPart(id) {
   loadPhotoInfo();
 }
 
-// The dialog's two right-hand buttons. A part opened from the list is most
-// often only looked at, so until something in the form changes, "Close" is
-// the main (rightmost, filled) button and Save sits beside it as a secondary
-// one. The first change, or adding a new part, swaps them back: Save becomes
-// the main button and Close turns into Cancel.
+// The dialog's two right-hand buttons stay where they are; only which one is
+// the main (filled) button changes. A part opened from the list is most often
+// only looked at, so until something in the form changes, "Close" is the
+// main button and Save a secondary one. The first change, or adding a new
+// part, makes Save the main button and turns Close into Cancel.
 function setPartChanged(changed) {
   const viewing = !!editing && !changed;
-  const save = $('#part-save');
   const cancel = $('#part-cancel');
   cancel.dataset.i18n = viewing ? 'inv.close' : 'inv.cancel';
   cancel.textContent = t(cancel.dataset.i18n);
   cancel.classList.toggle('secondary', !viewing);
-  save.classList.toggle('secondary', viewing);
-  // The main button goes last, at the right edge.
-  if (viewing) save.after(cancel);
-  else cancel.after(save);
+  $('#part-save').classList.toggle('secondary', viewing);
 }
 
 function partTimes(p) {
