@@ -7,6 +7,9 @@ on:
     # binaries (the release job below).
     tags: ["v*"]
   pull_request:
+  # A "Run workflow" button on the Actions page, to rebuild main by hand
+  # (for example after a run that never started) and refresh the badge.
+  workflow_dispatch:
 
 jobs:
   test:
@@ -90,6 +93,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # A draft: nothing is public until it is reviewed and published on
-          # GitHub. The notes point to the flashing guide.
-          gh release create "${GITHUB_REF_NAME}" release/*.bin --draft \
+          # GitHub. The notes point to the flashing guide. 0.x versions are
+          # marked as pre-releases (not every feature is tested on hardware
+          # yet); from 1.0 on they are regular releases.
+          pre=""
+          [[ "${GITHUB_REF_NAME}" == v0.* ]] && pre="--prerelease"
+          gh release create "${GITHUB_REF_NAME}" release/*.bin --draft $pre \
             --title "Smart Bins ${GITHUB_REF_NAME}" --notes-file docs/release-notes.md

@@ -11,4 +11,15 @@ How to write them, from the browser or the command line: [Installing the firmwar
 
 ## Changes
 
-(Edit before publishing.)
+First public release. Not every feature has been tested on real hardware yet, so this is marked as a pre-release; please report problems in [Issues](https://github.com/DmitryMuravyev/Smart-Bins/issues).
+
+What it does:
+- A bin grid of up to 64 × 64 bins with 1–8 pixels per bin (up to 1,500 pixels), set up from the browser, with test patterns to check the wiring
+- Inventory in SQLite on the board: search as you type, filters, sorting, quick quantity buttons, a photo per part, datasheet links
+- Backup and restore of everything as one file, CSV export and import
+- Up to 5 workspace light channels (addressable, dimmable white or analog RGB), with an optional motion sensor
+- Lighting and music effects (music needs a board with PSRAM and a microphone)
+- Wi-Fi setup page, `smartbins.local`, firmware updates from the browser, optional password
+- English, Spanish and Russian; light and dark theme
+
+The hardware reference now includes the schematic, BOM and EasyEDA Pro project of the 5/12 V board.

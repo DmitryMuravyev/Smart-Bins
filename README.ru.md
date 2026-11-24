@@ -3,11 +3,13 @@
 [![English](https://img.shields.io/badge/English-8A2BE2)](README.md)
 [![Español](https://img.shields.io/badge/Espa%C3%B1ol-8A2BE2)](README.es.md)
 [![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins?include_prereleases)](https://github.com/DmitryMuravyev/Smart-Bins/releases)
 
 Хранилище радиодеталей с подсвечиваемыми ячейками для домашней лаборатории на ESP32.
 
 Smart Bins — это сетка пластиковых ячеек, каждая из которых подсвечивается 1–8 адресными светодиодами. Веб-страница на телефоне ведёт учёт компонентов в базе данных SQLite во флеш-памяти ESP32. Найдите деталь (например, `STM32`), и ячейка, где она лежит, загорится.
+
+> **Статус: ранняя версия (0.x).** Ещё не все функции проверены на реальном железе. Сообщения о проблемах — в [Issues](https://github.com/DmitryMuravyev/Smart-Bins/issues).
 
 <p>
 <img src="docs/images/search.png" width="200" alt="Поиск по складу">
@@ -54,8 +56,7 @@ Smart Bins — это сетка пластиковых ячеек, каждая
 | [Hardware reference](docs/hardware/esp32-wroom/README.md) | Схема, распределение выводов, питание, список компонентов |
 | [HTTP API](docs/api.md) | JSON API, которым пользуется страница, для скриптов и умного дома |
 | [Development notes](docs/development.md) | Структура проекта |
-| [Plan](docs/PLAN.md) | Решения и список задач |
 
 ## Лицензия
 
-[MIT](LICENSE) © 2026 Dmitry Muravyev
+[MIT](LICENSE) © 2026 Dmitry Muravyev ([youtube.com/@DmitryMuravyev](https://youtube.com/@DmitryMuravyev))

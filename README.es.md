@@ -3,11 +3,13 @@
 [![English](https://img.shields.io/badge/English-8A2BE2)](README.md)
 [![Русский](https://img.shields.io/badge/%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-8A2BE2)](README.ru.md)
 [![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins?include_prereleases)](https://github.com/DmitryMuravyev/Smart-Bins/releases)
 
 Un almacén de componentes con cajones iluminados para el taller, basado en el ESP32.
 
 Smart Bins es una cuadrícula de cajones de plástico, cada uno iluminado por 1–8 LED direccionables. Una página web en el móvil lleva el inventario de sus componentes en una base de datos SQLite en la memoria flash del ESP32. Busque una pieza (por ejemplo `STM32`) y se ilumina el cajón donde está guardada.
+
+> **Estado: versión temprana (0.x).** Aún no todas las funciones se han probado en hardware real. Puede informar de problemas en [Issues](https://github.com/DmitryMuravyev/Smart-Bins/issues).
 
 <p>
 <img src="docs/images/search.png" width="200" alt="Búsqueda en el inventario">
@@ -54,8 +56,7 @@ La interfaz web está en español; la documentación detallada, por ahora, en in
 | [Hardware reference](docs/hardware/esp32-wroom/README.md) | Circuito, asignación de pines, alimentación, lista de componentes |
 | [HTTP API](docs/api.md) | La API JSON que usa la página, para scripts y domótica |
 | [Development notes](docs/development.md) | Estructura del proyecto |
-| [Plan](docs/PLAN.md) | Decisiones y lista de tareas |
 
 ## Licencia
 
-[MIT](LICENSE) © 2026 Dmitry Muravyev
+[MIT](LICENSE) © 2026 Dmitry Muravyev ([youtube.com/@DmitryMuravyev](https://youtube.com/@DmitryMuravyev))

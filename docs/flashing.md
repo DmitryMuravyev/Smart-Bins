@@ -90,5 +90,5 @@ If `smartbins.local` doesn't resolve on your computer, set `upload_port` to the 
 
 1. Set the version in `platformio.ini` (`SB_FW_VERSION`) and merge to `main`.
 2. Tag that commit and push the tag: `git tag v1.0.0 && git push origin v1.0.0`.
-3. CI builds every board type, checks that the tag matches the version, and creates a **draft** release with the files and [the release notes](release-notes.md).
+3. CI builds every board type, checks that the tag matches the version, and creates a **draft** release with the files and [the release notes](release-notes.md). A 0.x tag is marked as a pre-release.
 4. Review the draft on GitHub, edit the notes, and publish it.
