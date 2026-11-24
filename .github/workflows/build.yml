@@ -16,8 +16,8 @@ jobs:
     name: Unit tests (native)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install platformio
@@ -31,11 +31,11 @@ jobs:
       matrix:
         env: [esp32-4mb, esp32-8mb, esp32-16mb, esp32-16mb-psram]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: ~/.platformio
           key: pio-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
@@ -61,7 +61,7 @@ jobs:
           pip install esptool==4.8.1
           version=$(grep -oP 'SB_FW_VERSION=\\"\K[^\\]+' platformio.ini)
           python tools/merge_firmware.py ${{ matrix.env }} "$version" release
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: firmware-${{ matrix.env }}
           path: release/*.bin
@@ -74,8 +74,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
         with:
           path: release
           merge-multiple: true
