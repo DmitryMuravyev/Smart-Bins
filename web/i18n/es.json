@@ -33,6 +33,7 @@
   "inv.binRenamePrompt": "Nombre del cajón {bin} (vacío para usar {bin}):",
   "inv.binTitle": "{bin}: {n} piezas",
   "inv.cancel": "Cancelar",
+  "inv.close": "Cerrar",
   "inv.count": "{n} piezas",
   "inv.created": "Añadida {when}",
   "inv.updated": "modificada {when}",

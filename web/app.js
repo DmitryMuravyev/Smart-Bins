@@ -1240,10 +1240,29 @@ async function openPart(id) {
   binOptions(part ? part.bin : inv.bin);
   resetPhotoEdit();
   $('#part-times').textContent = part ? partTimes(part) : '';
+  setPartChanged(false);
   $('#part-dialog').showModal();
   if (!part) form.elements.partNumber.focus();
   loadSuggestions();
   loadPhotoInfo();
+}
+
+// The dialog's two right-hand buttons. A part opened from the list is most
+// often only looked at, so until something in the form changes, "Close" is
+// the main (rightmost, filled) button and Save sits beside it as a secondary
+// one. The first change, or adding a new part, swaps them back: Save becomes
+// the main button and Close turns into Cancel.
+function setPartChanged(changed) {
+  const viewing = !!editing && !changed;
+  const save = $('#part-save');
+  const cancel = $('#part-cancel');
+  cancel.dataset.i18n = viewing ? 'inv.close' : 'inv.cancel';
+  cancel.textContent = t(cancel.dataset.i18n);
+  cancel.classList.toggle('secondary', !viewing);
+  save.classList.toggle('secondary', viewing);
+  // The main button goes last, at the right edge.
+  if (viewing) save.after(cancel);
+  else cancel.after(save);
 }
 
 function partTimes(p) {
@@ -1551,6 +1570,9 @@ function bindInventory() {
   $('#part-add').addEventListener('click', () => openPart(null));
   $('#part-form').addEventListener('submit', e => { e.preventDefault(); savePart(); });
   $('#part-cancel').addEventListener('click', () => $('#part-dialog').close());
+  // Any edit (a field, the bin, a new photo) makes Save the main button.
+  for (const ev of ['input', 'change']) $('#part-form').addEventListener(ev, () => setPartChanged(true));
+  $('#part-photo-remove').addEventListener('click', () => setPartChanged(true));
   $('#part-photo-file').addEventListener('change', e => pickPhoto(e.target.files[0]));
   $('#part-photo-remove').addEventListener('click', removeDialogPhoto);
   $('#part-photo-view').addEventListener('click', () => {
