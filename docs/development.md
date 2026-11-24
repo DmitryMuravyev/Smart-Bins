@@ -1,6 +1,6 @@
 # Development notes
 
-How to build and flash: [Installing the firmware](flashing.md#4-building-it-yourself). The plan and the decisions behind the design: [PLAN.md](PLAN.md).
+How to build and flash: [Installing the firmware](flashing.md#4-building-it-yourself).
 
 ## Project layout
 

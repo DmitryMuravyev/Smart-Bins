@@ -3,11 +3,13 @@
 [![Español](https://img.shields.io/badge/Espa%C3%B1ol-8A2BE2)](README.es.md)
 [![Русский](https://img.shields.io/badge/%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-8A2BE2)](README.ru.md)
 [![Build](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml/badge.svg)](https://github.com/DmitryMuravyev/Smart-Bins/actions/workflows/build.yml)
-[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins)](https://github.com/DmitryMuravyev/Smart-Bins/releases/latest)
+[![Release](https://img.shields.io/github/v/release/DmitryMuravyev/Smart-Bins?include_prereleases)](https://github.com/DmitryMuravyev/Smart-Bins/releases)
 
 An addressable parts library for the home lab, built on the ESP32.
 
 Smart Bins is a grid of plastic storage bins, each one lit by 1–8 addressable LEDs. A web page on your phone keeps the inventory of your components in a SQLite database on the ESP32's flash. Search for a part (for example `STM32`), and the bin where it is stored lights up.
+
+> **Status: early release (0.x).** Not every feature has been tested on real hardware yet. Reports are welcome in [Issues](https://github.com/DmitryMuravyev/Smart-Bins/issues).
 
 <p>
 <img src="docs/images/search.png" width="200" alt="Searching the inventory">
@@ -52,8 +54,7 @@ Schematics, wiring, parts list and power budget: [docs/hardware/esp32-wroom/READ
 | [Hardware reference](docs/hardware/esp32-wroom/README.md) | Circuit, pin map, power, parts list |
 | [HTTP API](docs/api.md) | The JSON API the page uses, for scripts and home automation |
 | [Development notes](docs/development.md) | Project layout and how the pieces fit |
-| [Plan](docs/PLAN.md) | Decisions and the task list |
 
 ## License
 
-[MIT](LICENSE) © 2026 Dmitry Muravyev
+[MIT](LICENSE) © 2026 Dmitry Muravyev ([youtube.com/@DmitryMuravyev](https://youtube.com/@DmitryMuravyev))
