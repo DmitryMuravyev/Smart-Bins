@@ -1240,25 +1240,51 @@ async function openPart(id) {
   binOptions(part ? part.bin : inv.bin);
   resetPhotoEdit();
   $('#part-times').textContent = part ? partTimes(part) : '';
-  setPartChanged(false);
+  partSnapshot = partFormState();
+  updatePartButtons();
   $('#part-dialog').showModal();
   if (!part) form.elements.partNumber.focus();
   loadSuggestions();
   loadPhotoInfo();
 }
 
-// The dialog's two right-hand buttons stay where they are; only which one is
-// the main (filled) button changes. A part opened from the list is most often
-// only looked at, so until something in the form changes, "Close" is the
-// main button and Save a secondary one. The first change, or adding a new
-// part, makes Save the main button and turns Close into Cancel.
-function setPartChanged(changed) {
-  const viewing = !!editing && !changed;
+// What the form held when it opened, to tell a real change from a field that
+// was edited and then put back. Compared as JSON of the trimmed values, as
+// savePart() would send them, plus the bin.
+let partSnapshot = '';
+
+function partFormState() {
+  const form = $('#part-form');
+  const v = { quantity: form.elements.quantity.value.trim(), bin: form.elements.bin.value };
+  for (const f of TEXT_FIELDS) v[f] = form.elements[f].value.trim();
+  return JSON.stringify(v);
+}
+
+// True when Save would change something: a field, the bin, or the photo.
+function partChanged() {
+  return partFormState() !== partSnapshot || !!photoEdit.photo || photoEdit.remove;
+}
+
+// The dialog's two right-hand buttons stay in place (Save, then Close/Cancel
+// at the right edge); only which one is the main (filled) button changes. A
+// part opened from the list is most often only looked at, so while nothing
+// differs from the saved part, "Close" is the main button and Save a
+// secondary one. A change makes Save the main button and turns Close into
+// Cancel; putting the value back turns them back. A new part always has
+// Cancel and Save.
+function updatePartButtons() {
+  const viewing = !!editing && !partChanged();
   const cancel = $('#part-cancel');
   cancel.dataset.i18n = viewing ? 'inv.close' : 'inv.cancel';
   cancel.textContent = t(cancel.dataset.i18n);
   cancel.classList.toggle('secondary', !viewing);
   $('#part-save').classList.toggle('secondary', viewing);
+}
+
+// Cancel, Close and Escape: with changes, ask before throwing them away.
+function closePartDialog() {
+  if (partChanged() && !confirm(t('inv.discardConfirm'))) return;
+  $('#part-dialog').close();
 }
 
 function partTimes(p) {
@@ -1335,6 +1361,7 @@ function resetPhotoEdit() {
 // The photo area of the form: the pending photo, else the part's own, else
 // "No photo"; buttons to match.
 function renderDialogPhoto() {
+  if ($('#part-dialog').open) updatePartButtons();
   const img = $('#part-photo-img');
   const current = editing && editing.photo && !photoEdit.remove ? photoUrl(editing.photo) : '';
   const src = photoEdit.preview || current;
@@ -1565,10 +1592,12 @@ function bindInventory() {
   $('#inv-bin-locate').addEventListener('click', () => inv.bin && locateBin(inv.bin.x, inv.bin.y));
   $('#part-add').addEventListener('click', () => openPart(null));
   $('#part-form').addEventListener('submit', e => { e.preventDefault(); savePart(); });
-  $('#part-cancel').addEventListener('click', () => $('#part-dialog').close());
-  // Any edit (a field, the bin, a new photo) makes Save the main button.
-  for (const ev of ['input', 'change']) $('#part-form').addEventListener(ev, () => setPartChanged(true));
-  $('#part-photo-remove').addEventListener('click', () => setPartChanged(true));
+  $('#part-cancel').addEventListener('click', closePartDialog);
+  // Escape asks too, instead of closing the dialog at once.
+  $('#part-dialog').addEventListener('cancel', e => { e.preventDefault(); closePartDialog(); });
+  // Every edit of a field or the bin rechecks the buttons (a photo change
+  // does it in renderDialogPhoto()).
+  for (const ev of ['input', 'change']) $('#part-form').addEventListener(ev, updatePartButtons);
   $('#part-photo-file').addEventListener('change', e => pickPhoto(e.target.files[0]));
   $('#part-photo-remove').addEventListener('click', removeDialogPhoto);
   $('#part-photo-view').addEventListener('click', () => {

@@ -34,6 +34,7 @@
   "inv.binTitle": "{bin}: {n} parts",
   "inv.cancel": "Cancel",
   "inv.close": "Close",
+  "inv.discardConfirm": "Discard your changes to this part?",
   "inv.count": "{n} parts",
   "inv.created": "Added {when}",
   "inv.updated": "changed {when}",

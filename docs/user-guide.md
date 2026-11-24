@@ -33,7 +33,7 @@ The page works on phones and computers, in English, Spanish and Russian, with a 
 
 - **Search as you type.** Every word must appear somewhere in the part (number, manufacturer, category, description, package, value, notes), in any case, also in Cyrillic and with accents: `stm32 lqfp` finds STM32 parts in LQFP packages. The category and manufacturer lists narrow it further; the sort button orders by part number, manufacturer, category and more.
 - **Three views:** cards with **+ / −** quantity buttons, a table, and **Bins**, the grid with the matching bins marked. Tap a bin label on a card (`F5`) to light that bin. With **Light the bin when all results are in one bin** ticked, a search that narrows down to one bin lights it by itself.
-- **Add part** / tap a part: the form for its fields, the bin, the quantity and a photo. Categories and manufacturers already in use are offered as you type. A part opened from the list shows **Close** as the main button; once something is changed, **Save** becomes the main button and Close turns into **Cancel**.
+- **Add part** / tap a part: the form for its fields, the bin, the quantity and a photo. Categories and manufacturers already in use are offered as you type. A part opened from the list shows **Close** as the main button; once something is changed, **Save** becomes the main button and Close turns into **Cancel**, which asks before throwing the changes away (so does Esc).
 - **Photos:** in the part form, **Add photo** takes one with the camera or picks one from the phone. The page turns it upright and shrinks it (640 px on the long side in flash, 800 px on a microSD card, plus a small thumbnail) before uploading. Tap a thumbnail to see the photo full size; tap again to close it.
 
 <br clear="right">

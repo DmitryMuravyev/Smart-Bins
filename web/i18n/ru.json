@@ -34,6 +34,7 @@
   "inv.binTitle": "{bin}: компонентов {n}",
   "inv.cancel": "Отмена",
   "inv.close": "Закрыть",
+  "inv.discardConfirm": "Отменить изменения в этом компоненте?",
   "inv.count": "Найдено: {n}",
   "inv.created": "Добавлен {when}",
   "inv.updated": "изменён {when}",

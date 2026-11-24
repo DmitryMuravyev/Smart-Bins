@@ -518,8 +518,10 @@
     <div class="buttons dialog-buttons">
       <button type="button" class="danger" id="part-delete" data-i18n="inv.delete">Delete</button>
       <span class="spacer"></span>
-      <button type="button" class="secondary" id="part-cancel" data-i18n="inv.cancel">Cancel</button>
+      <!-- Save, then Cancel/Close at the right edge, where the more frequent
+           one sits. Which of them is the main button: updatePartButtons(). -->
       <button type="submit" id="part-save" data-i18n="settings.save">Save</button>
+      <button type="button" class="secondary" id="part-cancel" data-i18n="inv.cancel">Cancel</button>
     </div>
   </form>
 </dialog>
