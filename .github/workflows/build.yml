@@ -7,6 +7,9 @@ on:
     # binaries (the release job below).
     tags: ["v*"]
   pull_request:
+  # A "Run workflow" button on the Actions page, to rebuild main by hand
+  # (for example after a run that never started) and refresh the badge.
+  workflow_dispatch:
 
 jobs:
   test:
