@@ -6,6 +6,9 @@
 # VS Code: PlatformIO regenerates these files on every start
 .vscode/
 
+# Release files from tools/merge_firmware.py
+release/
+
 # Web UI build
 node_modules/
 data/www/*.gz
